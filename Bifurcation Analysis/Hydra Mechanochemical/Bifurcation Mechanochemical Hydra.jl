@@ -3,10 +3,10 @@ import LinearAlgebra: norm
 const BK = BifurcationKit
 using Statistics
 
-includet("HydraDietmarModules.jl")
-include("HydraDietmarVariables.jl")
+includet("../../Evolution Solvers/HydraDietmar/HydraDietmarModules.jl")
+include("../../Evolution Solvers/HydraDietmar/HydraDietmarModules.jl")
 
-includet("../DiffusionMatrices.jl")
+includet("../../Evolution Solvers/DiffusionMatrices.jl")
 
 
 using ..LaplaceDiscretisation
