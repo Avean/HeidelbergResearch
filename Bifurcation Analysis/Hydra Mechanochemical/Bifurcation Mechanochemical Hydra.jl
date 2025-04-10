@@ -3,8 +3,8 @@ import LinearAlgebra: norm
 const BK = BifurcationKit
 using Statistics
 
-includet("../../Evolution Solvers/HydraDietmar/HydraDietmarModules.jl")
-include("../../Evolution Solvers/HydraDietmar/HydraDietmarModules.jl")
+includet("../../Evolution Solvers/Models/HydraDietmar/HydraDietmarModules.jl")
+include("../../Evolution Solvers/Models/HydraDietmar/HydraDietmarModules.jl")
 
 includet("../../Evolution Solvers/DiffusionMatrices.jl")
 

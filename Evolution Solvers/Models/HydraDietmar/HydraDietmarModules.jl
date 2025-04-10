@@ -35,7 +35,7 @@ module  Nonlinearity
     using ..Struktury
     using Statistics
 
-    include("../FillFunctions.jl")
+    include("../../FillFunctions.jl")
     using .FillMatrix
     
 

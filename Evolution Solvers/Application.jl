@@ -17,8 +17,8 @@ ModelName = "HydraDietmar";
 ###### Include the model files
 ######
 
-includet(ModelName*"/"*ModelName*"Modules.jl")
-include(ModelName*"/"*ModelName*"Variables.jl")
+includet("Models/"*ModelName*"/"*ModelName*"Modules.jl")
+include("Models/"*ModelName*"/"*ModelName*"Variables.jl")
 
 ######
 ###### Solvers File
@@ -94,7 +94,7 @@ display(norm(S2[1][:])/sqrt(SimParam.N))
 # Up = 501:511;
 # S2[1][Up] = 60.0.*ones(length(Up));
 
-S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
+# S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
 
 V = Iteration(VariablesVector(S2...),
             ParameterSet,
