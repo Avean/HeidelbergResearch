@@ -128,5 +128,8 @@ Plots.display(p1)
 
 # x = 1 .+ (1:10).^2 .* 4.0.*pi.^2.0.*D_fixed
 # y =zeros(10)
-
+# fig = Figure()
+# ax = Axis(fig[1, 1])
 # scatter!(x,y)
+
+# using CairoMakie
