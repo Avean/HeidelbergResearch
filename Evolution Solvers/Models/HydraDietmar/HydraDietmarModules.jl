@@ -22,7 +22,7 @@ module Struktury
 end
 
 module SimParam
-    N = 300; # Number of discretization points
+    N = 1000; # Number of discretization points
     L = 1; # Domain size
     dx = L/N; # Spatial step
     x = range(0,L,N); # Discretisation Vector

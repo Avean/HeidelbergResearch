@@ -1,31 +1,35 @@
-using Revise, BifurcationKit, LinearAlgebra, Plots
+using Revise 
+using BifurcationKit 
+using LinearAlgebra
+using Plots
+
 import LinearAlgebra: norm
 const BK = BifurcationKit
 using Statistics
 
 includet("../../Evolution Solvers/Models/HydraDietmar/HydraDietmarModules.jl")
-include("../../Evolution Solvers/Models/HydraDietmar/HydraDietmarModules.jl")
 
-includet("../../Evolution Solvers/DiffusionMatrices.jl")
+includet("../../Evolution Solvers/FillFunctions.jl")
+
+using ..FillMatrix
+
+println("Hydra Dietmar Model - bifurcation analysis")
 
 
-using ..LaplaceDiscretisation
-using ..SimParam
-
-
-N = SimParam.N
+N = 200
 L = 1
-dx = L/(N-1);
+dx = L/(N-1)
 X = LinRange(0, L, N) # collect(LinRange(0, L, N))
 
+LapDis = ([-1/560, 8/315, -1/5, 8/5, -205/72, 8/5, -1/5, 8/315, -1/560]);
 
 # we define a Bifurcation Problem
-D_fixed = 1/(4*20*pi^2)
-kappa_0 = 1+4*pi^2*D_fixed
-sol0 = ones(N) * kappa_0
-par_ks = (kappa = kappa_0, Dcoef = D_fixed)
+D_fixed = 1/(8*20*pi^2);
+kappa_0 = 1+4*pi^2*D_fixed;
+sol0 = ones(N) * kappa_0;
+par_ks = (kappa = kappa_0, Dcoef = D_fixed);
 
-DiffMatrix = D_fixed ./ dx^2 .* Lap.Per8;
+DiffMatrix = D_fixed ./ dx^2 .* FiniteDiffercePeriodic(LapDis, N);
 
 
 # end
@@ -47,9 +51,9 @@ prob = BK.BifurcationProblem(F_discr, sol0, par_ks, (@optic _.kappa),
 	plot_solution = (x, p; k...) -> plot!(x; ylabel="solution", label="", k...))
 # sol = @time BK.solve( prob, Newton(), optnewton)
 
-optcont = ContinuationPar(dsmin = 0.0001, dsmax = 0.01, ds = 0.01, p_min = 1.0, p_max = 1.5,
+optcont = ContinuationPar(dsmin = 0.0001, dsmax = 0.01, ds = 0.01, p_min = 0.0, p_max = 2.5,
 						  newton_options = NewtonPar(max_iterations = 30, tol = 1e-8),
-						  max_steps = 300, plot_every_step = 40, n_inversion=16, nev=N) # , newton_options = NewtonPar(max_iterations = 10, tol = 1e-9))
+						  max_steps = 300, plot_every_step = 40, n_inversion=16, nev=2*N) # , newton_options = NewtonPar(max_iterations = 10, tol = 1e-9))
 
 
 
