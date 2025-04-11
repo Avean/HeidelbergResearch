@@ -26,7 +26,7 @@ module SimParam
     L = 1; # Domain size
     dx = L/N; # Spatial step
     x = range(0,L,N); # Discretisation Vector
-    SicCosNodes = 20; # Sine Cosine Nodes
+    SicCosNodes = 7; # Sine Cosine Nodes
 end
 
 module  Nonlinearity

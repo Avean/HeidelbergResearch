@@ -10,8 +10,11 @@ using Statistics
 includet("../../Evolution Solvers/Models/HydraDietmar/HydraDietmarModules.jl")
 
 includet("../../Evolution Solvers/FillFunctions.jl")
+includet("../../Evolution Solvers/DiffusionMatrices.jl")
 
+using ..LaplaceDiscretisation
 using ..FillMatrix
+using ..SimParam
 
 println("Hydra Dietmar Model - bifurcation analysis")
 
@@ -22,25 +25,56 @@ dx = L/(N-1)
 X = LinRange(0, L, N) # collect(LinRange(0, L, N))
 
 LapDis = ([-1/560, 8/315, -1/5, 8/5, -205/72, 8/5, -1/5, 8/315, -1/560]);
+GradDis = ([1/280, -4/105, 1/5, -4/5, 0, 4/5, -1/5, 4/105, -1/280]);
+
 
 # we define a Bifurcation Problem
-D_fixed = 1/(8*20*pi^2);
+D_fixed = 1.0 / 20.0 * 1/(20*pi^2);
 kappa_0 = 1+4*pi^2*D_fixed;
-sol0 = ones(N) * kappa_0;
+
+### Choose different for differnt approaches
+# sol0 = ones(N) * kappa_0;
+sol0 = [kappa_0; zeros(SimParam.SicCosNodes *2)];
+
+
 par_ks = (kappa = kappa_0, Dcoef = D_fixed);
 
 DiffMatrix = D_fixed ./ dx^2 .* FiniteDiffercePeriodic(LapDis, N);
+GradMatrix = 1.0 ./ dx .* FiniteDiffercePeriodic(GradDis, N);
 
+BasisTrun = SC.P.Trunc .* sqrt(SimParam.N-1);
+BasisFull = SC.P.Full .* sqrt(SimParam.N-1);
+Eigenvalues = Eig.SC;
 
-# end
+W = ones(SimParam.N) ./ (SimParam.N - 1.0);
+W[1] = W[1] / 2.0;
+W[end] = W[end] / 2.0;
 
-function F_discr(u, par)
+function F_RHS(u, par)
 	(;kappa, Dcoef) = par
 	return DiffMatrix*u .-u .+ kappa .*  exp.(u) ./ mean(exp.(u)) .- kappa
 end
 
+function F_SinCos(Ru, par)
+	(;kappa, Dcoef) = par
+	w = 
+	return  - D_fixed .* Eigenvalues .* Ru .- Ru .+ kappa .*  (BasisTrun * exp.(BasisFull' * Ru) ./ (SimParam.N - 1) ) ./ (dot(exp.(BasisFull' * Ru),W)) - [kappa ; zeros(SimParam.SicCosNodes *2)];
+end
 
-##
+function F_J_Discrete(u, par)
+	(;kappa, Dcoef) = par
+	return D_fixed ./ 2.0 .* mean((GradMatrix*u).^2) .+ mean(u.^2) .- kappa .*  log(mean( exp.(u))) 
+end
+
+
+
+### Choose one of the following options
+
+# F_discr = F_RHS;
+# F_discr = F_J_Discrete;
+F_discr = F_SinCos;
+
+#######
 
 
 optnewton = NewtonPar(tol = 1e-11, verbose = true)
@@ -51,7 +85,7 @@ prob = BK.BifurcationProblem(F_discr, sol0, par_ks, (@optic _.kappa),
 	plot_solution = (x, p; k...) -> plot!(x; ylabel="solution", label="", k...))
 # sol = @time BK.solve( prob, Newton(), optnewton)
 
-optcont = ContinuationPar(dsmin = 0.0001, dsmax = 0.01, ds = 0.01, p_min = 0.0, p_max = 2.5,
+optcont = ContinuationPar(dsmin = 0.0001, dsmax = 0.01, ds = 0.01, p_min = 0.0, p_max = 1.6,
 						  newton_options = NewtonPar(max_iterations = 30, tol = 1e-8),
 						  max_steps = 300, plot_every_step = 40, n_inversion=16, nev=2*N) # , newton_options = NewtonPar(max_iterations = 10, tol = 1e-9))
 
@@ -89,4 +123,10 @@ Plots.display(p1)
 
 ##
 
-readline()
+# B =  readline()
+
+
+# x = 1 .+ (1:10).^2 .* 4.0.*pi.^2.0.*D_fixed
+# y =zeros(10)
+
+# scatter!(x,y)
