@@ -4,7 +4,8 @@ using LinearSolve
 using SparseArrays
 using Plots
 
-using PyCall
+
+# using PyCall
 
 # Choose a model by selecting a folder
 
@@ -74,7 +75,7 @@ ParameterSet = Set;
 
 W = Iteration(InitialConditions,
             ParameterSet,
-            10.0,
+            100.0,
             Scheme,
             BoundaryConditions,
             Order,
@@ -98,7 +99,7 @@ display(norm(S2[1][:])/sqrt(SimParam.N))
 
 V = Iteration(VariablesVector(S2...),
             ParameterSet,
-            10.0,
+            100.0,
             Scheme,
             BoundaryConditions,
             Order,

@@ -71,7 +71,7 @@ module Solvers
         t = 0.0;
         while t < T
             t1 = time()    
-            for i = 1:10
+            for i = 1:100
                 t = t + dt;
                 U1b = FNonlinear(Par,U1a);
                 U1a = VariablesVector(map(h -> 
