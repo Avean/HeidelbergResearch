@@ -122,6 +122,14 @@ p1 = plot(diagram, plotfold = true, markersize = 2, legend = :outertopleft, labe
 title!("#branches = $(size(diagram))")
 Plots.display(p1)
 
+
+
+argsC = (verbosity = 0,
+	plot = true,
+	)
+
+br = continuation(prob, PALC(), optcont, bothside=true; argsC...)
+plot(br)
 ##
 
 # B =  readline()
