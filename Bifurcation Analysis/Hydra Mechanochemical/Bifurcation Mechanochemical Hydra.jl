@@ -30,6 +30,7 @@ GradDis = ([1/280, -4/105, 1/5, -4/5, 0, 4/5, -1/5, 4/105, -1/280]);
 
 # we define a Bifurcation Problem
 D_fixed = 1.0 / 20.0 * 1/(20*pi^2);
+# D_fixed = 1.0 /(8.0*pi^2);
 kappa_0 = 1+4*pi^2*D_fixed;
 
 ### Choose different for differnt approaches
