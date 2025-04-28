@@ -29,8 +29,8 @@ GradDis = ([1/280, -4/105, 1/5, -4/5, 0, 4/5, -1/5, 4/105, -1/280]);
 
 
 # we define a Bifurcation Problem
-D_fixed = 1.0 / 20.0 * 1/(20*pi^2);
-# D_fixed = 1.0 /(8.0*pi^2);
+# D_fixed = 1.0 / 20.0 * 1/(20*pi^2);
+D_fixed = 1.0 /(2.0*pi^2);
 kappa_0 = 1+4*pi^2*D_fixed;
 
 ### Choose different for differnt approaches
@@ -81,12 +81,12 @@ F_discr = F_SinCos;
 optnewton = NewtonPar(tol = 1e-11, verbose = true)
 prob = BK.BifurcationProblem(F_discr, sol0, par_ks, (@optic _.kappa),
 	# record_from_solution = (x, p; k...) -> (s = sum(x), u2 = x[3], nrm = norm(x)),
-	record_from_solution = (x, p; k...) -> (n2 = norm(x), n8 = norm(x, 8)),
+	record_from_solution = (x, p; k...) -> (n2 = norm(x), n8 = norm(x, 8), sol = x),
 	# function to plot the solution
 	plot_solution = (x, p; k...) -> plot!(x; ylabel="solution", label="", k...))
 # sol = @time BK.solve( prob, Newton(), optnewton)
 
-optcont = ContinuationPar(dsmin = 0.0001, dsmax = 0.01, ds = 0.01, p_min = 0.0, p_max = 1.6,
+optcont = ContinuationPar(dsmin = 0.0001, dsmax = 0.01, ds = 0.01, p_min = 0.0, p_max = 21.6,
 						  newton_options = NewtonPar(max_iterations = 30, tol = 1e-8),
 						  max_steps = 300, plot_every_step = 40, n_inversion=16, nev=2*N) # , newton_options = NewtonPar(max_iterations = 10, tol = 1e-9))
 

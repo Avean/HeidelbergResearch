@@ -62,9 +62,9 @@ Order = "8";
 ######
 
 
-InitialConditions = VIni;
+# InitialConditions = VIni;
 # InitialConditions = Sets.VIniTower;
-# InitialConditions = Sets.CstStableTower(5.1, [0.0, 0.01]);
+InitialConditions = Sets.CstStableTower(5.1, [0.0, 0.01]);
 # InitialConditions = Sets.CstStableTowerRandom(5.0, [0.0, 1.0]);
 # InitialConditions = Sets.CstStableMediumCstPerturb
 
@@ -75,7 +75,7 @@ ParameterSet = Set;
 
 W = Iteration(InitialConditions,
             ParameterSet,
-            100.0,
+            10.0,
             Scheme,
             BoundaryConditions,
             Order,
@@ -92,8 +92,8 @@ display(norm(S2[1][:])/sqrt(SimParam.N))
 
 # Hole = 250:600;
 # S2[1][Hole] = 0.0.*ones(length(Hole));
-# Up = 501:511;
-# S2[1][Up] = 60.0.*ones(length(Up));
+Up = 500:510;
+S2[1][Up] = 50.0.*ones(length(Up));
 
 # S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
 
