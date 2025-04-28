@@ -88,7 +88,7 @@ prob = BK.BifurcationProblem(F_discr, sol0, par_ks, (@optic _.kappa),
 
 optcont = ContinuationPar(dsmin = 0.0001, dsmax = 0.01, ds = 0.01, p_min = 0.0, p_max = 21.6,
 						  newton_options = NewtonPar(max_iterations = 30, tol = 1e-8),
-						  max_steps = 300, plot_every_step = 40, n_inversion=16, nev=2*N) # , newton_options = NewtonPar(max_iterations = 10, tol = 1e-9))
+						  max_steps = 3000, plot_every_step = 40, n_inversion=16, nev=2*N) # , newton_options = NewtonPar(max_iterations = 10, tol = 1e-9))
 
 
 
