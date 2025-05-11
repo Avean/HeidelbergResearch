@@ -25,5 +25,4 @@ plot!([0, x0],[0.0, 0.0], color = "black", linewidth = 3.0)
 plot!([x0, 1.6],[0.0, 0.0], color = "lightgray", linewidth = 2.0)
 
 
-
 display(p)
