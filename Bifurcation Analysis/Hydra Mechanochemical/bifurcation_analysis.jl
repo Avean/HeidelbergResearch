@@ -46,9 +46,8 @@ end
 ###########################################################################################################################
 # Bifurcation Problem
 # Parameters:
-# DiffCoef = 1/(40*pi^2);
-DiffCoef = 1/ (20*pi^2);
-# DiffCoef = 1/ (2*pi^2);
+DiffCoef = 1e-4;
+# DiffCoef = 1e-1;
 kappa_0 = 1 + 4 * pi^2 * DiffCoef;
 Nx = 100; lx = 0.5;
 Δ = Laplacian1D(Nx, lx);
@@ -63,7 +62,7 @@ norm2_weighted(x) = norm(x .* w) / sqrt(length(x))
 sol0 = zeros(Nx) |> vec
 
 nev_N = Nx - 2
-int_kappa = [0., 1 + 9*4*pi^2*DiffCoef + kappa_0/4.]
+int_kappa = [0., 2]# 1 + 9*4*pi^2*DiffCoef + kappa_0/4.]
 
 prob = BifurcationProblem(Fmit!, sol0, par_mit, (@optic _.κ),; J=JFmit,
   record_from_solution = (x, p; k...) -> (nrm = norm2(x), nw = norm2_weighted(x), n∞ = norminf(x), sol=x),
