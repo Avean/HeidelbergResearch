@@ -46,10 +46,10 @@ end
 ###########################################################################################################################
 # Bifurcation Problem
 # Parameters:
-DiffCoef = 1e-4;
+DiffCoef = 0.0004; #1e-4;
 # DiffCoef = 1e-1;
 kappa_0 = 1 + 4 * pi^2 * DiffCoef;
-Nx = 100; lx = 0.5;
+Nx = 50; lx = 0.5;
 Δ = Laplacian1D(Nx, lx);
 par_mit = (diffcoef = DiffCoef, κ = kappa_0, Δ = Δ);
 # Define the L2 norm with weight.
