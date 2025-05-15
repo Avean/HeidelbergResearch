@@ -29,7 +29,9 @@ GradDis = ([1/280, -4/105, 1/5, -4/5, 0, 4/5, -1/5, 4/105, -1/280]);
 
 
 # we define a Bifurcation Problem
-D_fixed = 1.0 / 20.0 * 1/(20*pi^2);
+# D_fixed = 1.0 / 20.0 * 1/(20*pi^2);
+# D_fixed =0.0004;
+D_fixed = 0.02;
 # D_fixed = 1.0 /(20.0*pi^2);
 # D_fixed = 1.0 /(2.0.*pi^2);
 
@@ -88,7 +90,7 @@ prob = BK.BifurcationProblem(F_discr, sol0, par_ks, (@optic _.kappa),
 	plot_solution = (x, p; k...) -> plot!(x; ylabel="solution", label="", k...))
 # sol = @time BK.solve( prob, Newton(), optnewton)
 
-optcont = ContinuationPar(dsmin = 0.001, dsmax = 0.01, ds = 0.01, p_min = 0.0, p_max = 1.6,
+optcont = ContinuationPar(dsmin = 0.001, dsmax = 0.001, ds = 0.001, p_min = 0.0, p_max = 15.6,
 						  newton_options = NewtonPar(max_iterations = 30, tol = 1e-8),
 						  max_steps = 5000, plot_every_step = 40, n_inversion=16, nev=2*N) # , newton_options = NewtonPar(max_iterations = 10, tol = 1e-9))
 

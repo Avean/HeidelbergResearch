@@ -16,6 +16,9 @@ ybiff = y[argmin(x)]
 x1 = x[argmin(x):end]
 y1 = y[argmin(x):end]
 
+# x1 = x[argmax(x):argmin(x)]
+# y1 = y[argmax(x):argmin(x)]
+
 
 Red = RGBA(0.917, 0.353, 0.18, 0.3);
 Red = RGB(0.98, 0.72, 0.70);
@@ -36,7 +39,7 @@ end
 
 
 plot!(x1,y1, color = Blue, linewidth = 3.0)
-plot!([x0, 1.6],[0.0, 0.0], color = Red, linewidth = 2.0)
+plot!([x0, 12.6],[0.0, 0.0], color = Red, linewidth = 2.0)
 plot!([0, x0],[0.0, 0.0], color = Blue, linewidth = 3.0)
 
 
@@ -61,15 +64,21 @@ scatter!(
     legend=false,
 )
 
+#Diffusion coefficent 0.0004 and 15 Fourier nodes
 # plot!(p, tickfont = 16, grid = true, minorgrid = true, 
-        # xticks = ([0.5, 0.75, 1.0, 1.25, 1.5], [0.5, "", 1.0, "", 1.5]),
-        # yticks = (0:5, [""]),        
-        # xlims = (0.3, 1.6))
+#         xticks = (0.5:0.5:2.5, [0.5, "", 1.5, "", 2.5,]),
+#         yticks = (0:5, [""]),        
+#         xlims = (0.3, 2.6),
+#         ylims = (-0.5, 5.0),
+#         )
 
+
+# Diffusion coefficent 0.02, and 3 Fourier nodes
 plot!(p, tickfont = 16, grid = true, minorgrid = true, 
-        # xticks = ([0.5, 0.75, 1.0, 1.25, 1.5], [0.5, "", 1.0, "", 1.5]),
-        # yticks = (0:5, [""]),        
-        # xlims = (0.3, 16.0)
+        xticks = (0:2.5:10.0, [0.0, "", 5.0, "", 10.0]),
+        yticks = (0:7, [""]),        
+        xlims = (0.0, 10.5),
+        ylims = (-0.5, 6.0),
         )
 
 display(p)
