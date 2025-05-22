@@ -155,18 +155,21 @@ def plot_with_areas():
     fig.add_trace(go.Scatter(x=kappa_thresh_list[19:94], y=num_thresh_list[19:94], mode='lines', line=dict(color='white', width=0), name='Nonconstant steady states', fill='tozeroy', fillcolor='rgba(176, 196, 222, 0.85)', legendgroup=0))  #lightgray
     fig.add_trace(go.Scatter(x=[0.1, 10], y=[10,10], mode='lines', line=dict(color='white', width=0), showlegend=False))
     fig.add_trace(go.Scatter(x=kappa_thresh_list[19:94], y=num_thresh_list[19:94], mode='lines', line=dict(color='white', width=0), name='Only constant steady state', fill='tonexty', fillcolor='rgba(255, 222, 173, 0.85)', legendgroup=1)) # peachpuff, navajowhite, whitesmoke, lightgoldenrodyellow, moccasin
-    fig.add_trace(go.Scatter(x=kappa_D_min_list[19:117], y=D_min_list[19:117], mode='lines', line=dict(color='black', width=1), name=r'$\large D_{min}$', fill='tozeroy', fillpattern=dict(fgcolor='black', fillmode='replace', shape="/", size=10), showlegend=False)) #, fill='tozeroy'
+    fig.add_trace(go.Scatter(x=kappa_D_min_list[19:117], y=D_min_list[19:117], mode='lines', line=dict(color='gray', width=1), name=r'$\large D_{min}$', fill='tozeroy', fillpattern=dict(fgcolor='gray', fillmode='replace', shape="/", size=10), showlegend=False)) #, fill='tozeroy'
     fig.add_trace(go.Scatter(x=[0.1, 10], y=[10,10], mode='lines', line=dict(color='white', width=0), showlegend=False))
-    fig.add_trace(go.Scatter(x=kappa_D_max_list[19:100], y=D_max_list[19:100], mode='lines', line=dict(color='black', width=1), name='proven analytically', fill='tonexty', fillpattern=dict(fgcolor='black', fillmode='replace', shape="/", size=10), legendgroup=2)) # , fill='tonexty'
+    fig.add_trace(go.Scatter(x=kappa_D_max_list[19:100], y=D_max_list[19:100], mode='lines', line=dict(color='gray', width=1), name='proven analytically', fill='tonexty', fillpattern=dict(fgcolor='gray', fillmode='replace', shape="/", size=10), legendgroup=2)) # , fill='tonexty'
     
-    kappa_stab_const = np.logspace(0, 1, 10000)
+    kappa_stab_const = np.logspace(np.log(0.1), np.log(10), 10000, base=np.e)
     stab_const = [(kappa-1)/(4*np.pi**2) for kappa in kappa_stab_const]
     fig.add_trace(go.Scatter(x=kappa_stab_const, y=stab_const, mode='lines', line=dict(color='black', width=6, dash='dashdot'), name='Stability constant steady state', legendgroup=3))
 
+    fig.add_trace(go.Scatter(x=kappa_stab_const, y=4e-4*np.ones(10000), mode='lines', line=dict(color='rgb(57,105,172)', width=3, dash='dash'), name='Example bifurcation diagram', legendgroup=4, showlegend=False))
+    fig.add_trace(go.Scatter(x=kappa_stab_const, y=0.02*np.ones(10000), mode='lines', line=dict(color='rgb(17,119,52)', width=3, dash='dash'), name='Example bifurcation diagram', legendgroup=4, showlegend=False))
 
     fig.update_layout(#title='Comparison numerical and analytical thresholds for pattern formation',
-                        xaxis_title=r'$\huge\kappa$',
-                        yaxis_title=r'$\huge\text{Diffusion}$')
+                      font_family="Open Sans",
+                      xaxis_title=r'$\huge\kappa$',
+                      yaxis_title='Diffusion')
     
     fig.update_layout(
         font_size=40,
@@ -187,16 +190,17 @@ def plot_with_areas():
         # paper_bgcolor='rgba(0, 0, 0, 0)',
         )
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black', mirror=True, type="log",
-                     showgrid=True, gridcolor='gray', gridwidth=2,
+                     #showgrid=True, gridcolor='gray', gridwidth=2,
                      tickmode = 'array', ticks="outside", tickwidth=3, ticklen=6,
                      tickfont=dict(size=48), tickvals=np.logspace(np.log(0.1), np.log(10), 19, base=np.e), ticktext=[0.1, '', '', '', '', '', '', '', '', 1, '', '', '', '', '', '', '', '', 10], nticks=10)
     fig.update_yaxes(range=[-7, 1], tickformat=".0e",
                      showline=True, linewidth=2, linecolor='black', mirror=True, type="log",
-                     showgrid=True, gridcolor='gray', gridwidth=2,
+                     #showgrid=True, gridcolor='gray', gridwidth=2,
                      tickmode = 'array', ticks="outside", tickwidth=3, ticklen=6,
                      tickfont=dict(size=48), tickvals=[1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e+1], ticktext=['1e-7', '', '1e-5', '', '1e-3', '', '1e-1', '', '1e+1'])
     
-    fig.show()
+    # fig.show()
+    fig.write_image("thresholds_diagram.pdf", width=2000, height=1100, scale=2)
 
 # plot_analytic_thresholds()
 # plot_numerical_threshold_comparison()
