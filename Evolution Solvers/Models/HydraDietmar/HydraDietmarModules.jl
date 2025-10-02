@@ -96,25 +96,23 @@ module  Nonlinearity
 
     ### Simple Rectangle Kernel ####
 
-    KernelSize = 0.25;
-    One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
-    M = FiniteDiffercePeriodic(One)./sum(One);
-
-    function N6(Par::Parameters,Var::VariablesVector) 
+    function N6(Par::Parameters,Var::VariablesVector)
+        KernelSize = 0.25;
+        One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
+        M = FiniteDiffercePeriodic(One)./sum(One);
         return VariablesVector(
                             - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M*exp.(Var.u))
                               );
     end
 
     ### Cosine Kernel ####
-    
-    KernelSize = 1/5;
-    C = range(0.0,pi/2,map(Int,(map(Int,SimParam.N*KernelSize))));
-    CosKernel = [reverse(cos.(C)); 1; cos.(C)];
-    CosKernel = CosKernel ./ sum(CosKernel);
-    M_cos = FiniteDiffercePeriodic(CosKernel);
 
     function N7(Par::Parameters, Var::VariablesVector)
+        KernelSize = 1/5;
+        C = range(0.0,pi/2,map(Int,(map(Int,SimParam.N*KernelSize))));
+        CosKernel = [reverse(cos.(C)); 1; cos.(C)];
+        CosKernel = CosKernel ./ sum(CosKernel);
+        M_cos = FiniteDiffercePeriodic(CosKernel);
         return VariablesVector(
                             - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M_cos * exp.(Var.u))
                               );
@@ -122,13 +120,13 @@ module  Nonlinearity
 
 
     ### Gaussian Kernel ####
-    KernelSize = 0.5;   
-    C = range(0.0,4,map(Int,(map(Int,SimParam.N*KernelSize))));
-    GaussKernel = [reverse(exp.(-C.^2)); 1; exp.(-C.^2)];
-    GaussKernel = GaussKernel ./ sum(GaussKernel);
-    M_gauss = FiniteDiffercePeriodic(GaussKernel);
 
     function N8(Par::Parameters, Var::VariablesVector)
+        KernelSize = 0.5;   
+        C = range(0.0,4,map(Int,(map(Int,SimParam.N*KernelSize))));
+        GaussKernel = [reverse(exp.(-C.^2)); 1; exp.(-C.^2)];
+        GaussKernel = GaussKernel ./ sum(GaussKernel);
+        M_gauss = FiniteDiffercePeriodic(GaussKernel);
         return VariablesVector(
                             - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M_gauss * exp.(Var.u))
                               );

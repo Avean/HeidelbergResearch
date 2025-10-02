@@ -75,7 +75,7 @@ ParameterSet = Set;
 
 W = Iteration(InitialConditions,
             ParameterSet,
-            100.0,
+            1300.0,
             Scheme,
             BoundaryConditions,
             Order,
@@ -92,7 +92,7 @@ W = Iteration(InitialConditions,
 
 # # Hole = 250:600;
 # # S2[1][Hole] = 0.0.*ones(length(Hole));
-# Up = 700:750;
+# Up = 700:730;
 # S2[1][Up] = 50.0.*ones(length(Up));
 
 # # S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);

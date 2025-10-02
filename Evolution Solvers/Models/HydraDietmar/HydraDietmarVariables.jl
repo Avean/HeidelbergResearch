@@ -2,12 +2,12 @@
 using ..Struktury
 using ..SimParam
 
-dt = 0.05; # Time step
-# dt = 1.0;
+dt = 1.0; # Time step
 # dt = 0.1;
 
-D = 0.001; # Diffusion Coefficient
-κ = 10.0; # Nonlinearity Coefficient
+D = 0.0001; # Diffusion Coefficient
+κ = 15.0; # Nonlinearity Coefficient
+# κ = 5.0;
 
 # D = 1e-6; # Diffusion Coefficient
 # κ = 0.7; # Nonlinear term
