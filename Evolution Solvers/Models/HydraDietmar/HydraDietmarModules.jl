@@ -84,18 +84,6 @@ module  Nonlinearity
     ### Nonlinearities with kernels
     ######
 
-    ### Introduce MORE kernels ####
-
-    KernelSize = 0.05;
-    One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
-    M = FiniteDiffercePeriodic(One)./sum(One);
-
-    function N9(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                            - Var.u + Par.Coef.κ * (M*exp.(Var.u)) ./ mean(exp.(Var.u))
-                              );
-    end
-
     ### Simple Rectangle Kernel ####
 
     KernelSize = 0.25;
@@ -137,6 +125,17 @@ module  Nonlinearity
     end
 
 
+    ### Introduce MORE kernels ####
+
+    KernelSize = 0.05;
+    One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
+    M = FiniteDiffercePeriodic(One)./sum(One);
+
+    function N9(Par::Parameters,Var::VariablesVector) 
+        return VariablesVector(
+                            - Var.u + Par.Coef.κ * (M*exp.(Var.u)) ./ mean(exp.(Var.u))
+                              );
+    end
 
     
 
