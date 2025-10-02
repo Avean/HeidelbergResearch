@@ -2,8 +2,8 @@
 using ..Struktury
 using ..SimParam
 
-# dt = 0.001; # Time step
-dt = 1.0;
+dt = 0.01; # Time step
+# dt = 1.0;
 # dt = 0.1;
 
 D = 0.001; # Diffusion Coefficient

@@ -127,11 +127,10 @@ module  Nonlinearity
 
     ### Introduce MORE kernels ####
 
-    KernelSize = 0.05;
-    One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
-    M = FiniteDiffercePeriodic(One)./sum(One);
-
     function N9(Par::Parameters,Var::VariablesVector) 
+        KernelSize = 0.05;
+        One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
+        M = FiniteDiffercePeriodic(One)./sum(One);
         return VariablesVector(
                             - Var.u + Par.Coef.κ * (M*exp.(Var.u)) ./ mean(exp.(Var.u))
                               );
