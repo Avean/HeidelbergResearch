@@ -25,7 +25,8 @@ D = 1e-6; # Diffusion Coefficient
 
 # NonlinearityFunction = "Nonlinearity 6"; # Nonlinearity Variant with exp and kernel 1/2
 # NonlinearityFunction = "Nonlinearity 7"; # Nonlinearity Variant with exp and kernel cos
-NonlinearityFunction = "Nonlinearity 8"; # Nonlinearity Variant with exp and kernel gauss
+# NonlinearityFunction = "Nonlinearity 8"; # Nonlinearity Variant with exp and kernel gauss
+NonlinearityFunction = "Nonlinearity 9"; # MORE kernels
 
 
 VIni = VariablesVector(20.0 .*rand(SimParam.N)+ ones(SimParam.N)*κ); # Initial Conditions

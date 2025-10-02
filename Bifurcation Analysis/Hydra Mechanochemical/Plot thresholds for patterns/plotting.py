@@ -190,17 +190,19 @@ def plot_with_areas():
         # paper_bgcolor='rgba(0, 0, 0, 0)',
         )
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black', mirror=True, type="log",
+                     showgrid=False,
                      #showgrid=True, gridcolor='gray', gridwidth=2,
                      tickmode = 'array', ticks="outside", tickwidth=3, ticklen=6,
                      tickfont=dict(size=48), tickvals=np.logspace(np.log(0.1), np.log(10), 19, base=np.e), ticktext=[0.1, '', '', '', '', '', '', '', '', 1, '', '', '', '', '', '', '', '', 10], nticks=10)
     fig.update_yaxes(range=[-7, 1], tickformat=".0e",
                      showline=True, linewidth=2, linecolor='black', mirror=True, type="log",
+                     showgrid=False,
                      #showgrid=True, gridcolor='gray', gridwidth=2,
                      tickmode = 'array', ticks="outside", tickwidth=3, ticklen=6,
                      tickfont=dict(size=48), tickvals=[1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e+1], ticktext=['1e-7', '', '1e-5', '', '1e-3', '', '1e-1', '', '1e+1'])
     
     # fig.show()
-    fig.write_image("thresholds_diagram.pdf", width=2000, height=1100, scale=2)
+    fig.write_image("thresholds_diagram.png", width=2000, height=1100, scale=2)
 
 # plot_analytic_thresholds()
 # plot_numerical_threshold_comparison()
