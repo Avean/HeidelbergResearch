@@ -84,18 +84,7 @@ module  Nonlinearity
     ### Nonlinearities with kernels
     ######
 
-    ### Introduce MORE kernels ####
-
-    KernelSize = 0.25;
-    One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
-    M = FiniteDiffercePeriodic(One)./sum(One);
-
-    function N9(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                            - Var.u + Par.Coef.κ * (M*exp.(Var.u)) ./ mean(exp.(Var.u))
-                              );
-    end
-
+    
     ### Simple Rectangle Kernel ####
 
     KernelSize = 0.25;
@@ -118,8 +107,8 @@ module  Nonlinearity
 
     function N7(Par::Parameters, Var::VariablesVector)
         return VariablesVector(
-                            - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M_cos * exp.(Var.u))
-                              );
+            - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M_cos * exp.(Var.u))
+            );
     end
 
 
@@ -129,14 +118,25 @@ module  Nonlinearity
     GaussKernel = [reverse(exp.(-C.^2)); 1; exp.(-C.^2)];
     GaussKernel = GaussKernel ./ sum(GaussKernel);
     M_gauss = FiniteDiffercePeriodic(GaussKernel);
-
+    
     function N8(Par::Parameters, Var::VariablesVector)
         return VariablesVector(
                             - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M_gauss * exp.(Var.u))
                               );
     end
 
+    
+    ### Introduce MORE kernels ####
 
+    KernelSize = 0.05;
+    One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
+    M = FiniteDiffercePeriodic(One)./sum(One);
+
+    function N9(Par::Parameters,Var::VariablesVector) 
+        return VariablesVector(
+                            - Var.u + Par.Coef.κ * (M*exp.(Var.u)) ./ mean(exp.(Var.u))
+                              );
+    end
 
     
 
