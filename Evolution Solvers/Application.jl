@@ -64,7 +64,7 @@ Order = "8";
 
 # InitialConditions = VIni;
 # InitialConditions = Sets.VIniTower;
-InitialConditions = Sets.CstStableTower(5.1, [0.5, 0.51]);
+InitialConditions = Sets.CstStableTower(5.1, [0.2, 0.23, 0.7, 0.73]);
 # InitialConditions = Sets.CstStableTowerRandom(5.0, [0.0, 1.0]);
 # InitialConditions = Sets.CstStableMediumCstPerturb
 
@@ -75,7 +75,7 @@ ParameterSet = Set;
 
 W = Iteration(InitialConditions,
             ParameterSet,
-            10.0,
+            100.0,
             Scheme,
             BoundaryConditions,
             Order,
@@ -85,41 +85,41 @@ W = Iteration(InitialConditions,
 ########### NEW PART ###########
 ##
 
+### Adding 2nd perturbation (tower):
 
+# S2 = deepcopy(StructExtract(W));
+# display(norm(S2[1][:])/sqrt(SimParam.N))
 
-S2 = deepcopy(StructExtract(W));
-display(norm(S2[1][:])/sqrt(SimParam.N))
+# # Hole = 250:600;
+# # S2[1][Hole] = 0.0.*ones(length(Hole));
+# Up = 700:750;
+# S2[1][Up] = 50.0.*ones(length(Up));
 
-# Hole = 250:600;
-# S2[1][Hole] = 0.0.*ones(length(Hole));
-Up = 500:510;
-S2[1][Up] = 50.0.*ones(length(Up));
+# # S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
 
-# S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
+# V = Iteration(VariablesVector(S2...),
+#             ParameterSet,
+#             100.0,
+#             Scheme,
+#             BoundaryConditions,
+#             Order,
+#             dt,
+#             NonlinearityFunction);
 
-V = Iteration(VariablesVector(S2...),
-            ParameterSet,
-            100.0,
-            Scheme,
-            BoundaryConditions,
-            Order,
-            dt,
-            NonlinearityFunction);
+# print("Done")
 
-print("Done")
+# Fields = fieldnames(VariablesVector);
+# FieldsNum = length(Fields);
+# NFields = 1:FieldsNum;
 
-Fields = fieldnames(VariablesVector);
-FieldsNum = length(Fields);
-NFields = 1:FieldsNum;
-
-P = plot(layout = (FieldsNum,1));
-for i in NFields
-    X = getfield(V, Fields[i]);
-    Y = getfield(W, Fields[i]);
-    plot!(subplot = i, X, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
-    plot!(subplot = i, X, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
-end
-display(P)
+# P = plot(layout = (FieldsNum,1));
+# for i in NFields
+#     X = getfield(V, Fields[i]);
+#     Y = getfield(W, Fields[i]);
+#     plot!(subplot = i, X, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
+#     plot!(subplot = i, X, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
+# end
+# display(P)
 
 ##
 ########### NEW PART ###########

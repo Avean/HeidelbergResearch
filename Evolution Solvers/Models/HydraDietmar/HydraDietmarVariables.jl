@@ -2,7 +2,7 @@
 using ..Struktury
 using ..SimParam
 
-dt = 0.01; # Time step
+dt = 0.05; # Time step
 # dt = 1.0;
 # dt = 0.1;
 
@@ -30,7 +30,32 @@ NonlinearityFunction = "Nonlinearity 9"; # MORE kernels
 
 
 VIni = VariablesVector(20.0 .*rand(SimParam.N)+ ones(SimParam.N)*κ); # Initial Conditions
-Set = Parameters(Diffusions(D), Coefficients(κ)); # Parameters
+
+# Using nonlinearity N9:
+# Exponent in E(u) = (f(u)*K)^a, where f(u) = exp(-sign(a)u):
+a = 1;
+# Kernel K in E(u) = (f(u)*K)^a:
+include("../../FillFunctions.jl")
+using .FillMatrix
+
+# Simple rectangle
+kernelsize = 0.35;
+One = [ones(map(Int,SimParam.N*kernelsize)); 1; ones(map(Int,SimParam.N*kernelsize))]; 
+M = FiniteDiffercePeriodic(One)./sum(One);
+# Cos kernel
+kernelsize_cos = 0.1;
+C_cos = range(0.0,pi/2,map(Int,(map(Int,SimParam.N*kernelsize_cos))));
+CosKernel = [reverse(cos.(C_cos)); 1; cos.(C_cos)];
+CosKernel = CosKernel ./ sum(CosKernel);
+M_cos = FiniteDiffercePeriodic(CosKernel);
+# Gauß kernel
+kernelsize_gauss = 0.05;
+C_gauss = range(0.0,4,map(Int,(map(Int,SimParam.N*kernelsize_gauss))));
+GaussKernel = [reverse(exp.(-C_gauss.^2)); 1; exp.(-C_gauss.^2)];
+GaussKernel = GaussKernel ./ sum(GaussKernel);
+M_gauss = FiniteDiffercePeriodic(GaussKernel);
+
+Set = Parameters(Diffusions(D), Coefficients(κ), Exponent(a), Kernel(M_cos)); # Parameters
 
 # Set = Parameters(Diffusions(D), Coefficients(κ)); # Parameters
 # VIni = rand(SimParam.N); # Initial Conditions

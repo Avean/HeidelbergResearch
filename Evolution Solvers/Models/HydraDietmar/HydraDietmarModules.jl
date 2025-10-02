@@ -1,6 +1,6 @@
 module Struktury
 
-    export Parameters, Coefficients, Diffusions, VariablesVector
+    export Parameters, Coefficients, Diffusions, Exponent, Kernel, VariablesVector
 
     struct Coefficients
         κ::Float64
@@ -10,9 +10,19 @@ module Struktury
         D1::Float64
     end
 
+    struct Exponent
+        a::Int
+    end
+
+    struct Kernel
+        M::Matrix{Float64}
+    end
+
     struct Parameters
         Diff::Diffusions
         Coef::Coefficients
+        Exp::Exponent
+        Ker::Kernel
     end
 
     struct VariablesVector
@@ -127,12 +137,9 @@ module  Nonlinearity
 
     ### Introduce MORE kernels ####
 
-    function N9(Par::Parameters,Var::VariablesVector) 
-        KernelSize = 0.05;
-        One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
-        M = FiniteDiffercePeriodic(One)./sum(One);
+    function N9(Par::Parameters,Var::VariablesVector)
         return VariablesVector(
-                            - Var.u + Par.Coef.κ * (M*exp.(Var.u)) ./ mean(exp.(Var.u))
+                            - Var.u + Par.Coef.κ * (Par.Ker.M*exp.(-sign(Par.Exp.a).*Var.u)).^(-Par.Exp.a) ./ mean((Par.Ker.M*exp.(-sign(Par.Exp.a).*Var.u)).^(-Par.Exp.a))
                               );
     end
 
@@ -160,14 +167,15 @@ module Sets
     VIni2 = VariablesVector(1 .*rand(SimParam.N));
     VIni3 = VariablesVector(0.000002 .*rand(SimParam.N).+10.0);
 
-    Set1 = Parameters(Diffusions(0.1), Coefficients(10.0));
-    Set2 = Parameters(Diffusions(0.2), Coefficients(10.0));
-    Set3 = Parameters(Diffusions(0.25), Coefficients(10.0));
-    Set4 = Parameters(Diffusions(0.3), Coefficients(10.0));
-    Set5 = Parameters(Diffusions(0.5), Coefficients(10.0));
+    # Added Exponent and Kernel but should not change anything (only if N9 is used)
+    Set1 = Parameters(Diffusions(0.1), Coefficients(10.0), Exponent(-1), Kernel(ones(1000,1000)));
+    Set2 = Parameters(Diffusions(0.2), Coefficients(10.0), Exponent(-1), Kernel(ones(1000,1000)));
+    Set3 = Parameters(Diffusions(0.25), Coefficients(10.0), Exponent(-1), Kernel(ones(1000,1000)));
+    Set4 = Parameters(Diffusions(0.3), Coefficients(10.0), Exponent(-1), Kernel(ones(1000,1000)));
+    Set5 = Parameters(Diffusions(0.5), Coefficients(10.0), Exponent(-1), Kernel(ones(1000,1000)));
 
-    CstUnstable = Parameters(Diffusions(0.01), Coefficients(10.0));
-    CstStable = Parameters(Diffusions(1e-6), Coefficients(0.7));
+    CstUnstable = Parameters(Diffusions(0.01), Coefficients(10.0), Exponent(-1), Kernel(ones(1000,1000)));
+    CstStable = Parameters(Diffusions(1e-6), Coefficients(0.7), Exponent(-1), Kernel(ones(1000,1000)));
 
     CstStableSmallCstPerturb = VariablesVector(0.2 .*rand(SimParam.N) .+ CstStable.Coef.κ);
     CstUnstableSmallCstPerturb = VariablesVector(0.2 .*rand(SimParam.N) .+ CstUnstable.Coef.κ);
@@ -183,7 +191,10 @@ module Sets
         Loc = floor.(Int,Location.*SimParam.N);
         Loc[1] = max(1,Loc[1]);
         Loc[2] = min(SimParam.N,Loc[2]);
+        Loc[3] = max(1,Loc[3]);
+        Loc[4] = min(SimParam.N,Loc[4]);
         W[Loc[1]:Loc[2]] += Height .* ones(Loc[2]-Loc[1]+1);
+        W[Loc[3]:Loc[4]] += Height .* ones(Loc[4]-Loc[3]+1);
         return VariablesVector(W);
     end
     
