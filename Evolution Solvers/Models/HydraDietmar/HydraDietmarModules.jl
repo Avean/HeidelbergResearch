@@ -86,7 +86,7 @@ module  Nonlinearity
 
     ### Introduce MORE kernels ####
 
-    KernelSize = 0.25;
+    KernelSize = 0.05;
     One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
     M = FiniteDiffercePeriodic(One)./sum(One);
 

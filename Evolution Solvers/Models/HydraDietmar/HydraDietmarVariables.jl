@@ -2,7 +2,7 @@
 using ..Struktury
 using ..SimParam
 
-# dt = 0.01; # Time step
+# dt = 0.001; # Time step
 dt = 1.0;
 # dt = 0.1;
 
@@ -17,7 +17,7 @@ D = 0.001; # Diffusion Coefficient
 
 
 
-NonlinearityFunction = "Nonlinearity 1"; # Nonlinearity Variant with exp
+# NonlinearityFunction = "Nonlinearity 1"; # Nonlinearity Variant with exp
 # NonlinearityFunction = "Nonlinearity 2"; # Nonlinearity Variant with u^2
 # NonlinearityFunction = "Nonlinearity 3"; # Nonlinearity Variant with u^3
 # NonlinearityFunction = "Nonlinearity 4"; # Nonlinearity Variant with u^10
