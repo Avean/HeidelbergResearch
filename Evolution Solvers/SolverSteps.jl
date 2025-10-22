@@ -49,7 +49,6 @@ module Solvers
     #Choosing Solver and parameters
     
     function Iteration(U0::VariablesVector,  Par::Parameters, T::Float64, Scheme::String, BC::String, Order::String, dt::Float64, Nonlinearity::String)
-        
         Fields = fieldnames(VariablesVector);
         FieldsNum = length(Fields);
         NFields = 1:FieldsNum;
@@ -73,7 +72,7 @@ module Solvers
             t1 = time()    
             for i = 1:100
                 t = t + dt;
-                U1b = FNonlinear(Par,U1a);
+                U1b = FNonlinear(Par,U1a,t);
                 U1a = VariablesVector(map(h -> 
                                         SchemeF(getfield(U1a,Fields[h]), 
                                                 DiffMat[h],
@@ -83,12 +82,17 @@ module Solvers
             end
 
             display(time()-t1)
+            display("t = $(Printf.@sprintf("%0.1e",t))")
             
-            P = plot(layout = (FieldsNum,1));
+            # P = plot(layout = (FieldsNum,1));
+            P = plot(layout = (FieldsNum+1,1));
             for i in NFields
                 X = getfield(U1a, Fields[i]);
-                plot!(subplot = i, X, title = string(Fields[i]), label = "t = $(Printf.@sprintf("%0.1e",t))", ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
+                plot!(subplot = i, X, title = string(Fields[i]), label = "t = $(Printf.@sprintf("%0.1e",t))", ylims=(minimum([X;0.0]) - 0.1, maximum([X;2.0]) + 0.1));
             end
+
+            tt = 0:0.001:t;
+            plot!(subplot = 3, tt, (tt/10 - floor.(tt/10)), title = "Length l-L")
             display(P)
 
             sleep(0.01);
