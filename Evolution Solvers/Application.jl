@@ -2,7 +2,9 @@ using Revise
 using LinearAlgebra
 using LinearSolve
 using SparseArrays
-using Plots
+# using Plots
+
+using GLMakie
 
 
 # using PyCall
@@ -76,7 +78,7 @@ ParameterSet = Set;
 
 W = Iteration(InitialConditions,
             ParameterSet,
-            200.0,
+            3000.0,
             Scheme,
             BoundaryConditions,
             Order,

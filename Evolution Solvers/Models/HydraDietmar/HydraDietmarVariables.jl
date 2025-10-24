@@ -2,7 +2,7 @@ includet("../../Kernels.jl")
 using ..Struktury
 using ..SimParam
 
-dt = 0.005; # Time step
+dt = 0.01; # Time step
 # dt = 1.0;
 # dt = 0.1;
 
