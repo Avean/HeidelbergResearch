@@ -75,8 +75,8 @@ export run_viewer
 
             xlims!(axv, max(0, ta - 30), ta)
             vals = V1Obs[]
-            ymin = minimum(vals) - 0.1
-            ymax = maximum(vals) + 0.1
+            ymin =minimum(vals) - 0.1*(maximum(vals) - minimum(vals)) 
+            ymax = maximum(vals) + 0.1*(maximum(vals) - minimum(vals))
             ylims!(axv, ymin, ymax)
         end
 

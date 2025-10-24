@@ -39,31 +39,6 @@ using .Sets
 using .Extractor
 using .Viewer
 
-@everywhere begin
-    using Distributed
-    using LinearAlgebra
-    using LinearSolve
-    using SparseArrays
-    using Printf
-    using Statistics
-    using GLMakie
-    using Observables
-
-    const ModelName = "HydraDietmar"
-
-    include("Models/"*ModelName*"/"*ModelName*"Modules.jl")
-    include("Models/"*ModelName*"/"*ModelName*"Variables.jl")
-
-    include("DiffusionMatrices.jl")
-    include("SolverSteps.jl")
-    include("AsynViewer.jl")
-
-    using .Solvers
-    using .SharedState
-    using .SimParam
-    using .Struktury
-    using .Viewer
-end
 
 ######
 ###### Choose one of the following schemes
