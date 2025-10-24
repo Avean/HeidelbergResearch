@@ -1,3 +1,8 @@
+module SharedState
+    using Distributed
+    export latest_state
+    const latest_state = RemoteChannel(() -> Channel{Any}(1))
+end
 
 module Solvers
     using ..SimParam
@@ -6,6 +11,7 @@ module Solvers
     using ..Nonlinearity
     using ..Dictionaries
     using ..DiffMat
+    using ..SharedState
     
     # using Plots
     using GLMakie
@@ -72,7 +78,11 @@ module Solvers
     end
 
 
-    function DynamicPlotGLMakie(UObs::Observable{VariablesVector}, V1::Observable{Vector{Float64}}, tt::Observable{Float64})
+    function DynamicPlotGLMakie(U1a::VariablesVector, V1::Vector{Float64}, t::Float64)
+        UObs = Observable(U1a)
+        V1Obs = Observable(V1)
+        tt = Observable(t)
+        
         X = []
 
         fig = Figure(title = "Hydra", resolution = (1920, 1080))
@@ -101,15 +111,15 @@ module Solvers
         end
 
         tmin = lift(t -> max(0, t - 30), tt)
-        t0 = lift((t,V1) -> range(0,max(t,1),max(length(V1),2)), tt,V1)
+        t0 = lift((t,V1Obs) -> range(0,max(t,1),max(length(V1),2)), tt,V1Obs)
 
         
         t1 = lift((t,tm) ->range(tm,t,300),tt,tmin)
-        tv = lift((t,V1) -> range(0,t,length(V1)), tt,V1)
+        tv = lift((t,V1Obs) -> range(0,t,length(V1)), tt,V1Obs)
         tgrow = lift(t -> (t ./ 10 .- floor.(t ./ 10)), t1)
         
         axv = Axis(fig[length(fieldnames(VariablesVector))+1, 1], xlabel = "Time", ylabel = "Variance")
-        lines!(axv,tv, V1)
+        lines!(axv,tv, V1Obs)
 
         axt = Axis(fig[length(fieldnames(VariablesVector))+2, 1], title = "Length l-L over time", xlabel = "Time", ylabel = "l-L")
         lines!(axt, t1, tgrow)
@@ -120,8 +130,9 @@ module Solvers
 
             xlims!(axv, max(0, ta - 30), ta)
             # autolimits!(axv)
-            ylims!(axv, -0.1*maximum(V1[])-0.1*(maximum(V1[]) - minimum(V1[])), 1.1*maximum(V1[]))
+            ylims!(axv, -0.1*maximum(V1Obs[])-0.1*(maximum(V1Obs[]) - minimum(V1Obs[])), 1.1*maximum(V1Obs[]))
         end
+        return UObs, V1Obs, tt
     end
 
     #Choosing Solver and parameters
@@ -140,19 +151,13 @@ module Solvers
         V1 = [0.0]
 
         
-        # GL Makie
-        UObs = Observable(U1a)
-        V1Obs = Observable(V1)
-        tt = Observable(t)
-
-        DynamicPlotGLMakie(UObs, V1Obs, tt)
-
+        # GL Makie        
+        # UObs, V1Obs, tt = DynamicPlotGLMakie(U1a, V1, t)
 
         SchemeF, DiffMat, FNonlinear = Choice(Scheme,BC,Order,Par,dt, Nonlinearity);
     
         while t < T
             t1 = time()    
-            for i = 1:30
                 t = t + dt;
                 U1b = FNonlinear(Par,U1a,t);
                 U1a = VariablesVector(map(h -> 
@@ -161,21 +166,31 @@ module Solvers
                                                 getfield(U1b,Fields[h]), 
                                                 dt), 
                                         NFields)...);
-            end
+
+            push!(V1, var(U1a.u))
 
             # GL Makie
-            UObs[] = U1a
-            V1Obs[]=push!(V1, var(U1a.u))
-            tt[] = t
+            # UObs[] = U1a
+            # V1Obs[]=V1
+            # tt[] = t
+
+            
+            # display(typeof(SharedState.latest_state))
+            # spróbuj wyczyścić kanał, jeśli coś tam jeszcze siedzi
+            if isready(SharedState.latest_state)
+                take!(SharedState.latest_state)
+            end
+            # teraz włóż najnowszy stan
+            put!(SharedState.latest_state, (U1a, V1, t))
             
             # V1Obs=push!(V1, var(U1a.u))
             # DynamicPlotGR(U1a, t, FieldsNum, Fields, V1Obs);
             
             display(time()-t1)
-            display("t = $(Printf.@sprintf("%0.1e",t))")    
+            # display("t = $(Printf.@sprintf("%0.1e",t))")    
             
-            sleep(0.01);
         end
+
         return U1a;
     end
 end
@@ -192,3 +207,4 @@ module Extractor
     end
 
 end
+
