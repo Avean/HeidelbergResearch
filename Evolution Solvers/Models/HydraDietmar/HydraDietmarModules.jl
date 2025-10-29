@@ -59,7 +59,7 @@ module  Nonlinearity
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
-                                - Var.u + (Par.Coef.κ  +  2.05*(t/10 - floor.(t/10))) * exp.(Var.u) ./ mean(exp.(Var.u)),
+                                - Var.u + (Par.Coef.κ  +  2.1*(t/10 - floor.(t/10))) * exp.(Var.u) ./ mean(exp.(Var.u)),
                                    zeros(size(Var.u)) 
                                 # - Var.u + (Par.Coef.κ  +  mean(Var.v).*1.0*(t/10 - floor.(t/10))) * exp.(Var.u) ./ mean(exp.(Var.u)),
                                 # 0.2.*ones(SimParam.N).*(t/10 - floor.(t/10)) .- 0.03.*Var.v

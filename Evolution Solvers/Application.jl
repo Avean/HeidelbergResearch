@@ -4,11 +4,12 @@ using LinearSolve
 using SparseArrays
 # using Plots
 
-using Distributed
-addprocs(1)  # dodaj jeden proces roboczy do obsługi viewer'a
+# using Distributed
+# addprocs(1)  # dodaj jeden proces roboczy do obsługi viewer'a
 
-using GLMakie
 
+
+using Base.Threads
 
 # using PyCall
 
@@ -80,16 +81,45 @@ InitialConditions = VIni;
 ParameterSet = Set;
 # ParameterSet = Sets.SetL2;
 # ParameterSet = Sets.CstStable;
-run_viewer();  # uruchom viewer w tle
+# run_viewer();  # uruchom viewer w tle
 
-W = Iteration(InitialConditions,
-            ParameterSet,
-            3000.0,
-            Scheme,
-            BoundaryConditions,
-            Order,
-            dt,
-            NonlinearityFunction);
+
+# Viewer.viewer_loop!(UObs, V1Obs, tt)
+
+# viewer_task = Threads.@spawn Viewer.viewer_loop!(UObs, V1Obs, tt)
+# viewer_task = Threads.@spawn Viewer.viewer_loop!(1,1,1)
+
+# Viewer.viewer_loop!(1,1,1)
+
+
+UObs, V1Obs, tt = Viewer.setup_viewer()
+
+SharedState.stop_simulation[] =true
+
+sim_task = Threads.@spawn Solvers.run_simulation!(
+    InitialConditions,
+    ParameterSet,
+    Scheme,
+    BoundaryConditions,
+    Order,
+    dt,
+    NonlinearityFunction
+    )
+    
+Viewer.viewer_loop!(UObs, V1Obs, tt)
+
+
+# wait(sim_task)
+# wait(viewer_task)
+
+# W = Threads.@spawn Iteration(InitialConditions,
+#             ParameterSet,
+#             3000.0,
+#             Scheme,
+#             BoundaryConditions,
+#             Order,
+#             dt,
+#             NonlinearityFunction);
 
 ########### NEW PART ###########
 ##
