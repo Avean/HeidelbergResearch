@@ -11,6 +11,8 @@ dt = 0.01; # Time step
 
 D = 1e-4; # Diffusion Coefficient
 κ = 0.0; # Nonlinear term
+Slope = 0.1; #Slope value
+LCritical = 2.05;
 
 # κ = 2.0; # Nonlinear term
 # D = 1/20/pi^2; # Diffusion Coefficient
@@ -34,7 +36,7 @@ Kernel = KernelGaussian(0.5 , -5.0); #Gaussian Kernel (Size, a)
 # plot(Kernel.M[500,:])
 
 VIni = VariablesVector(2.0e-2 .*rand(SimParam.N)+ ones(SimParam.N)*κ, zeros(SimParam.N)); # Initial Conditions
-Set = Parameters(Diffusions(D,0.0), Coefficients(κ),Kernel); # Parameters
+Set = Parameters(Diffusions(D,0.0), Coefficients(κ,Slope,LCritical),Kernel); # Parameters
 
 
 # Set = Parameters(Diffusions(D), Coefficients(κ)); # Parameters

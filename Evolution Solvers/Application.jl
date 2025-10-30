@@ -7,33 +7,12 @@ using SparseArrays
 # using Distributed
 # addprocs(1)  # dodaj jeden proces roboczy do obsługi viewer'a
 
-
-
 using Base.Threads
 
 # using PyCall
 
-# Choose a model by selecting a folder
-
-ModelName = "HydraDietmar";
-# ModelName = "Test1";
-# ModelName = "GiereMeinhardt";
-# ModelName = "ReceptorBased";
-
-######
-###### Include the model files
-######
-
-includet("Models/"*ModelName*"/"*ModelName*"Modules.jl")
-include("Models/"*ModelName*"/"*ModelName*"Variables.jl")
-
-######
-###### Solvers File
-######
-
-includet("DiffusionMatrices.jl")
-includet("SolverSteps.jl")
-includet("AsynViewer.jl")
+includet("FilesImport.jl")
+include("Parametry.jl")
 
 using .Solvers
 using .Sets
@@ -41,61 +20,10 @@ using .Extractor
 using .Viewer
 
 
-######
-###### Choose one of the following schemes
-######
+# server_task =  Solvers.snapshot_server!()
 
-# Scheme = "ExpliciteEuler"; 
-Scheme = "IMEX"; 
-# Scheme = "SpectralSinCos"; 
-
-######
-###### Choose one of the following boundary conditions
-######
-
-# BoundaryConditions = "Dirichlet";
-# BoundaryConditions = "Neumann";
-BoundaryConditions = "Periodic";
-
-######
-###### Choose one of the following levels of Laplacian discretization
-######
-
-# Order = "2";
-# Order = "4";
-# Order = "6";
-Order = "8";
-
-######
-######
-######
-
-
-InitialConditions = VIni;
-# InitialConditions = Sets.VIniTower;
-# InitialConditions = Sets.CstStableTower(5.1, [0.5, 0.51]);
-# InitialConditions = Sets.CstStableTowerRandom(5.0, [0.0, 1.0]);
-# InitialConditions = Sets.CstStableMediumCstPerturb
-
-
-ParameterSet = Set;
-# ParameterSet = Sets.SetL2;
-# ParameterSet = Sets.CstStable;
-# run_viewer();  # uruchom viewer w tle
-
-
-# Viewer.viewer_loop!(UObs, V1Obs, tt)
-
-# viewer_task = Threads.@spawn Viewer.viewer_loop!(UObs, V1Obs, tt)
-# viewer_task = Threads.@spawn Viewer.viewer_loop!(1,1,1)
-
-# Viewer.viewer_loop!(1,1,1)
-
-
-UObs, V1Obs, tt = Viewer.setup_viewer()
 
 SharedState.stop_simulation[] =true
-
 sim_task = Threads.@spawn Solvers.run_simulation!(
     InitialConditions,
     ParameterSet,
@@ -106,21 +34,10 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
     NonlinearityFunction
     )
     
-Viewer.viewer_loop!(UObs, V1Obs, tt)
-
-
-# wait(sim_task)
-# wait(viewer_task)
-
-# W = Threads.@spawn Iteration(InitialConditions,
-#             ParameterSet,
-#             3000.0,
-#             Scheme,
-#             BoundaryConditions,
-#             Order,
-#             dt,
-#             NonlinearityFunction);
-
+    
+    XVars = Viewer.setup_viewer(ParameterSet,dt)
+    Viewer.viewer_loop!(ParameterSet, XVars)
+    
 ########### NEW PART ###########
 ##
 
@@ -140,7 +57,7 @@ V = Iteration(VariablesVector(S2...),
             ParameterSet,
             100.0,
             Scheme,
-            BoundaryConditions,
+            BoundaryCondsitions,
             Order,
             dt,
             NonlinearityFunction);

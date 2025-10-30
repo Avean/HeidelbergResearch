@@ -2,9 +2,13 @@ module Struktury
 
     export Parameters, Coefficients, Diffusions, VariablesVector, Kernels
 
-    struct Coefficients
+    Base.@kwdef struct Coefficients
         κ::Float64
+        Slope::Float64
+        lbreak::Float64
     end
+
+    Coefficients(κ::Float64) = Coefficients(κ, 0.1, 2.1)
 
     struct Diffusions
         D1::Float64
@@ -51,15 +55,19 @@ module  Nonlinearity
 
 
 
-    export ApplyLaplacian, NonlinearityFunction
+    export ApplyLaplacian, NonlinearityFunction, TimeSlope
 
+
+    function TimeSlope(Par::Parameters,t)
+        return Par.Coef.Slope * (t - Par.Coef.lbreak/Par.Coef.Slope * floor.(t*Par.Coef.Slope/Par.Coef.lbreak));
+    end
 
     # Different Variants of Nonlinearities
 
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
-                                - Var.u + (Par.Coef.κ  +  2.1*(t/10 - floor.(t/10))) * exp.(Var.u) ./ mean(exp.(Var.u)),
+                                - Var.u + (Par.Coef.κ  +  TimeSlope(Par,t)) * exp.(Var.u) ./ mean(exp.(Var.u)),
                                    zeros(size(Var.u)) 
                                 # - Var.u + (Par.Coef.κ  +  mean(Var.v).*1.0*(t/10 - floor.(t/10))) * exp.(Var.u) ./ mean(exp.(Var.u)),
                                 # 0.2.*ones(SimParam.N).*(t/10 - floor.(t/10)) .- 0.03.*Var.v

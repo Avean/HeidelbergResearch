@@ -1,0 +1,1 @@
+run(`julia $(joinpath("Evolution Solvers", "Application.jl"))`, wait=false)
