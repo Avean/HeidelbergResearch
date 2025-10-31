@@ -22,8 +22,15 @@ using .Viewer
 
 # server_task =  Solvers.snapshot_server!()
 
+XVars = Viewer.setup_viewer(ParameterSet,dt);
+@async begin
+    Viewer.viewer_loop!(ParameterSet, XVars)
+end
 
-SharedState.stop_simulation[] =true
+
+# SharedState.stop_simulation[] =true
+stop_simulation!(XVars, dt)
+
 sim_task = Threads.@spawn Solvers.run_simulation!(
     InitialConditions,
     ParameterSet,
@@ -34,10 +41,11 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
     NonlinearityFunction
     )
     
-    
-    XVars = Viewer.setup_viewer(ParameterSet,dt)
-    Viewer.viewer_loop!(ParameterSet, XVars)
-    
+
+
+
+##
+
 ########### NEW PART ###########
 ##
 

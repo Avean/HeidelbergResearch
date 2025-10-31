@@ -18,7 +18,31 @@ using ..Nonlinearity
 # export run_viewer
 export setup_viewer
 export viewer_loop
+export stop_simulation!
 
+
+    function ResetVariables!(tdom, tval, V10, dt::Float64)
+        fill!(tdom, 0.0)
+        fill!(tval, 0.0)
+        fill!(V10, 0.0)
+
+        for i in 1:capacity(tdom)
+            tdom[i] = (i-capacity(tdom))*dt
+        end
+    end
+
+    function stop_simulation!(XVars, dt::Float64)
+        V10, tdom, tval, UObs, V1Obs, tt, ttv = XVars
+        
+        Viewer.ResetVariables!(tt[], ttv[],V1Obs[], dt)
+        
+        # U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
+        # UObs  = Observable(U0)
+        # V1Obs = Observable(V10)
+        # tt    = Observable(tdom)
+        # ttv   = Observable(tval)
+        SharedState.stop_simulation[] = true
+    end
 
 
     function setup_viewer(Par::Parameters,dt::Float64)
@@ -27,19 +51,13 @@ export viewer_loop
         # V10 = [0.0]
 
         THistory = 50; 
+
         tdom = CircularBuffer{Float64}(Int(THistory/dt))
-        fill!(tdom, 0.0)
-
         tval = CircularBuffer{Float64}(Int(THistory/dt))
-        fill!(tval, 0.0)
-
         V10 = CircularBuffer{Float64}(Int(THistory/dt))
-        fill!(V10, 0.0)
 
-        
-        for i in 1:capacity(tdom)
-            tdom[i] = (i-capacity(tdom))*dt
-        end
+
+        ResetVariables!(tdom, tval, V10, dt)
 
         UObs  = Observable(U0)
         V1Obs = Observable(V10)
@@ -132,37 +150,43 @@ export viewer_loop
             if snap !== nothing
                 U_now, t_now = snap
 
-                typeof(var(U_now.u))
                 push!(V10, var(U_now.u))
                 push!(tdom, t_now)
                 push!(tval, TimeSlope(Par,t_now))
 
                 UObs[]  = U_now
-                V1Obs[] = V10 
-                
+
+                notify(V1Obs)
                 notify(tt)
                 notify(ttv)
             end
 
             
-            # sleep(1/fps)
+            sleep(1/fps)
         end
     end
 
-    function server_loop!(UObs, V1Obs, tt)
+    function server_loop!(Par::Parameters, X)
+        V10, tdom, tval, UObs, V1Obs, tt, ttv = X
         fps = 60
         dt = 1/fps
         display("Viewer started...")
         while true
-            ta = time()
+            # ta = time()
             snap = get_snapshot()
-            # if snap !== nothing
-                U_now, V1_now, t_now = snap
-            #     #     # wpychamy do Observables Makie
+            if snap !== nothing
+                U_now, t_now = snap
+
+                push!(V10, var(U_now.u))
+                push!(tdom, t_now)
+                push!(tval, TimeSlope(Par,t_now))
+
                 UObs[]  = U_now
-                V1Obs[] = V1_now
-                tt[]    = t_now
-            # end
+
+                notify(V1Obs)
+                notify(tt)
+                notify(ttv)
+            end
             # println("Viewer loop time: ", time() - ta)
             # sleep(dt)
         end

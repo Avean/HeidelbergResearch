@@ -185,7 +185,7 @@ module Solvers
             end
 
             # display(time()-t1)
-            last_snapshot[] = (deepcopy(U1a), deepcopy(V1), t)
+            last_snapshot[] = (deepcopy(U1a), t)
             # sleep(5)
             # oddaj schedulerowi czas na inne wątki (np. viewer)
             yield()

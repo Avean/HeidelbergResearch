@@ -12,7 +12,7 @@ dt = 0.01; # Time step
 D = 1e-4; # Diffusion Coefficient
 κ = 0.0; # Nonlinear term
 Slope = 0.1; #Slope value
-LCritical = 2.05;
+LCritical = 1.9;
 
 # κ = 2.0; # Nonlinear term
 # D = 1/20/pi^2; # Diffusion Coefficient
