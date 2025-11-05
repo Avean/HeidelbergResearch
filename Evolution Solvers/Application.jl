@@ -19,17 +19,22 @@ using .Sets
 using .Extractor
 using .Viewer
 
-
 # server_task =  Solvers.snapshot_server!()
 
-XVars = Viewer.setup_viewer(ParameterSet,dt);
+XVars = Viewer.setup_viewer2Graphs(ParameterSet,dt);
+
+# XVars = Viewer.setup_viewer3Graphs(ParameterSet,dt);
+# XVars = Viewer.setup_viewer(ParameterSet,dt);
+
+
+
 @async begin
     Viewer.viewer_loop!(ParameterSet, XVars)
 end
 
+# include("Parametry.jl")
 
-# SharedState.stop_simulation[] =true
-stop_simulation!(XVars, dt)
+Viewer.stop_simulation!(XVars, dt)
 
 sim_task = Threads.@spawn Solvers.run_simulation!(
     InitialConditions,
@@ -40,50 +45,53 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
     dt,
     NonlinearityFunction
     )
-    
 
+
+SharedState.pause_simulation[] = true
+SharedState.pause_simulation[] = false
 
 
 ##
+
 
 ########### NEW PART ###########
 ##
 
 
 
-S2 = deepcopy(StructExtract(W));
-display(norm(S2[1][:])/sqrt(SimParam.N))
+# S2 = deepcopy(StructExtract(W));
+# display(norm(S2[1][:])/sqrt(SimParam.N))
 
 # Hole = 250:600;
 # S2[1][Hole] = 0.0.*ones(length(Hole));
-Up = 490:510;
-S2[1][Up] = 50.0.*ones(length(Up));
+# Up = 490:510;
+# S2[1][Up] = 50.0.*ones(length(Up));
 
 # S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
 
-V = Iteration(VariablesVector(S2...),
-            ParameterSet,
-            100.0,
-            Scheme,
-            BoundaryCondsitions,
-            Order,
-            dt,
-            NonlinearityFunction);
+# V = Iteration(VariablesVector(S2...),
+#             ParameterSet,
+#             100.0,
+#             Scheme,
+#             BoundaryCondsitions,
+#             Order,
+#             dt,
+#             NonlinearityFunction);
 
-print("Done")
+# print("Done")
 
-Fields = fieldnames(VariablesVector);
-FieldsNum = length(Fields);
-NFields = 1:FieldsNum;
+# Fields = fieldnames(VariablesVector);
+# FieldsNum = length(Fields);
+# NFields = 1:FieldsNum;
 
-P = plot(layout = (FieldsNum,1));
-for i in NFields
-    X = getfield(V, Fields[i]);
-    Y = getfield(W, Fields[i]);
-    plot!(subplot = i, X, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
-    plot!(subplot = i, Y, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
-end
-display(P)
+# P = plot(layout = (FieldsNum,1));
+# for i in NFields
+#     X = getfield(V, Fields[i]);
+#     Y = getfield(W, Fields[i]);
+#     plot!(subplot = i, X, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
+#     plot!(subplot = i, Y, title = string(Fields[i]), ylims=(minimum(X) - 0.1, maximum(X) + 0.1));
+# end
+# display(P)
 
 ##
 ########### NEW PART ###########

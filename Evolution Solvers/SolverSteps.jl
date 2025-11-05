@@ -6,6 +6,8 @@ module SharedState
     const request_frame = Ref(false)
     const frame_buffer  = Ref{Any}(nothing)
     const stop_simulation = Ref(false)
+    const pause_simulation = Ref(false)
+    const stop_viewer = Ref(false)
 
 end
 
@@ -161,6 +163,11 @@ module Solvers
         # --- główna pętla symulacji ---
         SharedState.stop_simulation[] = false
         while !SharedState.stop_simulation[]
+            
+            if SharedState.pause_simulation[]
+                yield()
+                continue
+            end
             t1 = time()    
             # krok czasowy
             t += dt
@@ -191,6 +198,8 @@ module Solvers
             yield()
         end
     end
+
+
 
     function snapshot_server!(port::Int = 20000)
         println("Starting snapshot server on port $port")

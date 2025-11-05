@@ -1,5 +1,6 @@
 
 include("Models/"*ModelName*"/"*ModelName*"Variables.jl")
+includet("Models/"*ModelName*"/"*ModelName*"Modules.jl")
 
 ######
 ###### Choose one of the following schemes

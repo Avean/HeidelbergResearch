@@ -59,7 +59,7 @@ module  Nonlinearity
 
 
     function TimeSlope(Par::Parameters,t)
-        return Par.Coef.Slope * (t - Par.Coef.lbreak/Par.Coef.Slope * floor.(t*Par.Coef.Slope/Par.Coef.lbreak));
+        return (Par.Coef.Slope * (t - Par.Coef.lbreak/Par.Coef.Slope * floor.(t*Par.Coef.Slope/Par.Coef.lbreak))).^1;
     end
 
     # Different Variants of Nonlinearities

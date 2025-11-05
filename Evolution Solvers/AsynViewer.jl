@@ -21,10 +21,16 @@ export viewer_loop
 export stop_simulation!
 
 
-    function ResetVariables!(tdom, tval, V10, dt::Float64)
-        fill!(tdom, 0.0)
-        fill!(tval, 0.0)
-        fill!(V10, 0.0)
+
+    fps = 60
+
+    function ResetVariables!(U0,tdom, tval, V10, dt::Float64)
+
+
+        tval[1:end] .= 0.0
+        V10[1:end] .= 0.0
+        tdom[1:end] .= 0.0
+        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))
 
         for i in 1:capacity(tdom)
             tdom[i] = (i-capacity(tdom))*dt
@@ -32,32 +38,32 @@ export stop_simulation!
     end
 
     function stop_simulation!(XVars, dt::Float64)
+        SharedState.pause_simulation[] = false
+
+        SharedState.stop_simulation[] =true
+
         V10, tdom, tval, UObs, V1Obs, tt, ttv = XVars
-        
-        Viewer.ResetVariables!(tt[], ttv[],V1Obs[], dt)
-        
-        # U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
-        # UObs  = Observable(U0)
-        # V1Obs = Observable(V10)
-        # tt    = Observable(tdom)
-        # ttv   = Observable(tval)
-        SharedState.stop_simulation[] = true
+        Viewer.ResetVariables!(UObs[],tt[], ttv[],V1Obs[], dt)
+        notify(V1Obs)
+        notify(tt)
+        notify(ttv)
     end
 
 
     function setup_viewer(Par::Parameters,dt::Float64)
-        # 1. startowe wartości zanim solver zacznie słać prawdziwe dane
-        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
-        # V10 = [0.0]
 
+        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
         THistory = 50; 
 
-        tdom = CircularBuffer{Float64}(Int(THistory/dt))
-        tval = CircularBuffer{Float64}(Int(THistory/dt))
-        V10 = CircularBuffer{Float64}(Int(THistory/dt))
+        tdom = CircularBuffer{Float64}(Int(floor(THistory*fps)))
+        tval = CircularBuffer{Float64}(Int(floor(THistory*fps)))
+        V10 = CircularBuffer{Float64}(Int(floor(THistory*fps)))
 
+        fill!(tdom, 0.0)
+        fill!(tval, 0.0)
+        fill!(V10, 0.0)
 
-        ResetVariables!(tdom, tval, V10, dt)
+        ResetVariables!(U0,tdom, tval, V10, dt)
 
         UObs  = Observable(U0)
         V1Obs = Observable(V10)
@@ -102,17 +108,17 @@ export stop_simulation!
         lines!(axv, tt, V1Obs)
 
         axt = Axis(fig[nvars + 2, 1],
-                title = "Length l-L over time",
+                title = "Value of κ(l-L) over time",
                 xlabel = "Time",
-                ylabel = "l-L")
+                ylabel = "κ(l-L)")
         lines!(axt, tt, ttv)
         ylims!(axt, -0.1, Par.Coef.lbreak + 0.1)
 
         on(tt) do tz
             ta = maximum(tz)
-            xlims!(axt, max(0, ta - THistory), ta)
+            xlims!(axt, max(0, ta - THistory), max(ta, 0.1))
 
-            xlims!(axv, max(0, ta - THistory), ta)
+            xlims!(axv, max(0, ta - THistory), max(ta,0.1))
             vals = V1Obs[]
             vals = vals[1:min(max(end-100,2),end)]
             ymin =minimum(vals) - 0.1*(maximum(vals) - minimum(vals))-1e-8 
@@ -124,13 +130,181 @@ export stop_simulation!
         return XVars
     end
 
+    
+    function setup_viewer2Graphs(Par::Parameters,dt::Float64)
+
+        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
+        THistory = 50; 
+
+        tdom = CircularBuffer{Float64}(Int(floor(THistory*fps)))
+        tval = CircularBuffer{Float64}(Int(floor(THistory*fps)))
+        V10 = CircularBuffer{Float64}(Int(floor(THistory*fps)))
+
+        fill!(tdom, 0.0)
+        fill!(tval, 0.0)
+        fill!(V10, 0.0)
+
+        ResetVariables!(U0,tdom, tval, V10, dt)
+
+        UObs  = Observable(U0)
+        V1Obs = Observable(V10)
+        tt    = Observable(tdom)
+        ttv   = Observable(tval)
+
+        fig = Figure(title = "Hydra", resolution = (1020, 780))
+        display(fig)
+
+        Ω = range(0, SimParam.L, SimParam.N)
+        Names = ["Morphogen Concentration u", "v"]
+
+        # --- górne wykresy u, v ---
+        # for (i, fieldname) in enumerate(fieldnames(VariablesVector))
+        i = 1
+        fieldname = :u    
+        Xi = lift(u -> getfield(u, fieldname), UObs)
+
+            ax = Axis(fig[i, 1],
+                    title = Names[i],
+                    xlabel = "Ω",
+                    ylabel = "Concentration")
+
+            lines!(ax, Ω, Xi)
+
+            let ax_local = ax,
+                X_local  = Xi,
+                name_local = Names[i]
+
+                on(tt) do t_now
+                    data_now = X_local[]
+                    ymin = -0.1
+                    ymax = max(maximum(data_now) + 0.1, 2)
+                    ylims!(ax_local, ymin, ymax)
+                    ax_local.title[] = name_local * "\n" *
+                                    "t = $(Printf.@sprintf("%0.1f", maximum(t_now)))"
+                end
+            end
+        # end
+
+        nvars = 1
+
+        # axv = Axis(fig[nvars + 1, 1], xlabel = "Time", ylabel = "Variance")
+        # lines!(axv, tt, V1Obs)
+
+        axt = Axis(fig[nvars + 1, 1],
+                title = "Value of κ(l-L) over time",
+                xlabel = "Time",
+                ylabel = "κ(l-L)")
+        lines!(axt, tt, ttv)
+        ylims!(axt, -0.1, Par.Coef.lbreak + 0.1)
+
+        on(tt) do tz
+            ta = maximum(tz)
+            xlims!(axt, max(0, ta - THistory), max(ta, 0.1))
+
+            # xlims!(axv, max(0, ta - THistory), max(ta,0.1))
+            vals = V1Obs[]
+            vals = vals[1:min(max(end-100,2),end)]
+            ymin =minimum(vals) - 0.1*(maximum(vals) - minimum(vals))-1e-8 
+            ymax = maximum(vals) + 0.1*(maximum(vals) - minimum(vals))+1e-8
+            # ylims!(axv, ymin, ymax)
+        end
+
+        XVars = (V10, tdom, tval, UObs, V1Obs, tt, ttv)
+        return XVars
+    end
+
+    
+    function setup_viewer3Graphs(Par::Parameters,dt::Float64)
+
+        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
+        THistory = 50; 
+
+        tdom = CircularBuffer{Float64}(Int(floor(THistory*fps*2)))
+        tval = CircularBuffer{Float64}(Int(floor(THistory*fps*2)))
+        V10 = CircularBuffer{Float64}(Int(floor(THistory*fps*2)))
+
+        fill!(tdom, 0.0)
+        fill!(tval, 0.0)
+        fill!(V10, 0.0)
+
+        ResetVariables!(U0,tdom, tval, V10, dt)
+
+        UObs  = Observable(U0)
+        V1Obs = Observable(V10)
+        tt    = Observable(tdom)
+        ttv   = Observable(tval)
+
+        fig = Figure(title = "Hydra", resolution = (1020, 780))
+        display(fig)
+
+        Ω = range(0, SimParam.L, SimParam.N)
+        Names = ["Morphogen Concentration u", "v"]
+
+        # --- górne wykresy u, v ---
+
+        i = 1
+        fieldname = fieldnames(VariablesVector)[i]
+        Xi = lift(u -> getfield(u, fieldname), UObs)
+
+            ax = Axis(fig[i, 1],
+                    title = Names[i],
+                    xlabel = "Ω",
+                    ylabel = "Concentration")
+
+            lines!(ax, Ω, Xi)
+
+            let ax_local = ax,
+                X_local  = Xi,
+                name_local = Names[i]
+
+                on(tt) do t_now
+                    data_now = X_local[]
+                    ymin = -0.1
+                    ymax = max(maximum(data_now) + 0.1, 2)
+                    ylims!(ax_local, ymin, ymax)
+                    ax_local.title[] = name_local * "\n" *
+                                    "t = $(Printf.@sprintf("%0.1f", maximum(t_now)))"
+                end
+            end
+        
+
+        nvars = 1
+
+        axv = Axis(fig[nvars + 1, 1], xlabel = "Time", ylabel = "Variance")
+        lines!(axv, tt, V1Obs)
+
+        axt = Axis(fig[nvars + 2, 1],
+                title = "Value of κ(l-L) over time",
+                xlabel = "Time",
+                ylabel = "κ(l-L)")
+        lines!(axt, tt, ttv)
+
+        on(tt) do tz
+            ta = maximum(tz)
+            xlims!(axt, max(0, ta - THistory), max(ta, 0.1))
+
+            xlims!(axv, max(0, ta - THistory), max(ta,0.1))
+            vals = V1Obs[]
+            vals = vals[1:min(max(end-100,2),end)]
+            ymin =minimum(vals) - 0.1*(maximum(vals) - minimum(vals))-1e-8 
+            ymax = maximum(vals) + 0.1*(maximum(vals) - minimum(vals))+1e-8
+            ylims!(axv, ymin, ymax)
+
+            tvmax = maximum(ttv[])
+            ylims!(axt, -0.1, max(Par.Coef.lbreak + 0.1,tvmax + 0.1)) 
+        end
+
+        XVars = (V10, tdom, tval, UObs, V1Obs, tt, ttv)
+        return XVars
+    end
+
     function viewer_loop!(Par::Parameters, X)
         V10, tdom, tval, UObs, V1Obs, tt, ttv = X
-        fps = 60
+        
         time_start = time()
         display("Viewer started...")
-        SharedState.stop_simulation[] = false
-        while !SharedState.stop_simulation[]
+        SharedState.stop_viewer[] = false
+        while !SharedState.stop_viewer[]
             # println("Viewer loop time: ", time() - time_start)
             # time_start = time()
             # poproś o nową klatkę:

@@ -3,16 +3,25 @@ using ..Struktury
 using ..SimParam
 
 dt = 0.01; # Time step
+# dt = 0.001; # Time step
+
 # dt = 1.0;
 # dt = 0.1;
 
 # D = 0.01; # Diffusion Coefficient
 # κ = 1.0; # Nonlinearity Coefficient
 
-D = 1e-4; # Diffusion Coefficient
+D = 1e-3; # Diffusion Coefficient
 κ = 0.0; # Nonlinear term
 Slope = 0.1; #Slope value
-LCritical = 1.9;
+# LCritical = 1.6;
+
+# Tcritical = 22;
+Tcritical = 22;
+LCritical = Slope * Tcritical;
+
+# LCritical = 0.9;
+# LCritical = 1.9
 
 # κ = 2.0; # Nonlinear term
 # D = 1/20/pi^2; # Diffusion Coefficient
