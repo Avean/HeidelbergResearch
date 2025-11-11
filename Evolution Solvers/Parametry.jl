@@ -15,8 +15,8 @@ Scheme = "IMEX";
 ######
 
 # BoundaryConditions = "Dirichlet";
-# BoundaryConditions = "Neumann";
-BoundaryConditions = "Periodic";
+BoundaryConditions = "Neumann";
+# BoundaryConditions = "Periodic";
 
 ######
 ###### Choose one of the following levels of Laplacian discretization
@@ -32,13 +32,13 @@ Order = "8";
 ######
 
 
-InitialConditions = VIni;
+InitialConditions = Sets.VIni5;
 # InitialConditions = Sets.VIniTower;
 # InitialConditions = Sets.CstStableTower(5.1, [0.5, 0.51]);
 # InitialConditions = Sets.CstStableTowerRandom(5.0, [0.0, 1.0]);
 # InitialConditions = Sets.CstStableMediumCstPerturb
 
 
-ParameterSet = Set;
+ParameterSet = Sets.Set1;
 # ParameterSet = Sets.SetL2;
 # ParameterSet = Sets.CstStable;

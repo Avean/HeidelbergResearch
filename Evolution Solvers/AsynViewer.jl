@@ -30,7 +30,7 @@ export stop_simulation!
         tval[1:end] .= 0.0
         V10[1:end] .= 0.0
         tdom[1:end] .= 0.0
-        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))
+        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N), zeros(SimParam.N))
 
         for i in 1:capacity(tdom)
             tdom[i] = (i-capacity(tdom))*dt
@@ -133,7 +133,7 @@ export stop_simulation!
     
     function setup_viewer2Graphs(Par::Parameters,dt::Float64)
 
-        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
+        U0  = VariablesVector(zeros(SimParam.N), zeros(SimParam.N), zeros(SimParam.N))  # <- dostosuj do swoich pól
         THistory = 50; 
 
         tdom = CircularBuffer{Float64}(Int(floor(THistory*fps)))
@@ -155,12 +155,12 @@ export stop_simulation!
         display(fig)
 
         Ω = range(0, SimParam.L, SimParam.N)
-        Names = ["Morphogen Concentration u", "v"]
+        Names = ["u", "v", "w"]
 
         # --- górne wykresy u, v ---
-        # for (i, fieldname) in enumerate(fieldnames(VariablesVector))
-        i = 1
-        fieldname = :u    
+        for (i, fieldname) in enumerate(fieldnames(VariablesVector))
+        # i = 1
+        # fieldname = :u    
         Xi = lift(u -> getfield(u, fieldname), UObs)
 
             ax = Axis(fig[i, 1],
@@ -183,31 +183,31 @@ export stop_simulation!
                                     "t = $(Printf.@sprintf("%0.1f", maximum(t_now)))"
                 end
             end
-        # end
+        end
 
         nvars = 1
 
         # axv = Axis(fig[nvars + 1, 1], xlabel = "Time", ylabel = "Variance")
         # lines!(axv, tt, V1Obs)
 
-        axt = Axis(fig[nvars + 1, 1],
-                title = "Value of κ(l-L) over time",
-                xlabel = "Time",
-                ylabel = "κ(l-L)")
-        lines!(axt, tt, ttv)
-        ylims!(axt, -0.1, Par.Coef.lbreak + 0.1)
+        # axt = Axis(fig[nvars + 1, 1],
+        #         title = "Value of κ(l-L) over time",
+        #         xlabel = "Time",
+        #         ylabel = "κ(l-L)")
+        # lines!(axt, tt, ttv)
+        # ylims!(axt, -0.1, Par.Coef.lbreak + 0.1)
 
-        on(tt) do tz
-            ta = maximum(tz)
-            xlims!(axt, max(0, ta - THistory), max(ta, 0.1))
+        # on(tt) do tz
+        #     ta = maximum(tz)
+        #     xlims!(axt, max(0, ta - THistory), max(ta, 0.1))
 
-            # xlims!(axv, max(0, ta - THistory), max(ta,0.1))
-            vals = V1Obs[]
-            vals = vals[1:min(max(end-100,2),end)]
-            ymin =minimum(vals) - 0.1*(maximum(vals) - minimum(vals))-1e-8 
-            ymax = maximum(vals) + 0.1*(maximum(vals) - minimum(vals))+1e-8
-            # ylims!(axv, ymin, ymax)
-        end
+        #     # xlims!(axv, max(0, ta - THistory), max(ta,0.1))
+        #     vals = V1Obs[]
+        #     vals = vals[1:min(max(end-100,2),end)]
+        #     ymin =minimum(vals) - 0.1*(maximum(vals) - minimum(vals))-1e-8 
+        #     ymax = maximum(vals) + 0.1*(maximum(vals) - minimum(vals))+1e-8
+        #     # ylims!(axv, ymin, ymax)
+        # end
 
         XVars = (V10, tdom, tval, UObs, V1Obs, tt, ttv)
         return XVars
@@ -304,11 +304,15 @@ export stop_simulation!
         time_start = time()
         display("Viewer started...")
         SharedState.stop_viewer[] = false
+
+
+
         while !SharedState.stop_viewer[]
             # println("Viewer loop time: ", time() - time_start)
             # time_start = time()
             # poproś o nową klatkę:
             SharedState.request_frame[] = true
+            println("X")
 
             # poczekaj aż symulacja ją wypełni
             # (bardzo krótko; symulacja biega w kółko i zauważy to prawie od razu)
@@ -317,6 +321,7 @@ export stop_simulation!
                 # jeszcze nie gotowe, daj innym wątkom czas
                 yield()
             end
+            println("Y")
 
             # teraz frame_buffer[] powinno być ustawione
             time_start = time()
@@ -334,6 +339,7 @@ export stop_simulation!
                 notify(tt)
                 notify(ttv)
             end
+            println("Z")
 
             
             sleep(1/fps)

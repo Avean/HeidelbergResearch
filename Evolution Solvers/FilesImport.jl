@@ -1,8 +1,8 @@
 # Choose a model by selecting a folder
 
-ModelName = "HydraDietmar";
+# ModelName = "HydraDietmar";
 # ModelName = "Test1";
-# ModelName = "GiereMeinhardt";
+ModelName = "GiereMeinhardt";
 # ModelName = "ReceptorBased";
 
 ######

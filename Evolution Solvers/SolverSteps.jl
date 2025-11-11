@@ -171,7 +171,7 @@ module Solvers
             t1 = time()    
             # krok czasowy
             t += dt
-            U1b = FNonlinear(Par, U1a, t)
+            U1b = FNonlinear(Par, U1a)
             U1a = VariablesVector(map(h ->
                 SchemeF(getfield(U1a, Fields[h]),
                         DiffMat[h],
