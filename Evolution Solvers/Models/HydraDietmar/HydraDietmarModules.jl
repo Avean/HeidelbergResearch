@@ -226,6 +226,8 @@ module Sets
         Loc = floor.(Int,Location.*SimParam.N);
         Loc[1] = max(1,Loc[1]);
         Loc[2] = min(SimParam.N,Loc[2]);
+        Loc[3] = max(1,Loc[3]);
+        Loc[4] = min(SimParam.N,Loc[4]);
         W[Loc[1]:Loc[2]] += Height .* ones(Loc[2]-Loc[1]+1);
         return VariablesVector(W,zeros(SimParam.N));
     end
