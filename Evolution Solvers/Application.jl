@@ -67,7 +67,7 @@ SharedState.pause_simulation[] = false
 # Up = 490:510;
 # S2[1][Up] = 50.0.*ones(length(Up));
 
-# S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
+# # S2[1][1:1000] += 15.0 .*(rand(SimParam.N) .- 1/2);
 
 # V = Iteration(VariablesVector(S2...),
 #             ParameterSet,

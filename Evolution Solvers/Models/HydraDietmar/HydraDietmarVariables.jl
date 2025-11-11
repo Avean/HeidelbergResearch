@@ -28,7 +28,7 @@ LCritical = Slope * Tcritical;
 
 
 
-NonlinearityFunction = "Nonlinearity 1"; # Nonlinearity Variant with exp
+# NonlinearityFunction = "Nonlinearity 1"; # Nonlinearity Variant with exp
 # NonlinearityFunction = "Nonlinearity 2"; # Nonlinearity Variant with u^2
 # NonlinearityFunction = "Nonlinearity 3"; # Nonlinearity Variant with u^3
 # NonlinearityFunction = "Nonlinearity 4"; # Nonlinearity Variant with u^10
