@@ -68,11 +68,11 @@ function Jbru_sp(x, p)
 	return spdiagm(0 => diag, 1 => diagp1, -1 => diagm1, n => diagpn, -n => diagmn)
 end
 
-n = 300
+n = Int(100*3)
 
 # parameters of the Brusselator model and guess for the stationary solution
 par_bru = (pp = 1.5, qq = 3.5, D1 = 0.3, D2 = 1, l = 10)
-sol0 = vcat(par_bru.pp * ones(n/3), par_bru.pp * ones(n/3), par_bru.qq/par_bru.pp * ones(n/3))
+sol0 = vcat(par_bru.pp * ones(Int(n/3)), par_bru.pp * ones(Int(n/3)), par_bru.qq/par_bru.pp * ones(Int(n/3)))
 int_param = [0.25, 0.35]
 
 # bifurcation problem
