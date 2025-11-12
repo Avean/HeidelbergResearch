@@ -4,7 +4,7 @@ module SymbolicJacobian
     using ModelingToolkit
 
 
-    export JacNonlinearity
+    export JacNonlinearity, FunNonlinearity
 
     @variables WntLoc DkkA WntDiff DkkC SD
     @parameters β1 β2 β3 β4 β5 β6
@@ -17,9 +17,13 @@ module SymbolicJacobian
 
 
     F = [F1 F2 F3 F4 F5]
+
+    
     Var = [WntLoc DkkA WntDiff DkkC SD];
     β = [β1 β2 β3 β4 β5 β6];
 
+    FunNonlinearity, = ModelingToolkit.build_function(F,Var, β, expression = Val(false))
+    
     H =  ModelingToolkit.jacobian(F,Var);
     JacNonlinearity,  = ModelingToolkit.build_function(H, Var, β,expression = Val(false));
 

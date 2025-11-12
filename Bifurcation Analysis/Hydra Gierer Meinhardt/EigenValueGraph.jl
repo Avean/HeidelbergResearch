@@ -1,5 +1,4 @@
 
-
 includet("Symbolics.jl")
 
 using LinearAlgebra
@@ -12,7 +11,7 @@ Var0 = Xs.zero
 ν0 = Diagonal(deepcopy(ν))
 
 
-#Eigenvalue closest to zero
+######## Eigenvalue closest to zero ###############
 
 A = []
 K = 0:50
@@ -30,10 +29,10 @@ for ϵ in RangeΕ
     A = [A; Eig0[argmin(abs.(real.(Eig0)))]]
 end
 # scatter(K,real.(Eig0))
-scatter(RangeΕ, A)
+scatter(RangeΕ, real.(A))
 
 
-## 
+##################################
 
 #Max eigenvalue
 A = []
@@ -48,7 +47,7 @@ for ϵ in RangeΕ
     A = [A; Eig0[argmax((real.(Eig0)))]]
 end
 # scatter(K,real.(Eig0))
-scatter(RangeΕ, A)
+scatter(RangeΕ, real.(A))
 
 ##
 k = 0
