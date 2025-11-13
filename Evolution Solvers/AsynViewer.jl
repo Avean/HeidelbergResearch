@@ -312,7 +312,6 @@ export stop_simulation!
             # time_start = time()
             # poproś o nową klatkę:
             SharedState.request_frame[] = true
-            println("X")
 
             # poczekaj aż symulacja ją wypełni
             # (bardzo krótko; symulacja biega w kółko i zauważy to prawie od razu)
@@ -321,7 +320,6 @@ export stop_simulation!
                 # jeszcze nie gotowe, daj innym wątkom czas
                 yield()
             end
-            println("Y")
 
             # teraz frame_buffer[] powinno być ustawione
             time_start = time()
@@ -331,7 +329,7 @@ export stop_simulation!
 
                 push!(V10, var(U_now.u))
                 push!(tdom, t_now)
-                push!(tval, TimeSlope(Par,t_now))
+                # push!(tval, TimeSlope(Par,t_now))
 
                 UObs[]  = U_now
 
@@ -339,7 +337,6 @@ export stop_simulation!
                 notify(tt)
                 notify(ttv)
             end
-            println("Z")
 
             
             sleep(1/fps)

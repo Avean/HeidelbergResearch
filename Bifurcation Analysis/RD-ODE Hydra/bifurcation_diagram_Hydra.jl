@@ -18,26 +18,46 @@ function Laplacian1D(Nx, lx)
 end
 
 # Define the nonlinearites
-p = 1.5;
-q = 3.5;
-f(u, v, w) = v - u
-g(u, v, w) = p.*ones(length(v)) - (q+2)*v + v.^2 .* w + u
-h(u, v, w) = q.*v-v.^2 .* w
+nu = [0.0 3.8154e-05 0.4433 6.0713e-08 0.0004];
+beta = [1.0629 540.4003 1.1596 11.5964 11.5964 4.8254];
+F_nonl(Wl, A, Wd, C, S) = [beta[6]*S ./ ((1.0 .+ A).*(1.0 .+ C).*(1.0 .+ beta[3]*Wl)) - Wl,
+                           beta[1] ./ (1.0 .+ beta[4]*Wl) - A,
+                           beta[2]*Wl.*S - Wd,
+                           Wd ./ (1.0 .+ beta[5]*Wl) - C,
+                           Wl - S
+                          ]
+
+# Non-trivial constant steady state:
+U0 = [0.08167547924306925, 0.54587711524379, 3.6049476660047937, 1.8514050545898464, 0.08167547924306925]
 
 function Fmit!(F, U, p)
 	N = p.N
-	u = U[1:N]
-	v = U[N+1:2N]
-	w = U[2N+1:3N]
-    f1 = similar(u)
-	mul!(f1, p.Δ, u)
-	F[1:N] .= 0.001*f1 .+ f(u, v, w)
-	g1 = similar(v)
-	mul!(g1, p.Δ, v)
-	F[N+1:2N] .= p.diffcoef*g1 .+ g(u, v, w)
-	h1 = similar(w)
-	mul!(h1, p.Δ, w)
-	F[2N+1:3N] .= 1.0*h1 .+ h(u, v, w)
+	Wl = U[1:N]
+	A = U[N+1:2N]
+	Wd = U[2N+1:3N]
+    C = U[3N+1:4N]
+    S = U[4N+1:5N]
+
+    f1 = similar(Wl)
+	mul!(f1, p.Δ, Wl)
+	F[1:N] .= nu[1]*f1 .+ F_nonl(Wl, A, Wd, C, S)[1]
+
+	f2 = similar(A)
+	mul!(f2, p.Δ, A)
+	F[N+1:2N] .= nu[2]*f2 .+ F_nonl(Wl, A, Wd, C, S)[2]
+    
+    f3 = similar(Wd)
+	mul!(f3, p.Δ, Wd)
+	F[2N+1:3N] .= p.diffcoef*f3 .+ F_nonl(Wl, A, Wd, C, S)[3]
+
+    f4 = similar(C)
+	mul!(f4, p.Δ, C)
+	F[3N+1:4N] .= nu[4]*f4 .+ F_nonl(Wl, A, Wd, C, S)[4]
+
+    f5 = similar(S)
+	mul!(f5, p.Δ, S)
+	F[4N+1:5N] .= nu[5]*f5 .+ F_nonl(Wl, A, Wd, C, S)[5]
+
 	return F
 end
 
@@ -61,11 +81,11 @@ end
 ############################################################################################################################
 # Bifurcation Problem
 # Parameters:
-DiffCoef = 0.3;
-Nx = 50; lx = 5;
+DiffCoef = 0.009;
+Nx = 50; lx = 0.5;
 Δ = Laplacian1D(Nx, lx);
 par_mit = (diffcoef = DiffCoef, Δ = Δ, N = Nx);
-sol0 = vcat(par_bru.pp * ones(Nx), par_bru.pp * ones(Nx), par_bru.qq/par_bru.pp * ones(Nx))
+sol0 = vcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx), U0[4] * ones(Nx), U0[5] * ones(Nx))
 
 # Define the L2 norm with weight.
 # Choose the weighted norm in order to break symmetries and see all branches.
@@ -74,12 +94,12 @@ w_one = ones(Nx) |> vec
 norm2(x) = norm(x .* w_one) / sqrt(length(x))
 norm2_weighted(x) = norm(x .* weight_norm) / sqrt(length(x))
 
-nev_N = 50 #6*Nx
-int_param = [0.25, 0.35]
+nev_N = 5*Nx
+int_param = [0.001, 0.5]
 
 prob = BifurcationProblem(Fmit!, sol0, par_mit, (@optic _.diffcoef),;
-  record_from_solution = (x, p; k...) -> (nrm = norm2(x[1:Int(end/3)]), nw = norm2_weighted(x[1:Int(end/3)]), n∞ = norminf(x[1:Int(end/3)]), sol=x),
-  plot_solution = (x, p; k...) -> plot!(x[1:Int(end/3)] ; k...))
+  record_from_solution = (x, p; k...) -> (nrm = norm2(x[1:Int(end/5)]), nw = norm2_weighted(x[1:Int(end/5)]), n∞ = norminf(x[1:Int(end/5)]), sol=x),
+  plot_solution = (x, p; k...) -> plot!(x[1:Int(end/5)] ; k...))
 
 
 # eigensolver
@@ -91,7 +111,7 @@ opt_newton = BK.NewtonPar(tol = 1e-8, verbose = true, eigsolver = eigls, max_ite
 # options for continuation
 opts_br = ContinuationPar(p_min = int_param[1], p_max = int_param[2],
 	# for a good looking curve
-	dsmin = 0.001, dsmax = 0.01, ds = 0.001,
+	dsmin = 0.0001, dsmax = 0.05, ds = 0.005,
 	# detect codim 1 bifurcations
 	detect_bifurcation = 3,
     # number of eigenvalues to compute
@@ -155,7 +175,7 @@ diagram = @time bifurcationdiagram(prob, PALC(),
 	# very important parameter. This specifies the maximum amount of recursion
 	# when computing the bifurcation diagram. It means we allow computing branches of branches
 	# at most in the present case.
-	3,
+	2,
 	opts_br, bothside=true;
     verbosity = 0, plot = true,
     # callback_newton = cb,
