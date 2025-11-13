@@ -48,7 +48,7 @@ function Fmit!(F, U, p)
     
     f3 = similar(Wd)
 	mul!(f3, p.Δ, Wd)
-	F[2N+1:3N] .= nu[3]*f3 .+ F_nonl(Wl, A, Wd, C, S)[3]
+	F[2N+1:3N] .= p.diffcoef*f3 .+ F_nonl(Wl, A, Wd, C, S)[3]
 
     f4 = similar(C)
 	mul!(f4, p.Δ, C)
@@ -56,7 +56,7 @@ function Fmit!(F, U, p)
 
     f5 = similar(S)
 	mul!(f5, p.Δ, S)
-	F[4N+1:5N] .= p.diffcoef*f5 .+ F_nonl(Wl, A, Wd, C, S)[5]
+	F[4N+1:5N] .= nu[5]*f5 .+ F_nonl(Wl, A, Wd, C, S)[5]
 
 	return F
 end
@@ -121,9 +121,9 @@ function jacobian(U, p)
     # Add diffusion (Laplace) terms on diagonals
     blocks[blk(1,1)] += nu[1] * Δ
     blocks[blk(2,2)] += nu[2] * Δ
-    blocks[blk(3,3)] += nu[3] * Δ
+    blocks[blk(3,3)] += p.diffcoef * Δ
     blocks[blk(4,4)] += nu[4] * Δ
-    blocks[blk(5,5)] += p.diffcoef * Δ
+    blocks[blk(5,5)] += nu[5] * Δ
 
     # Assemble 5×5 block matrix
     Jnew = spzeros(5N,5N)
@@ -140,8 +140,8 @@ end
 ############################################################################################################################
 # Bifurcation Problem
 # Parameters:
-DiffCoef = 0.0035;
-Nx = 10; lx = 0.5;
+DiffCoef = 0.03;
+Nx = 15; lx = 0.5;
 Δ = Laplacian1D(Nx, lx);
 par_mit = (diffcoef = DiffCoef, Δ = Δ, N = Nx);
 sol0 = vcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx), U0[4] * ones(Nx), U0[5] * ones(Nx))
@@ -167,18 +167,18 @@ prob = BifurcationProblem(Fmit!, sol0, par_mit, (@optic _.diffcoef),;
 	record_from_solution = (x, p; k...) -> (nrm = norm2(x[1:Int(end/5)]), nw = norm2_weighted(x[1:Int(end/5)]), n∞ = norminf(x[1:Int(end/5)]), sol=x),
 	plot_solution = (x, p; k...) -> plot!(x[1:Int(end/5)] ; k...))
 
-int_param = [0.003, 0.03]  # interval of continuation for the diffusion coefficient
+int_param = [0.018, 0.3]  # interval of continuation for the diffusion coefficient
 
 # Beispielwerte, anpassbar
-nev_N = 6; # number of eigenvalues to compute
-# eig_ncv = min(5*nev_N, 5*Nx*5);   # aber ≤ total dim; choose sensible cap
-# eig_ncv = min(eig_ncv, 5*Nx);     # ensure <= Ntot
-eig_ncv = 40;
+nev_N = 15; # number of eigenvalues to compute
+eig_ncv = min(5*nev_N, 5*Nx*5);   # aber ≤ total dim; choose sensible cap
+eig_ncv = min(eig_ncv, 5*Nx);     # ensure <= Ntot
+# eig_ncv = 40;
 eig_tol = 1e-6;
 eig_maxiter = 2000;
 
 # eigensolver
-eigls = EigArpack(); #ncv = eig_ncv, tol = eig_tol, maxiter = eig_maxiter
+eigls = EigArpack(ncv = eig_ncv, tol = eig_tol, maxiter = eig_maxiter); #ncv = eig_ncv, tol = eig_tol, maxiter = eig_maxiter
 # options for Newton solver, we pass the eigen solver
 opt_newton = BK.NewtonPar(tol = 1e-8, verbose = true, eigsolver = eigls, max_iterations = 20);
 
@@ -261,7 +261,7 @@ diagram = @time bifurcationdiagram(prob, PALC(),
     # callback_newton = cb,
 	usedeflation = false,
 	# finalise_solution = finSol,
-	normC = normC
+	normC = norminf
 	)
 p4 = plot(diagram; plotfold = false, putspecialptlegend=false, markersize = 2, title = "#branches = $(size(diagram))", label="")
 # ylims!(p4, 0, 5)  # Specify the y-axis limits for the plot
