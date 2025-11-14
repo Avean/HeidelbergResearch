@@ -79,10 +79,10 @@ Structures.StructPrint(Structures.Vec2Str(XsSymbolic.zero))
 ZeroSol = [0.0; β[1]; 0.0; 0.0; 0.0];
 @load "Points.jld2" A
 
-A = Xo.zero
+
 # display(norm(FunNonlinearity(B, β)))
 
-sim = Threads.@spawn for k in range(1,1e6)
+sim = Threads.@spawn for k in range(1,1e4)
     # for j in range(1,1e3)
         X0 = 10*rand(5)
         Xo = nlsolve((F,x)-> Fun2!(F,x,β), X0)
@@ -99,9 +99,8 @@ sim = Threads.@spawn for k in range(1,1e6)
     end
 end
 
-A = push!(A,Xo.zero)
 
-Structures.StructPrint(Structures.Vec2Str(Xo.zero))
-display(norm(FunNonlinearity(Xo.zero, β)))
+# Structures.StructPrint(Structures.Vec2Str(Xo.zero))
+# display(norm(FunNonlinearity(Xo.zero, β)))
 
-B = Xo.zero;
+# B = Xo.zero;
