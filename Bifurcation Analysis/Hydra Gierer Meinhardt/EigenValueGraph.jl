@@ -1,3 +1,5 @@
+using Revise
+
 
 includet("Symbolics.jl")
 includet("ParametersAlexey.jl")
@@ -14,7 +16,7 @@ Var0 = Xs.zero
 
 ######## Eigenvalue closest to zero ###############
 
-A = []
+global A = []
 K = 0:100
 RangeΕ = [  
             range(10^(-0.64), 10^(-0.638), 300);
@@ -33,17 +35,17 @@ RangeΕ = [
 # RangeΕ = [  range(10^(-1.92),10^(-1.9),1000);
 #             range(10^(-2.13),1e-2,1000);
 #             range(10^(-2),10^(-1.92),1000);
-#             # range(10^(-2.12),10^(-3),1000);
+#             range(10^(-2.12),10^(-3),1000);
 #             ]
 # RangeΕ = range(10^(-2.13),1e-2,1000)
 
 
 
-Eig0 = []
-Colors = []
+global Eig0 = []
+global Colors = []
 
 for ϵ in RangeΕ
-    Eig0 = []
+    global Eig0 = []
     ν0[3,3] =  ϵ
 
     for k in K
@@ -52,7 +54,8 @@ for ϵ in RangeΕ
     end
     # display(argmin(abs.(real.(Eig0))))
     push!(Colors, argmin(abs.(real.(Eig0))))
-    A = [A; Eig0[argmin(abs.(real.(Eig0)))]]
+    # A = [A; Eig0[argmin(abs.(real.(Eig0)))]]
+    push!(A,Eig0[argmin(abs.(real.(Eig0)))])
 end
 # scatter(K,real.(Eig0))
 
@@ -73,13 +76,13 @@ for k in 1:14
         markerstrokewidth = 0,
         color = pCol[k],
         label = "k = $(k-1)",
-        xscale = :log10
+        # xscale = :log10
 
     )
 end
 
 ylims!(p,-0.0002,0.0002)
-p
+display(p)
 
 
 mask = (-0.00001 .<yA .<0.00001)
@@ -90,7 +93,7 @@ scatter(Colors1,xA1,legend = false)
 
 ##################################
 
-# #Max eigenvalue
+#Max eigenvalue
 # A = []
 # for ϵ in RangeΕ
 #     Eig0 = []
@@ -102,7 +105,7 @@ scatter(Colors1,xA1,legend = false)
 #     end
 #     A = [A; Eig0[argmax((real.(Eig0)))]]
 # end
-# # scatter(K,real.(Eig0))
+# scatter(K,real.(Eig0))
 # scatter(RangeΕ, real.(A))
 
 # ##

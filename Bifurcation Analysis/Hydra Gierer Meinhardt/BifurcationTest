@@ -1,14 +1,14 @@
 using Revise
 using BifurcationKit, Plots, SparseArrays
-using JLD2
+using JLD2, ForwardDiff
 const BK = BifurcationKit
 
 
-function FGMeinhardt!(f, x, p, t = 0)
-    (; ν1, ν2, ν3, ν4, ν5, β1, β2, β3, β4, β5, β6) = par_GM
+function FGMeinhardt!(f, x, p1, t = 0)
+    # (; ν1, ν2, ν3, ν4, ν5, β1, β2, β3, β4, β5, β6) = p
 
     n = div(length(x), 5)
-    dx = 1/n;
+    dx = 1/(n-1);
 
     WntLOC =    @view x[1:n]
     DkkA =      @view x[n+1:2*n]
@@ -16,43 +16,44 @@ function FGMeinhardt!(f, x, p, t = 0)
     DkkC =      @view x[3*n+1:4*n]
     SD =        @view x[4*n+1:5*n]
 	
-    WntLOCa = β6 .* SD ./ (1 .+ DkkA) ./ (1.0 .+ DkkC) ./ (1.0 .+ β3*WntLOC) .- WntLOC
-    DkkAa = β1 ./ (1 .+ β4.*WntLOC) .- DkkA
-    WntDiffa = β2 .* WntLOC.*SD .- WntDiff
-    DkkCa = WntDiff ./ (1.0 .+ β5 .* WntLOC) .- DkkC
+    WntLOCa = par_GM.β6 .* SD ./ (1 .+ DkkA) ./ (1.0 .+ DkkC) ./ (1.0 .+ par_GM.β3*WntLOC) .- WntLOC
+    DkkAa = par_GM.β1 ./ (1 .+ par_GM.β4.*WntLOC) .- DkkA
+    WntDiffa = par_GM.β2 .* WntLOC.*SD .- WntDiff
+    DkkCa = WntDiff ./ (1.0 .+ par_GM.β5 .* WntLOC) .- DkkC
     SDa = WntLOC .- SD
 
     Lap2(V,i) = V[i-1] + V[i+1] - 2*V[i]
 
     WntLOCb = similar(WntLOC)
     DkkAb = similar(DkkA)
+
     WntDiffb = similar(WntDiff)
     DkkCb = similar(DkkC)
     SDb = similar(SD)
 
     for i in 2:n-1
-        WntLOCb[i]  = ν1 * Lap2(WntLOC,i)/dx^2
-        DkkAb[i]    = ν2 * Lap2(DkkA,i)/dx^2
-        WntDiffb[i] = ν3 * Lap2(WntDiff,i)/dx^2;
-        DkkCb[i]    = ν4 * Lap2(DkkC,i)/dx^2;
-        SDb[i]      = ν5 * Lap2(SD,i)/dx^2;
+        WntLOCb[i]  = par_GM.ν1 * Lap2(WntLOC,i)/dx^2
+        DkkAb[i]    = par_GM.ν2 * Lap2(DkkA,i)/dx^2
+        WntDiffb[i] = p1.ν3 * Lap2(WntDiff,i)/dx^2;
+        DkkCb[i]    = par_GM.ν4 * Lap2(DkkC,i)/dx^2;
+        SDb[i]      = par_GM.ν5 * Lap2(SD,i)/dx^2;
     end
 
     # Boundary conditions for all 5 variables
-    WntLOCb[1] = ν1 * (WntLOC[2] - WntLOC[1]) / dx^2
-    WntLOCb[end] = ν1 * (WntLOC[end-1] - WntLOC[end]) / dx^2
+    WntLOCb[1] = par_GM.ν1 * (WntLOC[2] - WntLOC[1]) / dx^2
+    WntLOCb[end] = par_GM.ν1 * (WntLOC[end-1] - WntLOC[end]) / dx^2
 
-    DkkAb[1] = ν2 * (DkkA[2] - DkkA[1]) / dx^2
-    DkkAb[end] = ν2 *  (DkkA[end-1] - DkkA[end]) / dx^2
+    DkkAb[1] = par_GM.ν2 * (DkkA[2] - DkkA[1]) / dx^2
+    DkkAb[end] = par_GM.ν2 *  (DkkA[end-1] - DkkA[end]) / dx^2
 
-    WntDiffb[1] = ν3 * (WntDiff[2] - WntDiff[1]) / dx^2
-    WntDiffb[end] = ν3 * (WntDiff[end-1] - WntDiff[end]) / dx^2
+    WntDiffb[1] = p1.ν3 * (WntDiff[2] - WntDiff[1]) / dx^2
+    WntDiffb[end] = p1.ν3 * (WntDiff[end-1] - WntDiff[end]) / dx^2
 
-    DkkCb[1] = ν4 * (DkkC[2] - DkkC[1]) / dx^2
-    DkkCb[end] = ν4 * (DkkC[end-1] - DkkC[end]) / dx^2
+    DkkCb[1] = par_GM.ν4 * (DkkC[2] - DkkC[1]) / dx^2
+    DkkCb[end] = par_GM.ν4 * (DkkC[end-1] - DkkC[end]) / dx^2
 
-    SDb[1] = ν5 * (SD[2] - SD[1]) / dx^2
-    SDb[end] = ν5 * (SD[end-1] - SD[end]) / dx^2
+    SDb[1] = par_GM.ν5 * (SD[2] - SD[1]) / dx^2
+    SDb[end] = par_GM.ν5 * (SD[end-1] - SD[end]) / dx^2
 
     # Assemble f for all 5 variables
     for i in 1:n
@@ -65,44 +66,11 @@ function FGMeinhardt!(f, x, p, t = 0)
 	return f
 end
 
-function Jbru_sp(x, p)
-	(;α, β, D1, D2, l) = p
-	# compute the Jacobian using a sparse representation
-	n = div(length(x), 2)
-	h = 1.0 / n; h2 = h*h
-
-	c1 = D1 / p.l^2 / h2
-	c2 = D2 / p.l^2 / h2
-
-	u = @view x[1:n]
-	v = @view x[n+1:2n]
-
-	diag   = zeros(eltype(x), 2n)
-	diagp1 = zeros(eltype(x), 2n-1)
-	diagm1 = zeros(eltype(x), 2n-1)
-
-	diagpn = zeros(eltype(x), n)
-	diagmn = zeros(eltype(x), n)
-
-	@. diagmn = β - 2 * u * v
-	@. diagm1[1:n-1] = c1
-	@. diagm1[n+1:end] = c2
-
-	@. diag[1:n]    = -2c1 - (β + 1) + 2 * u * v
-	@. diag[n+1:2n] = -2c2 - u * u
-
-	@. diagp1[1:n-1] = c1
-	@. diagp1[n+1:end] = c2
-
-	@. diagpn = u * u
-	return spdiagm(0 => diag, 1 => diagp1, -1 => diagm1, n => diagpn, -n => diagmn)
-end
-
 
 ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
 β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
 
-ν[3] = 0.1
+ν[3] = 0.03
 par_GM = (
     ν1 = ν[1],
     ν2 = ν[2],
@@ -117,45 +85,73 @@ par_GM = (
     β6 = β[6],
 )
 
-n = 100
+
+n = 15
 @load "PositiveSol" XPositive 
 sol0 = repeat(XPositive, inner = n) 
 
+DiffCoefBif = (ν3 =  0.03, Da = 0.01)
+
 
 # bifurcation problem
-probBif = BK.BifurcationProblem(FGMeinhardt!, sol0, par_GM, (@optic _.ν3);
+probBif = BK.BifurcationProblem(FGMeinhardt!, sol0, DiffCoefBif, (@optic _.ν3);
 #   J = Jbru_sp,
-  plot_solution = (x, p; kwargs...) -> (plotsol(x; label="", kwargs... )),
+  plot_solution = (x, p; k...) -> plot!(x[1:Int(end/5)] ; k...),
   record_from_solution = (x, p; k...) -> x[div(n,5)])
 
-  eigls = EigArpack(1.1, :LM)
+Nx = n;
+nev_N = 15; # number of eigenvalues to compute
+eig_ncv = min(5*nev_N, 5*Nx*5);   # aber ≤ total dim; choose sensible cap
+eig_ncv = min(eig_ncv, 5*Nx);     # ensure <= Ntot
+# eig_ncv = 40;
+eig_tol = 1e-6;
+eig_maxiter = 2000;
 
-opt_newton = NewtonPar(eigsolver = eigls, tol = 1e-9)
-opts_br_eq = ContinuationPar(dsmin = 0.001, dsmax = 0.01, ds = 0.001,
-	p_max = 1.55, 
-    p_min = 0.0,
-    nev = 21,
-	newton_options = opt_newton, max_steps = 1000,
-	# specific options for precise localization of Hopf points
-	n_inversion = 6)
+# eigensolver
+eigls = EigArpack(ncv = eig_ncv, tol = eig_tol, maxiter = eig_maxiter);
 
-br = continuation(probBif, PALC(), opts_br_eq, normC = norminf)
+opt_newton = BK.NewtonPar(tol = 1e-8, verbose = true, eigsolver = eigls, max_iterations = 20);
+
+int_param = [0.018, 0.4] 
+
+
+opts_GM_eq = ContinuationPar(p_min = int_param[1], p_max = int_param[2],
+	# for a good looking curve
+	dsmin = 1e-4, dsmax = 1e-2, ds = 1e-3,
+	# detect codim 1 bifurcations
+	detect_bifurcation = 3,  # reduziert Kosten
+    # number of eigenvalues to compute
+	nev = nev_N,
+    plot_every_step = 20, 
+	newton_options = (@set opt_newton.verbose = false),
+    max_steps = 200,
+    tol_stability = 1e-6,
+	n_inversion = 6,
+    # Optional: bisection options for locating bifurcations
+    dsmin_bisection = 1e-7, max_bisection_steps = 25, tol_bisection_eigenvalue = 1e-8
+    );
+
+
+diagram = @time bifurcationdiagram(probBif, PALC(),
+	# very important parameter. This specifies the maximum amount of recursion
+	# when computing the bifurcation diagram. It means we allow computing branches of branches
+	# at most in the present case.
+	3,
+	opts_GM_eq, bothside=true;
+    verbosity = 0, plot = true,
+    # callback_newton = cb,
+	usedeflation = false
+	# finalise_solution = finSol,
+	# normC = norminf
+	)
+plot(diagram)
+
+
+
+
+br = continuation(probBif, PALC(), opts_GM_eq, normC = norminf)
 
 scene = plot(br)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

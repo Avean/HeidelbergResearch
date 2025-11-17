@@ -27,12 +27,12 @@ module Struktury
 end
 
 module SimParam
-    N = 1000; # Number of discretization points
+    N = 100; # Number of discretization points
     dt = 0.1; # Time step
     L = 1; # Domain size
     dx = L/N; # Spatial step
     x = range(0,L,N); # Discretisation Vector
-    SicCosNodes = 200; # Sine Cosine Nodes
+    SicCosNodes = 20; # Sine Cosine Nodes
 end
 
 
