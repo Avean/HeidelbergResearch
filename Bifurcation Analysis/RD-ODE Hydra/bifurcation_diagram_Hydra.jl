@@ -4,295 +4,215 @@ const BK = BifurcationKit
 
 ###############################################################################################################################
 
-# Define the discretisation of our Problem
-# Laplacian operator in 1D with Neumann boundary conditions
+# Parameters
+beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
+nu   = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
+DiffCoef = 0.05;            # start diffusion for bifurcation parameter
+N_species = 5;
+int_param = [0.018, 0.3];  # Interval in which we consider bifurcation parameter
+bif_param = 3;              # Number of diffusion which is used as bifurcation parameter
 
-function Laplacian1D(Nx, lx)
-	hx = 2*lx / (Nx-1) # hx = 2 * lx / Nx
-	D2x = spdiagm(0 => -2 * ones(Nx), 1 => ones(Nx-1), -1 => ones(Nx-1)) / hx^2
-	D2x[1, 1] = -1 / hx^2
-	D2x[end, end] = -1 / hx^2
+# Grid
+L = 1.0;
+N_fourier = 20;                 # number of Fourier modes
+Nx = 100;               # number of collocation points for nonlinearities
+x = range(0, stop=L, length=Nx);  # x_n = (n-1)/(N-1) for n=1, ..., N
 
-	D2xsp = sparse(D2x)
-	return D2xsp
+# Laplace operator in Fourier space
+kvec = 0:N_fourier;
+laplace_factor = - (pi * kvec / L).^2;
+# Cosinus-Matrix für N_fourier+1 Koeffizienten
+C = [cos(k * π * x[n] / L) for n in 1:Nx, k in 0:N_fourier];  # C[n, k+1] = cos(k π x_n)
+
+# Initial condition (Fourier coefficients)
+U0 = [0.08167547924306925, 0.54587711524379, 3.6049476660047937,
+           1.8514050545898464, 0.08167547924306925];
+U0_real = hcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx), U0[4] * ones(Nx), U0[5] * ones(Nx));
+
+# ---------------------------
+# Helper functions
+# ---------------------------
+# Fourier -> real space reconstruction
+function fourier_to_real(U_hat)
+    Nx = size(C)[1]
+    U_real = similar(U_hat, Nx, N_species)
+    for s in 1:N_species
+        U_real[:,s] = C * U_hat[:,s]
+    end
+    return U_real
 end
 
-# Define the nonlinearites
-nu = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
-beta = [1.0629 540.4003 1.1596 11.5964 11.5964 4.8254];
-F_nonl(Wl, A, Wd, C, S) = [beta[6]*S ./ ((1.0 .+ A).*(1.0 .+ C).*(1.0 .+ beta[3]*Wl)) - Wl,
-                           beta[1] ./ (1.0 .+ beta[4]*Wl) - A,
-                           beta[2]*Wl.*S - Wd,
-                           Wd ./ (1.0 .+ beta[5]*Wl) - C,
-                           Wl - S
-                          ]
-
-# Non-trivial constant steady state:
-U0 = [0.08167547924306925, 0.54587711524379, 3.6049476660047937, 1.8514050545898464, 0.08167547924306925];
-
-function Fmit!(F, U, p)
-	N = p.N
-	Wl = U[1:N]
-	A = U[N+1:2N]
-	Wd = U[2N+1:3N]
-    C = U[3N+1:4N]
-    S = U[4N+1:5N]
-
-    f1 = similar(Wl)
-	mul!(f1, p.Δ, Wl)
-	F[1:N] .= nu[1]*f1 .+ F_nonl(Wl, A, Wd, C, S)[1]
-
-	f2 = similar(A)
-	mul!(f2, p.Δ, A)
-	F[N+1:2N] .= nu[2]*f2 .+ F_nonl(Wl, A, Wd, C, S)[2]
-    
-    f3 = similar(Wd)
-	mul!(f3, p.Δ, Wd)
-	F[2N+1:3N] .= nu[3]*f3 .+ F_nonl(Wl, A, Wd, C, S)[3]
-
-    f4 = similar(C)
-	mul!(f4, p.Δ, C)
-	F[3N+1:4N] .= nu[4]*f4 .+ F_nonl(Wl, A, Wd, C, S)[4]
-
-    f5 = similar(S)
-	mul!(f5, p.Δ, S)
-	F[4N+1:5N] .= p.diffcoef*f5 .+ F_nonl(Wl, A, Wd, C, S)[5]
-
-	return F
-end
-
-# assume:
-#   nu  :: Vector{Float64} length 5
-#   beta:: Vector{Float64} length 6
-#   p.Δ :: SparseMatrixCSC  (Nx×Nx Laplacian)
-#   p.N :: Int
-#   p.diffcoef :: Float64   (diffusion coefficient of S)
-
-function jacobian(U, p)
-    N = p.N
-    Δ = p.Δ
-
-    # Split variables
-    Wl = @view U[1:N]
-    A  = @view U[N+1:2N]
-    Wd = @view U[2N+1:3N]
-    C  = @view U[3N+1:4N]
-    S  = @view U[4N+1:5N]
-
-    # Preallocate blocks (sparse diagonals)
-    blocks = [spzeros(N,N) for _ in 1:25]
-    # helper to index block (row,col)
-    blk(r,c) = (r-1)*5 + c
-
-    # Fill diagonal entries of each block
-    @inbounds for i in 1:N
-        # pointwise nonlinear Jacobian
-        # Jnl = [
-        #     -beta[3]*beta[6]*S[i] / ((1+A[i])*(1+C[i])*(1+beta[3]*Wl[i])^2) - 1.0    -beta[6]*S[i] / ((1+A[i])^2*(1+C[i])*(1+beta[3]*Wl[i]))      0.0                 - beta[6]*S[i] / ((1+A[i])*(1+C[i])^2*(1+beta[3]*Wl[i]))     beta[6] / ((1+A[i])*(1+C[i])*(1+beta[3]*Wl[i]));
-        #     -beta[1]*beta[4] / (1+beta[4]*Wl[i])^2                                   -1.0                                                         0.0                   0.0                                                        0.0;
-        #      beta[2]*S[i]                                                             0.0                                                        -1.0                   0.0                                                        beta[2]*Wl[i];
-        #     -beta[5]*Wd[i] / (1+beta[5]*Wl[i])^2                                      0.0                                                         1/(1+beta[5]*Wl[i])  -1.0                                                        0.0;
-        #      1.0                                                                      0.0                                                         0.0                   0.0                                                       -1.0
-        # ]
-		Jnl = vcat(
-			hcat(
-				-beta[3]*beta[6]*S[i] / ((1+A[i])*(1+C[i])*(1+beta[3]*Wl[i])^2) - 1.0,
-				-beta[6]*S[i] / ((1+A[i])^2*(1+C[i])*(1+beta[3]*Wl[i])),
-				0.0,
-				-beta[6]*S[i] / ((1+A[i])*(1+C[i])^2*(1+beta[3]*Wl[i])),
-				beta[6] / ((1+A[i])*(1+C[i])*(1+beta[3]*Wl[i]))),
-			hcat(
-				-beta[1]*beta[4] / (1+beta[4]*Wl[i])^2,
-				-1.0, 0.0, 0.0, 0.0),
-			hcat(
-				beta[2]*S[i], 0.0, -1.0, 0.0, beta[2]*Wl[i]),
-			hcat(
-				-beta[5]*Wd[i] / (1+beta[5]*Wl[i])^2,
-				0.0, 1/(1+beta[5]*Wl[i]), -1.0, 0.0),
-			hcat(
-				1.0, 0.0, 0.0, 0.0, -1.0)
-		)
-
-        for r in 1:5, c in 1:5
-            blocks[blk(r,c)][i,i] = Jnl[r,c]
+function fourier_to_real_2(U_hat)
+    N_real = size(C)[1]
+    N_modes = size(U_hat,1)
+    U_real = similar(U_hat, N_real, N_species)
+    fill!(U_real, zero(eltype(U_hat)))   # WICHTIG: initialisieren
+    for s in 1:N_species
+        for k = 0:N_modes-1
+            U_real[:,s] .+= U_hat[k+1,s] .* cos.(pi*k .* x ./ L)
         end
     end
-
-    # Add diffusion (Laplace) terms on diagonals
-    blocks[blk(1,1)] += nu[1] * Δ
-    blocks[blk(2,2)] += nu[2] * Δ
-    blocks[blk(3,3)] += nu[3] * Δ
-    blocks[blk(4,4)] += nu[4] * Δ
-    blocks[blk(5,5)] += p.diffcoef * Δ
-
-    # Assemble 5×5 block matrix
-    Jnew = spzeros(5N,5N)
-    for r in 1:5, c in 1:5
-        rows = (r-1)*N+1 : r*N
-        cols = (c-1)*N+1 : c*N
-        Jnew[rows,cols] = blocks[blk(r,c)]
-    end
-
-    # copy!(J, Jnew)
-    return Jnew
+    return U_real
 end
 
-############################################################################################################################
-# Bifurcation Problem
-# Parameters:
-DiffCoef = 0.02;
-Nx = 15; lx = 0.5;
-Δ = Laplacian1D(Nx, lx);
-par_mit = (diffcoef = DiffCoef, Δ = Δ, N = Nx);
-sol0 = vcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx), U0[4] * ones(Nx), U0[5] * ones(Nx))
+function real_to_fourier(V)
+    Nk = size(C,2)
+    V_four = similar(V, Nk, N_species)
+    # --- Least-Squares-Lösung ---
+    for s in 1:N_species
+        V_four[:,s] = C \ V[:,s]   # entspricht np.linalg.lstsq(C, V, rcond=None)[0]
+    end
+    return V_four
+end
 
-# Define the L2 norm with weight.
-# Choose the weighted norm in order to break symmetries and see all branches.
-weight_norm = (lx .+ LinRange(-lx, lx, Nx)) |> vec
-w_one = ones(Nx) |> vec
-norm2(x) = norm(x .* w_one) / sqrt(length(x));
-norm2_weighted(x) = norm(x .* weight_norm) / sqrt(length(x));
+function test_fourier(V)
+    V_hat = real_to_fourier(V)
+    V_real = fourier_to_real(V_hat)
+    V_real_2 = fourier_to_real_2(V_hat)
 
-# unweighted L2 over all species
+    V_rec = zeros(eltype(V), Nx, N_species)
+    for s in 1:N_species
+        for k in 0:N_fourier
+            V_rec[:,s] .+= V_hat[k+1,s] .* cos.(pi * k .* x ./ L)
+        end
+        println("max Fehler = ", maximum(abs.(V[:,s] - V_real[:,s])))
+        println("max Fehler_2 = ", maximum(abs.(V[:,s] - V_real_2[:,s])))
+        println("max Fehler_rec = ", maximum(abs.(V[:,s] - V_rec[:,s])))
+    end
+end
+
+# nonlinear function in real space
+function F_nonl_real(U_real)
+    Wl, A, Wd, C, S = U_real[:,1], U_real[:,2], U_real[:,3], U_real[:,4], U_real[:,5]
+    f1 = beta[6]*S ./ ((1 .+ A) .* (1 .+ C) .* (1 .+ beta[3] .* Wl)) .- Wl
+    f2 = beta[1] ./ (1 .+ beta[4] .* Wl) .- A
+    f3 = beta[2] .* Wl .* S .- Wd
+    f4 = Wd ./ (1 .+ beta[5] .* Wl) .- C
+    f5 = Wl .- S
+    return hcat(f1,f2,f3,f4,f5)
+end
+
+# Laplace applied to Fourier coefficients
+# function apply_laplace(U_hat)
+#     U_hat_new = similar(U_hat)
+#     for s in 1:5
+#         for k = 1:Nk
+#             U_hat_new[k,s] = laplace_factor[k] * U_hat[k,s]
+#         end
+#     end
+#     return U_hat_new
+# end
+
+# ---------------------------
+# Nonlinearities in Fourier coefficients
+# ---------------------------
+function F_hat!(F_hat, U_hat, p)
+    # 1. Transform to real space
+    U_real = fourier_to_real(U_hat)
+    
+    # 2. Nonlinearities in real space
+    Fnl_real = F_nonl_real(U_real)
+    
+    # 3. Project nonlinearities to Fourier space
+    Fnl_hat = real_to_fourier(Fnl_real)
+    
+    # 4. Apply Laplacian in Fourier space
+    for s in 1:N_species
+        diffcoef = s==bif_param ? p.diffcoef : nu[s]
+        F_hat[:,s] .= laplace_factor .* U_hat[:,s] * diffcoef + Fnl_hat[:,s]
+    end
+    return F_hat
+end
+
+# ---------------------------
+# Flattened nonlinearities for BifurcationKit
+# ---------------------------
+function F_flat!(F_flat, U_flat, p)
+    # reshape flat vector to (Nk x 5) matrix
+    Nk = size(C,2)
+    U_hat = reshape(U_flat, Nk, N_species)
+    F_hat = similar(U_hat)
+    F_hat!(F_hat, U_hat, p)
+    F_flat .= vec(F_hat)  # flatten
+    return F_flat
+end
+
+# Initial solution in Fourier
+U0_hat = real_to_fourier(U0_real)
+# Initial solution flattened
+sol0 = vec(U0_hat);
+
+# Norms:
 normC(x) = norm(x) / sqrt(length(x))
-# # weighted L2 emphasizing Wl
-# weight = ones(5*Nx)
-# weight[1:Nx] .= 1.0  # Wl
-# weight[Nx+1:5Nx] .= 0.5  # other species
-# normC(x) = norm(x .* weight) / sqrt(length(x))
+function nrm2_real(x_flat, ind_comp)
+    Nk = size(C,2)
+    x_unfl = reshape(x_flat, Nk, N_species)
+    x_real = fourier_to_real(x_unfl)
+    x_real_comp = x_real[:,ind_comp]
+    return norm(x_real_comp)
+end
+
+# ---------------------------
+# BifurcationKit setup
+# ---------------------------
+par_full = (diffcoef = DiffCoef,)
+prob = BifurcationProblem(F_flat!, sol0, par_full, (@optic _.diffcoef);
+                           record_from_solution = (x,p; k...) -> (nrmReal=nrm2_real(x,1), nrmFirst=norm(x[1:Int(end/5)]), nrm=norm(x), n∞ = norminf(x[1:Int(end/5)]), sol=x))
+
+opts_br = ContinuationPar(ds=1e-3, dsmax=5e-3, dsmin=1e-5, p_min=int_param[1], p_max=int_param[2], nev=15,
+                          detect_bifurcation=3, max_steps=300)
+
+##############################################################################################################################
+# Automatic Bifurcation diagram
+diagram = @time bifurcationdiagram(prob, PALC(), 2, opts_br, bothside=true; verbosity=1, plot=true)
+plot(diagram; markersize=2, title="Bifurcation diagram (Fourier-cosine)", label="", vars = (:param, :nrmFirst))
 
 
-prob = BifurcationProblem(Fmit!, sol0, par_mit, (@optic _.diffcoef),;
-	J = jacobian,
-	record_from_solution = (x, p; k...) -> (nrm = norm2(x[1:Int(end/5)]), nw = norm2_weighted(x[1:Int(end/5)]), n∞ = norminf(x[1:Int(end/5)]), sol=x),
-	plot_solution = (x, p; k...) -> plot!(x[1:Int(end/5)] ; k...))
-
-int_param = [0.008, 0.03]  # interval of continuation for the diffusion coefficient
-
-# Beispielwerte, anpassbar
-nev_N = 15; # number of eigenvalues to compute
-eig_ncv = min(5*nev_N, 5*Nx*5);   # aber ≤ total dim; choose sensible cap
-eig_ncv = min(eig_ncv, 5*Nx);     # ensure <= Ntot
-# eig_ncv = 40;
-eig_tol = 1e-6;
-eig_maxiter = 2000;
-
-# eigensolver
-eigls = EigArpack(ncv = eig_ncv, tol = eig_tol, maxiter = eig_maxiter); #ncv = eig_ncv, tol = eig_tol, maxiter = eig_maxiter
-# options for Newton solver, we pass the eigen solver
-opt_newton = BK.NewtonPar(tol = 1e-8, verbose = true, eigsolver = eigls, max_iterations = 20);
-
-# options for continuation
-opts_br = ContinuationPar(p_min = int_param[1], p_max = int_param[2],
-	# for a good looking curve
-	dsmin = 1e-4, dsmax = 1e-2, ds = 1e-3,
-	# detect codim 1 bifurcations
-	detect_bifurcation = 3,  # reduziert Kosten
-    # number of eigenvalues to compute
-	nev = nev_N,
-    plot_every_step = 20, 
-	newton_options = (@set opt_newton.verbose = false),
-    max_steps = 200,
-    tol_stability = 1e-6,
-	n_inversion = 6,
-    # Optional: bisection options for locating bifurcations
-    dsmin_bisection = 1e-7, max_bisection_steps = 25, tol_bisection_eigenvalue = 1e-8
-    );
-
-############################################################################################################################
-# Calculating branches one by one.
-
+###############################################################################################################################
 br = continuation(prob, PALC(), opts_br, bothside=true, normC = normC)
 
-all_branches = Array{Branch}(undef, length(br.specialpoint)-2)
+all_branches = Vector{Vector{Branch}}(undef, length(br.specialpoint)-2)
 for (index, point) in pairs(br.specialpoint)
-	@show index
-	@show point.param
-	if index == 1 || index == length(br.specialpoint)
-		# Those are only endpoints of interval for κ and not bifurcations points, so skip them
-		continue
-	end
-	branches = continuation(br, index,
-		setproperties(opts_br), bothside=true ;
-		alg = PALC(),
-		nev = nev_N,
-	)
-	if branches == Branch[]
-		@show "No branches found for index $(index), try smaller ds"
-		branches = continuation(br, index,
-		setproperties(opts_br; ds = 0.00001),
-		bothside=true ;
-		alg = PALC(),
-		nev = nev_N,
-		)
-	end
-	all_branches[index-1] = branches
+    @show index
+    @show point.param
+    if index == 1 || index == length(br.specialpoint)
+        # Those are only endpoints of interval for κ and not bifurcations points, so skip them
+        continue
+    end
+    branches = continuation(br, index,
+        setproperties(opts_br), bothside=true ;
+        alg = PALC(),
+        # nev = 30,
+    )
+    # if branches == Branch[]
+    # 	@show "No branches found for index $(index), try smaller ds"
+    # 	branches = continuation(br, index,
+    # 	setproperties(opts_br; ds = 1e-5),
+    # 	bothside=true ;
+    # 	alg = PALC(),
+    #     nev = 30,
+    # 	)
+    # end
+    # normalize to always be Vector{Branch}
+    if branches === nothing
+        all_branches[index-1] = Branch[]  # empty vector
+    elseif isa(branches, Branch)
+        all_branches[index-1] = [branches]  # wrap single Branch in a vector
+    elseif isa(branches, Vector{Branch})
+        all_branches[index-1] = branches
+    else
+        error("Unexpected return type from continuation: $(typeof(branches))")
+    end
 end
 
-p1 = plot(br)
-for branch in all_branches
-	p1 = plot!(branch)
+# Plot main branch
+p1 = plot(br; vars = (:param, :nrmFirst))
+
+# Plot all secondary branches
+for branch_vector in all_branches      # each element is Vector{Branch}
+    for branch in branch_vector        # iterate individual Branch objects
+        plot!(p1, branch; vars = (:param, :nrmFirst))
+    end
 end
 display(p1)
 
-# Use weighted norm for plotting to see different branches due to the symmetry breaking
-p2 = plot(br; vars = (:param, :nw), title = "Weighted norm")
-for branch in all_branches
-	p2 = plot!(branch; vars = (:param, :nw))
-end
-plot(p1, p2)
-
-p2 = plot(br; vars = (:param, :n∞), title = "supremum norm")
-for branch in all_branches
-	p2 = plot!(branch; vars = (:param, :n∞))
-end
-plot(p1, p2)
-
-######################################################################################################################
-# One can also use bifurcationdiagram() to compute the bifurcation diagram automatically and then by hand the missing branches.
-# automatic bifurcation diagram computation
-diagram = @time bifurcationdiagram(prob, PALC(),
-	# very important parameter. This specifies the maximum amount of recursion
-	# when computing the bifurcation diagram. It means we allow computing branches of branches
-	# at most in the present case.
-	2,
-	opts_br, bothside=true;
-    verbosity = 0, plot = true,
-    # callback_newton = cb,
-	usedeflation = false,
-	# finalise_solution = finSol,
-	normC = norminf
-	)
-p4 = plot(diagram; plotfold = false, putspecialptlegend=false, markersize = 2, title = "#branches = $(size(diagram))", label="")
-# ylims!(p4, 0, 5)  # Specify the y-axis limits for the plot
-
-# If some branch in automatic bifurcation diagram is not computed, we can compute it by hand
-# (1 = endpoint; 2,... = bifurcation points; length(diagram.γ.specialpoint) = endpoint):
-br_missing = continuation(diagram.γ, 3,
-		setproperties(opts_br; detect_bifurcation = 3, ds = 0.001, p_min = int_param[1], p_max = int_param[2]), bothside=true ;
-		alg = PALC(),
-		normC = norminf,
-		nev = nev_N,
-		)
-plot!(p4, br_missing)
-
-# Continue already computed bifurcation diagram:
-bifurcationdiagram!(prob,
-	# this improves the first branch on the red? curve. Note that
-	# for symmetry reasons, the first bifurcation point
-	# has ? branches
-	get_branch(diagram, (2,)), 3, opts_br;
-	verbosity = 0, plot = true,
-	# callback_newton = cb,
-	# finalise_solution = finSol,
-	usedeflation = true,
-	normC = norminf)
-
-# Plot the bifurcation diagram with weighted norm to see different branches	due to the symmetry breaking
-p5 = plot(diagram; putspecialptlegend=false, markersize=2, vars = (:param, :nw), label="",
-		  title = "Plot with with weighted norm, #branches = $(size(diagram))")
-# Plot the bifurcation diagram with supremum norm
-p6 = plot(diagram; putspecialptlegend=false, markersize=2, vars = (:param, :n∞), label="",
-		  title = "Plot with with supremum norm, #branches = $(size(diagram))")
-
-######################################################################################################################
