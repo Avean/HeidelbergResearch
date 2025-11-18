@@ -1,6 +1,6 @@
 # Choose a model by selecting a folder
 
-ModelName = "HydraDietmar";
+ModelName = "HydraMoritz";
 # ModelName = "Test1";
 # ModelName = "GiereMeinhardt";
 # ModelName = "ReceptorBased";
@@ -10,6 +10,7 @@ ModelName = "HydraDietmar";
 ######
 
 includet("Models/"*ModelName*"/"*ModelName*"Modules.jl")
+include("Models/"*ModelName*"/"*ModelName*"Variables.jl")
 
 ######
 ###### Solvers File
@@ -17,6 +18,12 @@ includet("Models/"*ModelName*"/"*ModelName*"Modules.jl")
 
 includet("DiffusionMatrices.jl")
 includet("SolverSteps.jl")
-includet("AsynViewer.jl")
+
+######
+###### Viewer File
+######
+
+includet("Models/"*ModelName*"/"*ModelName*"AsynViewer.jl")
+
 
 

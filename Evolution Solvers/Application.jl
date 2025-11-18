@@ -4,15 +4,11 @@ using LinearSolve
 using SparseArrays
 # using Plots
 
-# using Distributed
-# addprocs(1)  # dodaj jeden proces roboczy do obsługi viewer'a
-
 using Base.Threads
 
 # using PyCall
 
 includet("FilesImport.jl")
-include("Parametry.jl")
 
 using .Solvers
 using .Sets
@@ -21,30 +17,30 @@ using .Viewer
 
 # server_task =  Solvers.snapshot_server!()
 
-XVars = Viewer.setup_viewer2Graphs(ParameterSet,dt);
+XVars = Viewer.setup_viewer();
 
+# XVars = Viewer.setup_viewer2Graphs(ParameterSet,dt);
 # XVars = Viewer.setup_viewer3Graphs(ParameterSet,dt);
 # XVars = Viewer.setup_viewer(ParameterSet,dt);
 
 
-
 @async begin
-    Viewer.viewer_loop!(ParameterSet, XVars)
+    Viewer.viewer_loop!(XVars)
 end
 
 # include("Parametry.jl")
 
-Viewer.stop_simulation!(XVars, dt)
+Viewer.stop_simulation!(XVars)
 
 sim_task = Threads.@spawn Solvers.run_simulation!(
     InitialConditions,
-    ParameterSet,
     Scheme,
     BoundaryConditions,
     Order,
-    dt,
     NonlinearityFunction
     )
+
+
 
 
 SharedState.pause_simulation[] = true

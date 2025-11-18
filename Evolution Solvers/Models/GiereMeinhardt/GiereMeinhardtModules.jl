@@ -27,7 +27,7 @@ module Struktury
 end
 
 module SimParam
-    N = 100; # Number of discretization points
+    N = 1000; # Number of discretization points
     dt = 0.1; # Time step
     L = 1; # Domain size
     dx = L/N; # Spatial step
@@ -48,7 +48,7 @@ module  Nonlinearity
     # Different Variants of Nonlinearities
 
     #Variant 1
-    function N1(Par::Parameters,Var::VariablesVector) 
+    function N1(Par::Parameters,Var::VariablesVector, t::Float64) 
         return VariablesVector(
                                 Var.u.^2 ./ (Var.v .+ Par.Coef.a) - Par.Coef.b .* Var.u, 
                                 Var.u.^2 - Par.Coef.c * Var.v

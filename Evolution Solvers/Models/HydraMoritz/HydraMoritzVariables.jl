@@ -1,6 +1,7 @@
+using ..Struktury
+using ..SimParam
+using .Sets
 
-include("Models/"*ModelName*"/"*ModelName*"Variables.jl")
-includet("Models/"*ModelName*"/"*ModelName*"Modules.jl")
 
 ######
 ###### Choose one of the following schemes
@@ -28,17 +29,13 @@ BoundaryConditions = "Neumann";
 Order = "8";
 
 ######
+###### Choosing Nonlinearity
 ######
+
+NonlinearityFunction = "Nonlinearity 1"; # Classical model
+
+######
+###### Initial conditions and parameters
 ######
 
-
-InitialConditions = VIni;
-# InitialConditions = Sets.VIniTower;
-# InitialConditions = Sets.CstStableTower(5.1, [0.5, 0.51]);
-# InitialConditions = Sets.CstStableTowerRandom(5.0, [0.0, 1.0]);
-# InitialConditions = Sets.CstStableMediumCstPerturb
-
-
-ParameterSet = Set;
-# ParameterSet = Sets.SetL2;
-# ParameterSet = Sets.CstStable;
+InitialConditions = Sets.IniCst

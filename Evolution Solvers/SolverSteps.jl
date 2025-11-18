@@ -19,6 +19,7 @@ module Solvers
     using ..Dictionaries
     using ..DiffMat
     using ..SharedState
+    using ..Sets
     
     # using Plots
 
@@ -140,25 +141,23 @@ module Solvers
     # end
 
     function run_simulation!(U0::VariablesVector,
-                         Par::Parameters,
                          Scheme::String,
                          BC::String,
                          Order::String,
-                         dt::Float64,
                          Nonlinearity::String)
 
         # --- inicjalizacja pól ---
         Fields    = fieldnames(VariablesVector)
         NFields   = 1:length(Fields)
 
-        U1a = U0
-        U1b = U0
+        U1a = Sets.Ini
+        U1b = Sets.Ini
         t   = 0.0
         V1  = [0.0]
 
         # --- przygotowanie funkcji kroku czasowego ---
         SchemeF, DiffMat, FNonlinear =
-            Choice(Scheme, BC, Order, Par, dt, Nonlinearity)
+            Choice(Scheme, BC, Order, Sets.Par, SimParam.dt, Nonlinearity)
 
         # --- główna pętla symulacji ---
         SharedState.stop_simulation[] = false
@@ -170,13 +169,13 @@ module Solvers
             end
             t1 = time()    
             # krok czasowy
-            t += dt
-            U1b = FNonlinear(Par, U1a, t)
+            t += SimParam.dt
+            U1b = FNonlinear(Sets.Par, U1a, t)
             U1a = VariablesVector(map(h ->
                 SchemeF(getfield(U1a, Fields[h]),
                         DiffMat[h],
                         getfield(U1b, Fields[h]),
-                        dt),
+                        SimParam.dt),
                 NFields)...)
 
             # zapisz np. wariancję jako prosty przykład obserwacji
