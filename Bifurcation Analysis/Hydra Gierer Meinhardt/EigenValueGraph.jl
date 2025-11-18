@@ -76,7 +76,7 @@ for k in 1:14
         markerstrokewidth = 0,
         color = pCol[k],
         label = "k = $(k-1)",
-        # xscale = :log10
+        xscale = :log10
 
     )
 end
