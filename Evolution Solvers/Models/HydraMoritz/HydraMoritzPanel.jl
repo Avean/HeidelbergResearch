@@ -25,6 +25,7 @@ module Panel
     using ..WindowCreator
     using ..Struktury
     using ..Sets
+    using ..Solvers
 
     export ResetPanel
 
@@ -57,6 +58,7 @@ module Panel
         on(SL[i].value) do x
             LTit[i].text[] = @sprintf("Diffusion %s = %0.3g", string(fieldnames(Diffusions)[i]), SL[i].value[])
             setfield!(Sets.Par.Diff,i,SL[i].value[])
+            Solvers.UpdateDiffMatrix()
         end
 
         TBmin[i] = Textbox(F[2+4*(i-1),1], placeholder = "Min")

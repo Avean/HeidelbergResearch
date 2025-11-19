@@ -38,6 +38,10 @@ module Solvers
     export Iteration
 
     const last_snapshot = Ref{Any}(nothing)
+    global DiffMat = undef
+    global BC = undef
+    global Order = undef
+    global Type = undef
 
     # Solvers
     function ExpliciteEuler(U::Vector{Float64}, DiffMat::DiffusionMat, FU::Vector{Float64}, dt::Float64)
@@ -52,11 +56,8 @@ module Solvers
         return DiffMat.Fun.Full'*((DiffMat.Fun.Trunc*(U + dt .* FU)).*DiffMat.Eig);
     end
 
-    function Choice(Scheme::String, BC::String, Order::String, Par::Parameters, dt::Float64, NonFun::String)
-        Type = BC*" "*Order;
-        DiffMat = CreateDiffMatrix(Par.Diff, DictLaplace[Type], DictSinCosFun[BC], DictSinCosEig[BC], dt);
-
-
+    function Choice(Scheme::String, BC::String, Order::String, NonFun::String)
+        
         if Scheme == "ExpliciteEuler"
             SchemeF = ExpliciteEuler;
         elseif Scheme == "IMEX"
@@ -67,10 +68,13 @@ module Solvers
             error("Wrong Scheme");
         end
         f = NonlinearityFunction[NonFun];
-        return SchemeF, DiffMat, f
+        return SchemeF, f
     end
 
-
+    function UpdateDiffMatrix()
+        Solvers.DiffMat = CreateDiffMatrix(Sets.Par.Diff, DictLaplace[Solvers.Type], DictSinCosFun[Solvers.BC], DictSinCosEig[Solvers.BC], SimParam.dt);
+        println("Diffusion matrix updated")
+    end
 
     function run_simulation!(U0::VariablesVector,
                          Scheme::String,
@@ -78,7 +82,13 @@ module Solvers
                          Order::String,
                          Nonlinearity::String)
 
-        # --- inicjalizacja pól ---
+        # Globalisation in module
+        
+        Solvers.BC = BC;
+        Solvers.Order = Order;
+        Solvers.Type = BC*" "*Order;
+
+        # --- Initialisation ---
         Fields    = fieldnames(VariablesVector)
         NFields   = 1:length(Fields)
 
@@ -87,11 +97,16 @@ module Solvers
         t   = 0.0
         V1  = [0.0]
 
-        # --- przygotowanie funkcji kroku czasowego ---
-        SchemeF, DiffMat, FNonlinear =
-            Choice(Scheme, BC, Order, Sets.Par, SimParam.dt, Nonlinearity)
+        t1 = time()
+        # --- Preparing time step functions ---
+        SchemeF, FNonlinear = Choice(Scheme, BC, Order, Nonlinearity);
+        
+        
+        UpdateDiffMatrix()
 
-        # --- główna pętla symulacji ---
+        println( time() - t1)
+        
+        # --- Main Simulation loop ---
         SharedState.stop_simulation[] = false
         while !SharedState.stop_simulation[]
             
@@ -105,7 +120,7 @@ module Solvers
             U1b = FNonlinear(Sets.Par, U1a, t)
             U1a = VariablesVector(map(h ->
                 SchemeF(getfield(U1a, Fields[h]),
-                        DiffMat[h],
+                        Solvers.DiffMat[h],
                         getfield(U1b, Fields[h]),
                         SimParam.dt),
                 NFields)...)
