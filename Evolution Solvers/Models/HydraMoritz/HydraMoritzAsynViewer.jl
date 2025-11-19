@@ -14,6 +14,7 @@ using ..SimParam          # dla L, N
 using ..Struktury         # dla VariablesVector
 using ..SharedState       # dla latest_state
 using ..Nonlinearity
+using ..WindowCreator
 
 # export run_viewer
 export setup_viewer
@@ -73,7 +74,7 @@ export stop_simulation!
         ttv   = Observable(tval)
 
         fig = Figure(title = "Hydra", resolution = (1020, 780))
-        display(fig)
+        WindowCreator.show_fig!(WindowCreator.screen1, fig)
 
         Ω = range(0, SimParam.L, SimParam.N)
         Names = ["Morphogen Concentration u", "v"]

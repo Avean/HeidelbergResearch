@@ -23,7 +23,7 @@ includet("SolverSteps.jl")
 ###### Viewer File
 ######
 
+includet("Models/"*ModelName*"/"*ModelName*"Panel.jl")
 includet("Models/"*ModelName*"/"*ModelName*"AsynViewer.jl")
-
 
 
