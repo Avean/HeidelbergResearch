@@ -6,7 +6,16 @@ using SparseArrays
 
 using Base.Threads
 
-# using PyCall
+# Choose a model by selecting a folder
+
+# ModelName = "HydraMoritz";
+# ModelName = "HydraMoritz4eqA";
+ModelName = "HydraMoritz4eqB";
+# ModelName = "Test1";
+# ModelName = "GiereMeinhardt";
+# ModelName = "ReceptorBased";
+
+
 
 includet("FilesImport.jl")
 
@@ -20,9 +29,6 @@ using .Panel
 
 XVars = Viewer.setup_viewer();
 
-# XVars = Viewer.setup_viewer2Graphs(ParameterSet,dt);
-# XVars = Viewer.setup_viewer3Graphs(ParameterSet,dt);
-# XVars = Viewer.setup_viewer(ParameterSet,dt);
 
 
 @async begin

@@ -1,9 +1,3 @@
-# Choose a model by selecting a folder
-
-ModelName = "HydraMoritz";
-# ModelName = "Test1";
-# ModelName = "GiereMeinhardt";
-# ModelName = "ReceptorBased";
 
 ######
 ###### Include the model files
