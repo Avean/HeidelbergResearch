@@ -6,6 +6,7 @@ includet("ParametersAlexey.jl")
 
 using LinearAlgebra
 using Plots
+using Statistics
 using .SymbolicJacobian
 
 
@@ -85,11 +86,17 @@ ylims!(p,-0.0002,0.0002)
 display(p)
 
 
+
 mask = (-0.00001 .<yA .<0.00001)
 yA1 = yA[mask]
 xA1 = xA[mask]
 Colors1 = Colors[mask]
 scatter(Colors1,xA1,legend = false)
+
+for i in unique(Colors1)
+    println("Eigenode = ",i-1,"    Parameter = ", mean(xA1[Colors1.==i]),",")
+end
+1
 
 ##################################
 

@@ -49,7 +49,8 @@ end
 
 module  Nonlinearity
     using ..Struktury
-    using  ..SimParam
+    using ..SimParam
+
     using Statistics
 
     export ApplyLaplacian, NonlinearityFunction
@@ -101,6 +102,7 @@ module Sets
 
     import Base: +
 
+
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
 
 
@@ -138,12 +140,12 @@ module Sets
                       ]
 
     IniCstPerturbedPlus = [ # Initial conditions plus small positive perturbation with amplitude (ℓ) 
-                        IniCst + PerturbationRandom(0.1 ),
-                        IniCst + PerturbationRandom(0.3 ),
-                        IniCst + PerturbationRandom(0.7 ),
-                        IniCst + PerturbationRandom(1.0 ),
-                        IniCst + PerturbationRandom(3.0 ),
-                        IniCst + PerturbationRandom(10.0)
+                        IniCst + PerturbationRandomPlus(0.1 ),
+                        IniCst + PerturbationRandomPlus(0.3 ),
+                        IniCst + PerturbationRandomPlus(0.7 ),
+                        IniCst + PerturbationRandomPlus(1.0 ),
+                        IniCst + PerturbationRandomPlus(3.0 ),
+                        IniCst + PerturbationRandomPlus(10.0)
                       ]
 
 
@@ -154,6 +156,61 @@ module Sets
     function ResetParameters()
         Sets.Par = Parameters(Diffusions(ν...), Coefficients(β...));
     end
+
+    module BifurcationData
+
+        # Diffusion D1
+        Points1 = [-1.0, -2.0]
+        Names1  = ["None", "None"]
+
+        # Diffusion D2
+        Points2 = [-1.0, -2.0]
+        Names2  = ["None", "None"]
+
+        # Diffusion D3
+        Points3 =  [0.2293785273446237,
+                    0.059382234216194964,
+                    0.02798014294696052,
+                    0.024417478811185705,
+                    0.01709111203812855,
+                    0.012127980331701014,
+                    0.01218027032451639,
+                    0.008037488359830284,
+                    0.008393357199030657,
+                    0.009090430311661239,
+                    0.009678553929661908,
+                    0.00788018152705223]
+
+
+        Names3  =  ["k1",
+                    "k2",
+                    "k3",
+                    "k12",
+                    "k4",
+                    "k11",
+                    "k5",
+                    "k9",
+                    "k7",
+                    "k10",
+                    "k6",
+                    "k8"]
+
+        # Diffusion D4
+        Points4 = [-1.0, -2.0]
+        Names4  = ["None", "None"]
+
+        # Diffusion D5
+        Points5 = [-1.0, -2.0]
+        Names5  = ["None", "None"]
+
+        # Vectors
+        PointsX = [Points1, Points2, Points3, Points4, Points5]
+        Points0 = [zeros(length(x)) for x in PointsX]
+        Names  = [Names1,  Names2,  Names3,  Names4,  Names5]
+
+    end
+
+    using .BifurcationData
 end
 
 

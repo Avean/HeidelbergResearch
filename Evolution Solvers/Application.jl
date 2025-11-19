@@ -14,6 +14,7 @@ using .Solvers
 using .Sets
 using .Extractor
 using .Viewer
+using .Panel
 
 # server_task =  Solvers.snapshot_server!()
 

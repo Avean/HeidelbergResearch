@@ -72,74 +72,6 @@ module Solvers
 
 
 
-    #Choosing Solver and parameters
-    
-    # function Iteration(U0::VariablesVector,  Par::Parameters, T::Float64, Scheme::String, BC::String, Order::String, dt::Float64, Nonlinearity::String)
-        
-    #     Fields = fieldnames(VariablesVector)
-    #     FieldsNum = length(Fields);
-    #     NFields = 1:FieldsNum
-
-    #     sleep(1)
-    #     U1a = U0;
-    #     U1b = U0;
-
-    #     t = 0.0;
-    #     V1 = [0.0]
-
-        
-    #     # GL Makie        
-    #     # UObs, V1Obs, tt = DynamicPlotGLMakie(U1a, V1, t)
-
-    #     SchemeF, DiffMat, FNonlinear = Choice(Scheme,BC,Order,Par,dt, Nonlinearity);
-    
-    #     while t < T
-    #         t1 = time()    
-    #             t = t + dt;
-    #             U1b = FNonlinear(Par,U1a,t);
-    #             U1a = VariablesVector(map(h -> 
-    #                                     SchemeF(getfield(U1a,Fields[h]), 
-    #                                             DiffMat[h],
-    #                                             getfield(U1b,Fields[h]), 
-    #                                             dt), 
-    #                                     NFields)...);
-
-    #         push!(V1, var(U1a.u))
-
-    #                 # --- obsługa prośby o klatkę ---
-    #         if SharedState.request_frame[]
-    #             # kopiujemy snapshot żeby viewer dostał stabilne dane
-    #             SharedState.frame_buffer[] = (deepcopy(U1a), deepcopy(V1), t)
-
-    #             # sygnał "gotowe"
-    #             SharedState.request_frame[] = false
-    #         end
-
-    #         # GL Makie
-    #         # UObs[] = U1a
-    #         # V1Obs[]=V1
-    #         # tt[] = t
-
-            
-    #         # display(typeof(SharedState.latest_state))
-    #         # spróbuj wyczyścić kanał, jeśli coś tam jeszcze siedzi
-    #         # if isready(SharedState.latest_state)
-    #             # take!(SharedState.latest_state)
-    #         # end
-    #         # teraz włóż najnowszy stan
-    #         # put!(SharedState.latest_state, (U1a, V1, t))
-            
-    #         # V1Obs=push!(V1, var(U1a.u))
-    #         # DynamicPlotGR(U1a, t, FieldsNum, Fields, V1Obs);
-            
-    #         display(time()-t1)
-    #         # display("t = $(Printf.@sprintf("%0.1e",t))")    
-            
-    #     end
-
-    #     return U1a;
-    # end
-
     function run_simulation!(U0::VariablesVector,
                          Scheme::String,
                          BC::String,
@@ -150,8 +82,8 @@ module Solvers
         Fields    = fieldnames(VariablesVector)
         NFields   = 1:length(Fields)
 
-        U1a = Sets.Ini
-        U1b = Sets.Ini
+        U1a = U0
+        U1b = U0
         t   = 0.0
         V1  = [0.0]
 

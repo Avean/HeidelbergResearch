@@ -38,4 +38,4 @@ NonlinearityFunction = "Nonlinearity 1"; # Classical model
 ###### Initial conditions and parameters
 ######
 
-InitialConditions = Sets.IniCst
+InitialConditions = Sets.IniCstPerturbed[1]

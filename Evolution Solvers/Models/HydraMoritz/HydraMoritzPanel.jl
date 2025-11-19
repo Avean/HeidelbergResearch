@@ -23,6 +23,10 @@ module Panel
     using GLMakie
     using Printf
     using ..WindowCreator
+    using ..Struktury
+    using ..Sets
+
+    export ResetPanel
 
     #######
     ####### Windows creation 
@@ -32,78 +36,103 @@ module Panel
     WindowCreator.show_fig!(WindowCreator.screen2, F)
 
     Base.@kwdef mutable struct Bounds
-        min::Float64 = 0.0
-        max::Float64 = 1.0
+        min::Float64
+        max::Float64
     end
 
-    # Slider
-    Bν3 = Bounds()
+    BmM = Vector(undef,fieldcount(Diffusions))    # Bound min max
+    SL = Vector(undef,fieldcount(Diffusions))     # Slider
+    LTit = Vector(undef,fieldcount(Diffusions))   # Title with caption
+    TBmin = Vector(undef,fieldcount(Diffusions))  # Textbox min
+    TBmax = Vector(undef,fieldcount(Diffusions))  # Textbox max
+    AX = Vector(undef,fieldcount(Diffusions))     # Axis Vector
 
-    Sν3 =  Slider(F[2, 2], range = range(Bν3.min,Bν3.max,1000), startvalue = 0.5, width = Width)
-    Lν3 = Label(F[1,2], @sprintf("Diffusion ν3 = %0.3f", Sν3.value[]))
+    for i in 1:fieldcount(Diffusions)
 
-    on(Sν3.value) do x
-        # println("Slider moved to $(x)")
-        Lν3.text[] = @sprintf("Diffusion ν3 = %0.3f", Sν3.value[])
+        BmM[i] = Bounds(0.0, 2*getfield(Sets.Par.Diff,i)+1e-6)
+
+        SL[i] =  Slider(F[2+4*(i-1), 2], range = range(BmM[i].min, BmM[i].max, 1000), startvalue = getfield(Sets.Par.Diff,i), width = Width)
+        LTit[i] = Label(F[1+4*(i-1),2], @sprintf("Diffusion %s = %0.3g", string(fieldnames(Diffusions)[i]),SL[i].value[]))
+
+        on(SL[i].value) do x
+            LTit[i].text[] = @sprintf("Diffusion %s = %0.3g", string(fieldnames(Diffusions)[i]), SL[i].value[])
+            setfield!(Sets.Par.Diff,i,SL[i].value[])
+        end
+
+        TBmin[i] = Textbox(F[2+4*(i-1),1], placeholder = "Min")
+        TBmax[i] = Textbox(F[2+4*(i-1),3], placeholder = "Max")
+
+        TBmin[i].displayed_string[] = string(BmM[i].min)
+        TBmax[i].displayed_string[] = string(BmM[i].max)
+
+        AX[i] = Axis(F[3+4*(i-1),2], width = Width, height = 20,     
+                    spinewidth = 0,           # usuwa ramkę
+                    xticksvisible = false,
+                    yticksvisible = false,
+                    xticklabelsvisible = false,
+                    yticklabelsvisible = false
+                    )
+                    
+        on(TBmin[i].stored_string) do x
+            try 
+                BmM[i].min = parse(Float64,x)
+
+                xlims!(AX[i], BmM[i].min, BmM[i].max)
+                SL[i].range[] = range(BmM[i].min, BmM[i].max, 1000)
+                    
+                if SL[i].value[] < BmM[i].min
+                    set_close_to!(SL[i], BmM[i].min)
+                end
+            catch e
+                display(BmM[i].min)
+                @warn "Wrong number in TBmin: $x" exception = e
+            end
+        end    
+
+        on(TBmax[i].stored_string) do x
+            try 
+                BmM[i].max = parse(Float64,x)
+
+                xlims!(AX[i], BmM[i].min, BmM[i].max)
+                SL[i].range[] = range(BmM[i].min, BmM[i].max, 1000)
+                    
+                if SL[i].value[] > BmM[i].max
+                    set_close_to!(SL[i], BmM[i].max)
+                end
+            catch e
+                display(BmM[i].max)
+                @warn "Wrong number in TBmax: $x" exception = e
+            end
+        end    
+                    
+        xlims!(AX[i], BmM[i].min, BmM[i].max)
+        
+        
+        for (x, y, label) in zip(Sets.BifurcationData.PointsX[i], Sets.BifurcationData.Points0[i].-0.05, Sets.BifurcationData.Names[i])
+            text!(AX[i], label, position = (x, y), align = (:left, :center))
+        end
+        scatter!(AX[i], Sets.BifurcationData.PointsX[i],Sets.BifurcationData.Points0[i])    
+        ylims!(AX[i], -0.1, 0.1)
     end
 
-    BTν3Min = Textbox(F[2,1], placeholder = "Min")
-    BTν3Max = Textbox(F[2,3], placeholder = "Max")
 
-    BTν3Min.displayed_string[] = string(Bν3.min)
-    BTν3Max.displayed_string[] = string(Bν3.max)
-
-    BAν3 = Axis(F[3,2], width = Width, height = 20,     
-                spinewidth = 0,           # usuwa ramkę
-                xticksvisible = false,
-                yticksvisible = false,
-                xticklabelsvisible = false,
-                yticklabelsvisible = false
-                )
-
-
-
-                
-    on(BTν3Min.stored_string) do x
-        try 
-            Bν3.min = parse(Float64,x)
-
-            xlims!(BAν3, Bν3.min, Bν3.max)
-            Sν3.range = range(Bν3.min, Bν3.max, 1000)
-                
-            if Sν3.value[] < Bν3.min
-                Sν3.value[] = Bν3.min
-            end
-        catch e
-            display(Bν3.min)
-            @warn "Wrong number in BTν3Min: $x" exception = e
+    function ResetPanel()
+        Sets.ResetParameters()
+        
+        for i in 1:fieldcount(Diffusions)
+                   
+            BmM[i] = Bounds(0.0, 2*getfield(Sets.Par.Diff,i)+1e-6)
+            SL[i].range[] = range(BmM[i].min, BmM[i].max, 1000)
+            
+            Sets.ResetParameters()
+            
+            TBmin[i].displayed_string[] = string(BmM[i].min)
+            TBmax[i].displayed_string[] = string(BmM[i].max)
+            
+            set_close_to!(SL[i], getfield(Sets.Par.Diff,i))
+            
+            xlims!(AX[i], BmM[i].min, BmM[i].max)
         end
-    end    
-
-    on(BTν3Max.stored_string) do x
-        try 
-            Bν3.max = parse(Float64,x)
-
-            xlims!(BAν3, Bν3.min, Bν3.max)
-            Sν3.range = range(Bν3.min, Bν3.max, 1000)
-                
-            if Sν3.value[] > Bν3.max
-                Sν3.value[] = Bν3.max
-            end
-        catch e
-            display(Bν3.max)
-            @warn "Wrong number in BTν3Max: $x" exception = e
-        end
-    end    
-
-
-                
-    BSν3 = scatter!(BAν3, [0.0, 0.1, 0.3, 0.5], [0.0, 0.0, 0.0, 0.0])
-    xlims!(BAν3, Bν3.min, Bν3.max)
-    ylims!(BAν3, -0.1, 0.1)
-
-    
-    for (x, y, label) in zip([0.0, 0.1, 0.3, 0.5], [0.0, 0.0, 0.0, 0.0].-0.05, ["A", "B", "C", "D"])
-        text!(BAν3, label, position = (x, y), align = (:left, :center))
-    end    
+    end
 end
+
