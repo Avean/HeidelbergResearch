@@ -33,6 +33,7 @@ using .SymbolicJacobian
 
 ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
 β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
+# β2 = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
 
 # Var = Variables([1.0; 2.0],[1.0; 2.0],[1.0; 2.0],[1.0; 2.0],[1.0; 2.0])
 # Var = Variables(1.0,1.0,1.0,1.0,1.0)
@@ -79,6 +80,12 @@ Structures.StructPrint(Structures.Vec2Str(XsSymbolic.zero))
 ZeroSol = [0.0; β[1]; 0.0; 0.0; 0.0];
 @load "Points.jld2" A
 
+    Eig1 = []
+    for k in K
+        EigVal = eigvals(JacNonlinearity(Var0,β) - Diagonal(ν) .*k^2.0.*π^2)
+        Eig1 = [Eig1; maximum(real(EigVal))]
+        # Eig0 = [Eig0; real.(EigVal[argmax((real.(EigVal)))])]
+    end
 
 # display(norm(FunNonlinearity(B, β)))
 

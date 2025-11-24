@@ -5,6 +5,7 @@ includet("Symbolics.jl")
 includet("ParametersAlexey.jl")
 
 using LinearAlgebra
+using Printf
 using Plots
 using Statistics
 using .SymbolicJacobian
@@ -91,7 +92,17 @@ mask = (-0.00001 .<yA .<0.00001)
 yA1 = yA[mask]
 xA1 = xA[mask]
 Colors1 = Colors[mask]
-scatter(Colors1,xA1,legend = false)
+p = scatter(Colors1.-1,xA1,legend = false)
+ylabel!("Diffusion ν3")
+xlabel!("Eigenmode number")
+xlims!(0,13)
+xticks!(0:12,string.(0:12))
+ylims!(0.0,0.25)
+
+vals = 0:0.025:0.25
+labels = [@sprintf("%.3f", v) for v in vals]
+
+yticks!(0:0.025:0.25,labels)
 
 for i in unique(Colors1)
     println("Eigenode = ",i-1,"    Parameter = ", mean(xA1[Colors1.==i]),",")

@@ -10,7 +10,9 @@ using Base.Threads
 
 # ModelName = "HydraMoritz";
 # ModelName = "HydraMoritz4eqA";
-ModelName = "HydraMoritz4eqB";
+# ModelName = "HydraMoritz4eqB";
+# ModelName = "HydraMoritz4eqC";
+ModelName = "HydraMoritz4eqD";
 # ModelName = "Test1";
 # ModelName = "GiereMeinhardt";
 # ModelName = "ReceptorBased";

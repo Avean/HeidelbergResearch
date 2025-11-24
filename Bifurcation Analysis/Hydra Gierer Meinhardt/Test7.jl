@@ -51,3 +51,13 @@ br = continuation(prob, PALC(), opts_br;
 	bothside = true)
 
 scene = plot(br, legend=:topleft)
+
+
+
+
+t = @async begin
+    while true
+        println(1)
+        sleep(1)
+    end
+end

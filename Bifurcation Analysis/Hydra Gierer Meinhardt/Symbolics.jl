@@ -12,6 +12,7 @@ module SymbolicJacobian
     F1 = β6 *SD / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
     F2 = β1 / (1+ β4 * WntLoc) - DkkA
     F3 = β2 * WntLoc * SD - WntDiff
+    # F3 = β2 * WntLoc + 0.0002 * β2 * SD - WntDiff
     F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
     F5 = WntLoc - SD
 

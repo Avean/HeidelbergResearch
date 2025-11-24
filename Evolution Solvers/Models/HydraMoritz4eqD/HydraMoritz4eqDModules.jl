@@ -60,11 +60,11 @@ module  Nonlinearity
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector, t::Float64) 
         return VariablesVector(
-                                Var.WntLoc  .* Par.Coef.β6 ./ ((1 .+ Var.DkkA).*(1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
+                                Var.SD  .* Par.Coef.β6 ./ ((1 .+ Var.DkkA).*(1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
                                 Par.Coef.β1 ./ (1 .+ Par.Coef.β4 .* Var.WntLoc) .- Var.DkkA,
-                                Par.Coef.β2 .* Var.WntLoc .* Var.WntLoc .- Var.WntDiff,
+                                Par.Coef.β2  .* Var.WntLoc  .- Var.WntDiff,
                                 Var.WntDiff ./ (1 .+ Par.Coef.β5 .* Var.WntLoc) .- Var.DkkC,
-                                -Var.SD,
+                                Var.WntLoc .- Var.SD,
                               );
     end
 
@@ -110,7 +110,7 @@ module Sets
     ν = [0.0, 3.8154e-03, 0.4433, 6.0713e-03, 0.0004];
     β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
 
-    U0 = [0.08167547924306925, 0.54587711524379, 3.6049476660047937, 1.8514050545898464, 0.0];
+    U0 = [0.0026, 1.0317, 1.40926, 1.36789, 0.0026];
 
     function VectorToIni(V::Vector{Float64})
         W = [v .* ones(SimParam.N) for v in V]
@@ -135,8 +135,9 @@ module Sets
     IniCst = VectorToIni(U0)   # Constant initial condition
 
     IniCstPerturbed = [ # Initial conditions plus small pertubation around constant with amplitude (ℓ)
-                        IniCst + PerturbationRandom(0.01),      
-                        IniCst + PerturbationRandom(0.03)
+                        IniCst + PerturbationRandom(0.01),
+                        IniCst + PerturbationRandom(0.03),
+                        IniCst + PerturbationRandom(0.001)      
                       ]
 
     IniCstPerturbedPlus = [ # Initial conditions plus small positive perturbation with amplitude (ℓ) 
@@ -169,28 +170,14 @@ module Sets
 
         # Diffusion D3
         Points3 =  [
-                    0.22795,
-                    0.05823,
-                    0.027201,
-                    0.0167465,
-                    0.012357,
-                    0.0105785,
-                    0.0105435,
-                    0.01299,
-                    0.0265275
+                    2.24378,
+                    1.06801
                 ]
 
 
         Names3  =  [
                     "k1",
-                    "k2",
-                    "k3",
-                    "k4",
-                    "k5",
-                    "k6",
-                    "k7",
-                    "k8",
-                    "k9"
+                    "k2"
                 ]
 
         # Diffusion D4
