@@ -66,14 +66,17 @@ module Panel
             on(SL[i].value) do x
                 LTit[i].text[] = @sprintf("Diffusion %s = %0.3g", string(fieldnames(Diffusions)[i]), SL[i].value[])
                 setfield!(Sets.Par.Diff,i,SL[i].value[])
-                Solvers.UpdateDiffMatrix()
+                # Solvers.UpdateDiffMatrix()
+                for i in 1:fieldcount(Diffusions)
+                    UpdateBiffPlot(i, AX[i], BmM[i], LBif[i])
+                end
             end
 
             TBmin[i] = Textbox(F[3+5*(i-1),1], placeholder = "Min")
             TBmax[i] = Textbox(F[3+5*(i-1),3], placeholder = "Max")
 
-            TBmin[i].displayed_string[] = string(BmM[i].min)
-            TBmax[i].displayed_string[] = string(BmM[i].max)
+            TBmin[i].displayed_string[] = @sprintf("%0.3g",BmM[i].min)
+            TBmax[i].displayed_string[] = @sprintf("%0.3g",BmM[i].max)
 
             AX[i] = Axis(F[4+5*(i-1),2], width = Width, height = 20,     
                         spinewidth = 0,           # usuwa ramkę
@@ -97,6 +100,10 @@ module Panel
                     display(BmM[i].min)
                     @warn "Wrong number in TBmin: $x" exception = e
                 end
+
+                for i in 1:fieldcount(Diffusions)
+                    UpdateBiffPlot(i, AX[i], BmM[i], LBif[i])
+                end
             end    
 
             on(TBmax[i].stored_string) do x
@@ -113,56 +120,59 @@ module Panel
                     display(BmM[i].max)
                     @warn "Wrong number in TBmax: $x" exception = e
                 end
+
+                for i in 1:fieldcount(Diffusions)
+                    UpdateBiffPlot(i, AX[i], BmM[i], LBif[i])
+                end
             end    
                         
             xlims!(AX[i], BmM[i].min, BmM[i].max)
             
             @time begin
-            Ds, Ks, Ls =  UpdateBiffPlot(i, AX[i], BmM[i])
-            
+        
+            LBif[i] = Label(F[2+5*(i-1),2], " ")
 
-            if !isempty(Ds)
-                LBif[i] = Label(F[2+5*(i-1),2], @sprintf("Total number of bifurcation points = %d               [Min %s for %0.3g       Max  %s for %.3g]", Ls, string(Ks[1]), Ds[1],  string(Ks[2]),Ds[2]))
-            else
-                LBif[i] = Label(F[2+5*(i-1),2], "No bifurcation points found")
-            end
+            UpdateBiffPlot(i, AX[i], BmM[i], LBif[i])
+            
             end
         end
     end
 
-    function UpdateBiffPlot(i::Int64, AX::Axis, BM)
+    function UpdateBiffPlot(i::Int64, AX::Axis, BM, LBif)
         Ds, D0, Ks = get_bif_points_linear(i)
 
-        if isempty(Ds)
-            return ([], [], [])
-        end
         
         Kt = "k".*string.(Ks)
         
-        L = length(Ds)
-        DM = [minimum(Ds), maximum(Ds)]
-        DK = [Kt[findmin(Ds)[2]], Kt[findmax(Ds)[2]]]
+        if !isempty(Ds)
+            L = length(Ds)
+            DM = [minimum(Ds), maximum(Ds)]
+            DK = [Kt[findmin(Ds)[2]], Kt[findmax(Ds)[2]]]
 
+            LBif.text[] = @sprintf("Total number of bifurcation points = %d               [Min %s for %0.3g       Max  %s for %.3g]", L, string(DK[1]), DM[1],  string(DK[2]),DM[2])
+        else
+            LBif.text[] = "No bifurcation points found"
+        end
 
         Ds, D0, Kt = FilterBifSet(BM, Ds, D0, Kt)
         
         
+        empty!(AX.scene)
+
         for i in eachindex(Ds)
             text!(AX, Kt[i], position = (Ds[i], .-0.05), align = (:left, :center))
         end
-
         scatter!(AX, Ds, D0)    
         ylims!(AX, -0.1, 0.1)
 
-        println(" ")
 
-        return DM, DK, L   
+
     end
 
     function FilterBifSet(BM, Ds, D0, Kt)
         
         NumberOfBins = 100
-        CapacityPerBin = 2
+        CapacityPerBin = 1
 
         DsBins = [Float64[] for i in 1:NumberOfBins]
         D0Bins = [Float64[] for i in 1:NumberOfBins]
