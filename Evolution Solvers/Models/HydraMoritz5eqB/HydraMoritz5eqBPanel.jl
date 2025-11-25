@@ -66,7 +66,7 @@ module Panel
             on(SL[i].value) do x
                 LTit[i].text[] = @sprintf("Diffusion %s = %0.3g", string(fieldnames(Diffusions)[i]), SL[i].value[])
                 setfield!(Sets.Par.Diff,i,SL[i].value[])
-                # Solvers.UpdateDiffMatrix()
+                Solvers.UpdateDiffMatrix()
                 for i in 1:fieldcount(Diffusions)
                     UpdateBiffPlot(i, AX[i], BmM[i], LBif[i])
                 end
@@ -172,7 +172,7 @@ module Panel
     function FilterBifSet(BM, Ds, D0, Kt)
         
         NumberOfBins = 100
-        CapacityPerBin = 1
+        CapacityPerBin = 10
 
         DsBins = [Float64[] for i in 1:NumberOfBins]
         D0Bins = [Float64[] for i in 1:NumberOfBins]
