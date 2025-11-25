@@ -12,7 +12,7 @@ using Base.Threads
 
 # ModelName = "HydraMoritz5eq";   # Original model with 5 equations   
 # ModelName = "HydraMoritz5eqA";  # Linear WntDiff with SD and WntLoc coupling
-# ModelName = "HydraMoritz5eqB";  # Linear WntDiff with WntLoc coupling only 
+ModelName = "HydraMoritz5eqB";  # Linear WntDiff with WntLoc coupling only 
 # ModelName = "HydraMoritz4eqA";  # 4 equations without SD, original parameters
 # ModelName = "HydraMoritz4eqB";  # 4 equations without SD, changed paramters
 # ModelName = "Test1";
@@ -27,12 +27,13 @@ using .Solvers
 using .Sets
 using .Extractor
 using .Viewer
-using .Panel
+using .Panel: SetPanel, ResetPanel
 
 # server_task =  Solvers.snapshot_server!()
 
-XVars = Viewer.setup_viewer();
+@time SetPanel()
 
+XVars = Viewer.setup_viewer();
 
 
 @async begin
@@ -44,7 +45,7 @@ end
 Viewer.stop_simulation!(XVars)
 
 sim_task = Threads.@spawn Solvers.run_simulation!(
-    InitialConditions,
+    Sets.Ini,
     Scheme,
     BoundaryConditions,
     Order,

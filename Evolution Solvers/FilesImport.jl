@@ -12,6 +12,7 @@ include("Models/"*ModelName*"/"*ModelName*"Variables.jl")
 
 includet("DiffusionMatrices.jl")
 includet("SolverSteps.jl")
+includet("BiffurcationPointsCompute.jl")
 
 ######
 ###### Viewer File

@@ -15,6 +15,7 @@ using ..Struktury         # dla VariablesVector
 using ..SharedState       # dla latest_state
 using ..Nonlinearity
 using ..WindowCreator
+using ..Sets
 
 # export run_viewer
 export setup_viewer
@@ -31,7 +32,7 @@ export stop_simulation!
         tval[1:end] .= 0.0
         V10[1:end] .= 0.0
         tdom[1:end] .= 0.0
-        U0  = VariablesVector([zeros(SimParam.N) for i in 1:fieldcount(VariablesVector)]...)
+        U0  = Sets.Ini
 
         for i in 1:capacity(tdom)
             tdom[i] = (i-capacity(tdom))*dt
@@ -55,7 +56,7 @@ export stop_simulation!
 
     function setup_viewer()
 
-        U0  = VariablesVector([zeros(SimParam.N) for i in 1:fieldcount(VariablesVector)]...)  # <- dostosuj do swoich pól
+        U0  = Sets.Ini  
         THistory = 50; 
 
         tdom = CircularBuffer{Float64}(Int(floor(THistory*fps)))
@@ -91,6 +92,7 @@ export stop_simulation!
                     ylabel = "Concentration")
 
             lines!(ax[i], Ω, Xi)
+            lines!(ax[i], Ω, getfield(Sets.Ini,i), color = :red, linestyle = :dash)
 
             let ax_local = ax[i],
                 X_local  = Xi,
