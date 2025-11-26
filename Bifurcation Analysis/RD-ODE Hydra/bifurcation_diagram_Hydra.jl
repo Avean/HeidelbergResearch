@@ -7,15 +7,16 @@ const BK = BifurcationKit
 # Parameters
 beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
 nu   = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004]; #0.0004
-DiffCoef = 0.002;            # start diffusion for bifurcation parameter
+nu2  = [0.0, 0.006980161761761762, 0.4433, 0.0010765240580580579, 0.004522162162162163];
+DiffCoef = 0.2;            # start diffusion for bifurcation parameter
 N_species = 5;
-int_param = [0.001, 0.01];    # Interval in which we consider bifurcation parameter
-bif_param = 5;              # Number of diffusion which is used as bifurcation parameter
+int_param = [0.05, 5.0];    # Interval in which we consider bifurcation parameter
+bif_param = 3;              # Number of diffusion which is used as bifurcation parameter
 
 # Grid
 L = 1.0;
-N_fourier = 20;                 # number of Fourier modes
-Nx = 50;               # number of collocation points for nonlinearities
+N_fourier = 25;                 # number of Fourier modes
+Nx = 1000;               # number of collocation points for nonlinearities
 x = range(0, stop=L, length=Nx);  # x_n = (n-1)/(N-1) for n=1, ..., N
 
 # Laplace operator in Fourier space
@@ -120,7 +121,7 @@ function F_hat!(F_hat, U_hat, p)
     
     # 4. Apply Laplacian in Fourier space
     for s in 1:N_species
-        diffcoef = s==bif_param ? p.diffcoef : nu[s]
+        diffcoef = s==bif_param ? p.diffcoef : nu2[s]
         F_hat[:,s] .= laplace_factor .* U_hat[:,s] * diffcoef + Fnl_hat[:,s]
     end
     return F_hat
@@ -171,16 +172,27 @@ end
 # ---------------------------
 par_full = (diffcoef = DiffCoef,)
 prob = BifurcationProblem(F_flat!, sol0, par_full, (@optic _.diffcoef);
-                           record_from_solution = (x,p; k...) -> (nrmReal=nrm2_real(x,1), nrmFirst=norm(x[1:Int(end/5)]), nrm=norm(x), n∞ = norminf(x[1:Int(end/5)]), sol=x))
+                           record_from_solution = (x,p; k...) -> (nrmFirst=norm(x[1:Int(end/5)]), nrmReal=nrm2_real(x,1), nrm=norm(x), n∞ = norminf(x[1:Int(end/5)]), sol=x),
+                           plot_solution = (x, p; k...) -> plot!(C * x[3*Int(end/5)+1:4*Int(end/5)] ; k...))
 
-opts_br = ContinuationPar(ds=1e-4, dsmax=5e-3, dsmin=1e-5, p_min=int_param[1], p_max=int_param[2], nev=20, #n_inversion=16,
+opts_br = ContinuationPar(ds=1e-4, dsmax=5e-3, dsmin=1e-6,
+                          p_min=int_param[1], p_max=int_param[2], nev=N_fourier,# n_inversion=16,
                           detect_bifurcation=3, max_steps=300)
 
 ##############################################################################################################################
 # Automatic Bifurcation diagram
 diagram = @time bifurcationdiagram(prob, PALC(), 2, opts_br, bothside=true; verbosity=0, plot=true)
-plot(diagram; markersize=2, title="Bifurcation diagram (Fourier-cosine)", label="", vars = (:param, :nrmReal))
+p1 = plot(diagram; markersize=2, title="Bifurcation diagram (Fourier-cosine)", label="", vars = (:param, :nrmFirst))
 
+# If some branch in automatic bifurcation diagram is not computed, we can compute it by hand
+# (1 = endpoint; 2,... = bifurcation points; length(diagram.γ.specialpoint) = endpoint):
+br_missing = continuation(diagram.child[1].γ, 2,
+		opts_br,
+		alg = PALC(),
+		bothside=true;
+		plot=true
+		)
+plot!(p1, br_missing, vars = (:param, :nrmFirst))
 
 ###############################################################################################################################
 br = continuation(prob, PALC(), opts_br, bothside=true, normC = normC)
