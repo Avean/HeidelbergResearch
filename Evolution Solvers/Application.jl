@@ -4,47 +4,55 @@ using LinearSolve
 using SparseArrays
 # using Plots
 
-# using Distributed
-# addprocs(1)  # dodaj jeden proces roboczy do obsługi viewer'a
-
 using Base.Threads
 
-# using PyCall
+# Choose a model by selecting a folder
+
+
+
+# ModelName = "HydraMoritz5eq";   # Original model with 5 equations   
+# ModelName = "HydraMoritz5eqA";  # Linear WntDiff with SD and WntLoc coupling
+ModelName = "HydraMoritz5eqB";  # Linear WntDiff with WntLoc coupling only 
+# ModelName = "HydraMoritz4eqA";  # 4 equations without SD, original parameters
+# ModelName = "HydraMoritz4eqB";  # 4 equations without SD, changed paramters
+# ModelName = "Test1";
+# ModelName = "GiereMeinhardt";
+# ModelName = "ReceptorBased";
+
+
 
 includet("FilesImport.jl")
-include("Parametry.jl")
 
 using .Solvers
 using .Sets
 using .Extractor
 using .Viewer
+using .Panel: SetPanel, ResetPanel
 
 # server_task =  Solvers.snapshot_server!()
 
-XVars = Viewer.setup_viewer2Graphs(ParameterSet,dt);
+@time SetPanel()
 
-# XVars = Viewer.setup_viewer3Graphs(ParameterSet,dt);
-# XVars = Viewer.setup_viewer(ParameterSet,dt);
-
+XVars = Viewer.setup_viewer();
 
 
 @async begin
-    Viewer.viewer_loop!(ParameterSet, XVars)
+    Viewer.viewer_loop!(XVars)
 end
 
 # include("Parametry.jl")
 
-Viewer.stop_simulation!(XVars, dt)
+Viewer.stop_simulation!(XVars)
 
 sim_task = Threads.@spawn Solvers.run_simulation!(
-    InitialConditions,
-    ParameterSet,
+    Sets.Ini,
     Scheme,
     BoundaryConditions,
     Order,
-    dt,
     NonlinearityFunction
     )
+
+
 
 
 SharedState.pause_simulation[] = true

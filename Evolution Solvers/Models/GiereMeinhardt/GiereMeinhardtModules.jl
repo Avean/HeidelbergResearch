@@ -49,13 +49,13 @@ module  Nonlinearity
 
     # Different Variants of Nonlinearities
 
-    # #Variant 1
-    # function N1(Par::Parameters,Var::VariablesVector) 
-    #     return VariablesVector(
-    #                             Var.u.^2 ./ (Var.v .+ Par.Coef.a) - Par.Coef.b .* Var.u, 
-    #                             Var.u.^2 - Par.Coef.c * Var.v
-    #                           );
-    # end
+    #Variant 1
+    function N1(Par::Parameters,Var::VariablesVector, t::Float64) 
+        return VariablesVector(
+                                Var.u.^2 ./ (Var.v .+ Par.Coef.a) - Par.Coef.b .* Var.u, 
+                                Var.u.^2 - Par.Coef.c * Var.v
+                              );
+    end
 
     # #Variant 2 with u^2 instead of exponents       
     # function N2(Par::Parameters,Var::VariablesVector) 

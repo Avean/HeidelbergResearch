@@ -1,0 +1,231 @@
+using Revise
+using BifurcationKit, Plots, SparseArrays
+using JLD2, ForwardDiff
+const BK = BifurcationKit
+
+
+function FGMeinhardt!(f, x, p1, t = 0)
+    # (; ν1, ν2, ν3, ν4, ν5, β1, β2, β3, β4, β5, β6) = p
+
+    n = div(length(x), 5)
+    dx = 1/(n-1);
+
+    WntLOC =    @view x[1:n]
+    DkkA =      @view x[n+1:2*n]
+    WntDiff =   @view x[2*n+1:3*n]
+    DkkC =      @view x[3*n+1:4*n]
+    SD =        @view x[4*n+1:5*n]
+	
+    WntLOCa = par_GM.β6 .* SD ./ (1 .+ DkkA) ./ (1.0 .+ DkkC) ./ (1.0 .+ par_GM.β3*WntLOC) .- WntLOC
+    DkkAa = par_GM.β1 ./ (1 .+ par_GM.β4.*WntLOC) .- DkkA
+    WntDiffa = par_GM.β2 .* WntLOC.*SD .- WntDiff
+    DkkCa = WntDiff ./ (1.0 .+ par_GM.β5 .* WntLOC) .- DkkC
+    SDa = WntLOC .- SD
+
+    Lap2(V,i) = V[i-1] + V[i+1] - 2*V[i]
+
+    WntLOCb = similar(WntLOC)
+    DkkAb = similar(DkkA)
+
+    WntDiffb = similar(WntDiff)
+    DkkCb = similar(DkkC)
+    SDb = similar(SD)
+
+    for i in 2:n-1
+        WntLOCb[i]  = par_GM.ν1 * Lap2(WntLOC,i)/dx^2
+        DkkAb[i]    = par_GM.ν2 * Lap2(DkkA,i)/dx^2
+        WntDiffb[i] = p1.ν3 * Lap2(WntDiff,i)/dx^2;
+        DkkCb[i]    = par_GM.ν4 * Lap2(DkkC,i)/dx^2;
+        SDb[i]      = par_GM.ν5 * Lap2(SD,i)/dx^2;
+    end
+
+    # Boundary conditions for all 5 variables
+    WntLOCb[1] = par_GM.ν1 * (WntLOC[2] - WntLOC[1]) / dx^2
+    WntLOCb[end] = par_GM.ν1 * (WntLOC[end-1] - WntLOC[end]) / dx^2
+
+    DkkAb[1] = par_GM.ν2 * (DkkA[2] - DkkA[1]) / dx^2
+    DkkAb[end] = par_GM.ν2 *  (DkkA[end-1] - DkkA[end]) / dx^2
+
+    WntDiffb[1] = p1.ν3 * (WntDiff[2] - WntDiff[1]) / dx^2
+    WntDiffb[end] = p1.ν3 * (WntDiff[end-1] - WntDiff[end]) / dx^2
+
+    DkkCb[1] = par_GM.ν4 * (DkkC[2] - DkkC[1]) / dx^2
+    DkkCb[end] = par_GM.ν4 * (DkkC[end-1] - DkkC[end]) / dx^2
+
+    SDb[1] = par_GM.ν5 * (SD[2] - SD[1]) / dx^2
+    SDb[end] = par_GM.ν5 * (SD[end-1] - SD[end]) / dx^2
+
+    # Assemble f for all 5 variables
+    for i in 1:n
+        f[i] = WntLOCb[i] + WntLOCa[i]
+        f[n+i] = DkkAb[i] + DkkAa[i]
+        f[2*n+i] = WntDiffb[i] + WntDiffa[i]
+        f[3*n+i] = DkkCb[i] + DkkCa[i]
+        f[4*n+i] = SDb[i] + SDa[i]
+    end
+	return f
+end
+
+
+ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
+β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
+
+ν[3] = 0.03
+par_GM = (
+    ν1 = ν[1],
+    ν2 = ν[2],
+    ν3 = ν[3],
+    ν4 = ν[4],
+    ν5 = ν[5],
+    β1 = β[1],
+    β2 = β[2],
+    β3 = β[3],
+    β4 = β[4],
+    β5 = β[5],
+    β6 = β[6],
+)
+
+
+n = 15
+@load "PositiveSol" XPositive 
+sol0 = repeat(XPositive, inner = n) 
+
+DiffCoefBif = (ν3 =  0.03, Da = 0.01)
+
+
+# bifurcation problem
+probBif = BK.BifurcationProblem(FGMeinhardt!, sol0, DiffCoefBif, (@optic _.ν3);
+#   J = Jbru_sp,
+  plot_solution = (x, p; k...) -> plot!(x[1:Int(end/5)] ; k...),
+  record_from_solution = (x, p; k...) -> x[div(n,5)])
+
+Nx = n;
+nev_N = 15; # number of eigenvalues to compute
+eig_ncv = min(5*nev_N, 5*Nx*5);   # aber ≤ total dim; choose sensible cap
+eig_ncv = min(eig_ncv, 5*Nx);     # ensure <= Ntot
+# eig_ncv = 40;
+eig_tol = 1e-6;
+eig_maxiter = 2000;
+
+# eigensolver
+eigls = EigArpack(ncv = eig_ncv, tol = eig_tol, maxiter = eig_maxiter);
+
+opt_newton = BK.NewtonPar(tol = 1e-8, verbose = true, eigsolver = eigls, max_iterations = 20);
+
+int_param = [0.018, 0.4] 
+
+
+opts_GM_eq = ContinuationPar(p_min = int_param[1], p_max = int_param[2],
+	# for a good looking curve
+	dsmin = 1e-4, dsmax = 1e-2, ds = 1e-3,
+	# detect codim 1 bifurcations
+	detect_bifurcation = 3,  # reduziert Kosten
+    # number of eigenvalues to compute
+	nev = nev_N,
+    plot_every_step = 20, 
+	newton_options = (@set opt_newton.verbose = false),
+    max_steps = 200,
+    tol_stability = 1e-6,
+	n_inversion = 6,
+    # Optional: bisection options for locating bifurcations
+    dsmin_bisection = 1e-7, max_bisection_steps = 25, tol_bisection_eigenvalue = 1e-8
+    );
+
+
+diagram = @time bifurcationdiagram(probBif, PALC(),
+	# very important parameter. This specifies the maximum amount of recursion
+	# when computing the bifurcation diagram. It means we allow computing branches of branches
+	# at most in the present case.
+	3,
+	opts_GM_eq, bothside=true;
+    verbosity = 0, plot = true,
+    # callback_newton = cb,
+	usedeflation = false
+	# finalise_solution = finSol,
+	# normC = norminf
+	)
+plot(diagram)
+
+
+
+
+br = continuation(probBif, PALC(), opts_GM_eq, normC = norminf)
+
+scene = plot(br)
+
+
+
+
+# hopfpt = get_normal_form(br, 1)
+
+# # index of the Hopf point in br.specialpoint
+# ind_hopf = 2
+
+# # newton iterations to compute the Hopf point
+# hopfpoint = newton(br, ind_hopf; normN = norminf)
+# BK.converged(hopfpoint) && printstyled(color=:red, "--> We found a Hopf Point at l = ", hopfpoint.u.p[1], ", ω = ", hopfpoint.u.p[2], ", from l = ", br.specialpoint[ind_hopf].param, "\n")
+
+
+
+# optcdim2 = ContinuationPar(dsmin = 0.001, dsmax = 0.05, ds= 0.01, p_max = 6.5, p_min = 0.0, newton_options = opt_newton, detect_bifurcation = 0)
+
+# br_hopf = continuation(br, ind_hopf, (@optic _.β),
+# 	optcdim2, verbosity = 2,
+# 	# detection of codim 2 bifurcations with bisection
+# 	detect_codim2_bifurcation = 2,
+# 	# we update the Hopf problem at every continuation step
+# 	update_minaug_every_step = 1,
+# 	jacobian_ma = BK.MinAug(), # specific to large dimensions
+# 	normC = norminf,
+# 	)
+
+# scene = plot(br_hopf)
+
+
+# ###
+
+# # automatic branch switching from Hopf point
+# opt_po = NewtonPar(tol = 1e-10, verbose = true, max_iterations = 15)
+# opts_po_cont = ContinuationPar(dsmin = 0.001,
+# 		dsmax = 0.04, ds = 0.01,
+# 		p_max = 2.2,
+# 		max_steps = 30,
+# 		newton_options = opt_po,
+# 		plot_every_step = 1,
+# 		nev = 11,
+# 		tol_stability = 1e-6,
+# 		)
+
+# # number of time slices for the periodic orbit
+# M = 51
+# probFD = PeriodicOrbitTrapProblem(M = M;
+#   # specific method for solving the linear system for newton
+#   # of periodic orbits with trapeze method.
+#   # We could use the default one FullLU() (slower here)
+#   jacobian = BK.BorderedSparseInplace())
+
+# br_po = continuation(
+# 	# arguments for branch switching from the first
+# 	# Hopf bifurcation point
+# 	br, 1,
+# 	# arguments for continuation
+# 	opts_po_cont, probFD;
+# 	# regular options for continuation
+# 	verbosity = 3, plot = true,
+# 	plot_solution = (x, p; kwargs...) -> heatmap!(reshape(x[1:end-1], 2*n, M)'; ylabel="time", color=:viridis, kwargs...),
+# 	normC = norminf)
+
+# Scene = title!("")
+
+
+# ###
+
+# br_po2 = continuation(
+# 	# arguments for branch switching
+# 	br_po, 1,
+# 	# arguments for continuation
+# 	opts_po_cont;
+# 	ampfactor = 1., δp = 0.01,
+# 	verbosity = 3, plot = true,
+# 	plot_solution = (x, p; kwargs...) -> heatmap!(reshape(x[1:end-1], 2*n, M)'; ylabel="time", color=:viridis, kwargs...),
+# 	normC = norminf)

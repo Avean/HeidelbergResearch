@@ -19,6 +19,7 @@ module Solvers
     using ..Dictionaries
     using ..DiffMat
     using ..SharedState
+    using ..Sets
     
     # using Plots
 
@@ -37,6 +38,10 @@ module Solvers
     export Iteration
 
     const last_snapshot = Ref{Any}(nothing)
+    global DiffMat = undef
+    global BC = undef
+    global Order = undef
+    global Type = undef
 
     # Solvers
     function ExpliciteEuler(U::Vector{Float64}, DiffMat::DiffusionMat, FU::Vector{Float64}, dt::Float64)
@@ -51,11 +56,8 @@ module Solvers
         return DiffMat.Fun.Full'*((DiffMat.Fun.Trunc*(U + dt .* FU)).*DiffMat.Eig);
     end
 
-    function Choice(Scheme::String, BC::String, Order::String, Par::Parameters, dt::Float64, NonFun::String)
-        Type = BC*" "*Order;
-        DiffMat = CreateDiffMatrix(Par.Diff, DictLaplace[Type], DictSinCosFun[BC], DictSinCosEig[BC], dt);
-
-
+    function Choice(Scheme::String, BC::String, Order::String, NonFun::String)
+        
         if Scheme == "ExpliciteEuler"
             SchemeF = ExpliciteEuler;
         elseif Scheme == "IMEX"
@@ -66,88 +68,27 @@ module Solvers
             error("Wrong Scheme");
         end
         f = NonlinearityFunction[NonFun];
-        return SchemeF, DiffMat, f
+        return SchemeF, f
     end
 
-
-
-    #Choosing Solver and parameters
-    
-    # function Iteration(U0::VariablesVector,  Par::Parameters, T::Float64, Scheme::String, BC::String, Order::String, dt::Float64, Nonlinearity::String)
-        
-    #     Fields = fieldnames(VariablesVector)
-    #     FieldsNum = length(Fields);
-    #     NFields = 1:FieldsNum
-
-    #     sleep(1)
-    #     U1a = U0;
-    #     U1b = U0;
-
-    #     t = 0.0;
-    #     V1 = [0.0]
-
-        
-    #     # GL Makie        
-    #     # UObs, V1Obs, tt = DynamicPlotGLMakie(U1a, V1, t)
-
-    #     SchemeF, DiffMat, FNonlinear = Choice(Scheme,BC,Order,Par,dt, Nonlinearity);
-    
-    #     while t < T
-    #         t1 = time()    
-    #             t = t + dt;
-    #             U1b = FNonlinear(Par,U1a,t);
-    #             U1a = VariablesVector(map(h -> 
-    #                                     SchemeF(getfield(U1a,Fields[h]), 
-    #                                             DiffMat[h],
-    #                                             getfield(U1b,Fields[h]), 
-    #                                             dt), 
-    #                                     NFields)...);
-
-    #         push!(V1, var(U1a.u))
-
-    #                 # --- obsługa prośby o klatkę ---
-    #         if SharedState.request_frame[]
-    #             # kopiujemy snapshot żeby viewer dostał stabilne dane
-    #             SharedState.frame_buffer[] = (deepcopy(U1a), deepcopy(V1), t)
-
-    #             # sygnał "gotowe"
-    #             SharedState.request_frame[] = false
-    #         end
-
-    #         # GL Makie
-    #         # UObs[] = U1a
-    #         # V1Obs[]=V1
-    #         # tt[] = t
-
-            
-    #         # display(typeof(SharedState.latest_state))
-    #         # spróbuj wyczyścić kanał, jeśli coś tam jeszcze siedzi
-    #         # if isready(SharedState.latest_state)
-    #             # take!(SharedState.latest_state)
-    #         # end
-    #         # teraz włóż najnowszy stan
-    #         # put!(SharedState.latest_state, (U1a, V1, t))
-            
-    #         # V1Obs=push!(V1, var(U1a.u))
-    #         # DynamicPlotGR(U1a, t, FieldsNum, Fields, V1Obs);
-            
-    #         display(time()-t1)
-    #         # display("t = $(Printf.@sprintf("%0.1e",t))")    
-            
-    #     end
-
-    #     return U1a;
-    # end
+    function UpdateDiffMatrix()
+        Solvers.DiffMat = CreateDiffMatrix(Sets.Par.Diff, DictLaplace[Solvers.Type], DictSinCosFun[Solvers.BC], DictSinCosEig[Solvers.BC], SimParam.dt);
+        println("Diffusion matrix updated")
+    end
 
     function run_simulation!(U0::VariablesVector,
-                         Par::Parameters,
                          Scheme::String,
                          BC::String,
                          Order::String,
-                         dt::Float64,
                          Nonlinearity::String)
 
-        # --- inicjalizacja pól ---
+        # Globalisation in module
+        
+        Solvers.BC = BC;
+        Solvers.Order = Order;
+        Solvers.Type = BC*" "*Order;
+
+        # --- Initialisation ---
         Fields    = fieldnames(VariablesVector)
         NFields   = 1:length(Fields)
 
@@ -156,11 +97,16 @@ module Solvers
         t   = 0.0
         V1  = [0.0]
 
-        # --- przygotowanie funkcji kroku czasowego ---
-        SchemeF, DiffMat, FNonlinear =
-            Choice(Scheme, BC, Order, Par, dt, Nonlinearity)
+        t1 = time()
+        # --- Preparing time step functions ---
+        SchemeF, FNonlinear = Choice(Scheme, BC, Order, Nonlinearity);
+        
+        
+        UpdateDiffMatrix()
 
-        # --- główna pętla symulacji ---
+        println( time() - t1)
+        
+        # --- Main Simulation loop ---
         SharedState.stop_simulation[] = false
         while !SharedState.stop_simulation[]
             
@@ -170,13 +116,13 @@ module Solvers
             end
             t1 = time()    
             # krok czasowy
-            t += dt
-            U1b = FNonlinear(Par, U1a)
+            t += SimParam.dt
+            U1b = FNonlinear(Sets.Par, U1a, t)
             U1a = VariablesVector(map(h ->
                 SchemeF(getfield(U1a, Fields[h]),
-                        DiffMat[h],
+                        Solvers.DiffMat[h],
                         getfield(U1b, Fields[h]),
-                        dt),
+                        SimParam.dt),
                 NFields)...)
 
             # zapisz np. wariancję jako prosty przykład obserwacji
