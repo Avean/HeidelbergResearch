@@ -6,3 +6,5 @@ using GLMakie
 @time C = Textbox(F[1,3], placeholder = "Test")
 N = 1e4
 @time scatter!(A, rand(Int(N)), zeros(Int(N)))
+
+scatter!(A,Float64[],Float64[])

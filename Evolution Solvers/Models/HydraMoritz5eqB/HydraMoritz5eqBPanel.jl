@@ -129,19 +129,19 @@ module Panel
             xlims!(AX[i], BmM[i].min, BmM[i].max)
             
             @time begin
-        
-            LBif[i] = Label(F[2+5*(i-1),2], " ")
-
-            UpdateBiffPlot(i, AX[i], BmM[i], LBif[i])
-            
+                LBif[i] = Label(F[2+5*(i-1),2], " ")
+                UpdateBiffPlot(i, AX[i], BmM[i], LBif[i])
             end
         end
     end
 
+    # function SetBiffPlot(i::Int64, AX::Axis, U, LBif)
+
+    # end
+
     function UpdateBiffPlot(i::Int64, AX::Axis, BM, LBif)
         Ds, D0, Ks = get_bif_points_linear(i)
-
-        
+   
         Kt = "k".*string.(Ks)
         
         if !isempty(Ds)
@@ -164,9 +164,6 @@ module Panel
         end
         scatter!(AX, Ds, D0)    
         ylims!(AX, -0.1, 0.1)
-
-
-
     end
 
     function FilterBifSet(BM, Ds, D0, Kt)
