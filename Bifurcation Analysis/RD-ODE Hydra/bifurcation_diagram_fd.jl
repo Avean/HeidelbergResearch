@@ -22,6 +22,7 @@ nu = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
 beta = [1.0629 540.4003 1.1596 11.5964 11.5964 4.8254];
 F_nonl(Wl, A, Wd, C, S) = [beta[6].*S ./ ((1.0 .+ A).*(1.0 .+ C).*(1.0 .+ beta[3].*Wl)) .- Wl,
                            beta[1] ./ (1.0 .+ beta[4].*Wl) .- A,
+						#    beta[2].*Wl .- Wd,
                            beta[2].*Wl.*S .- Wd,
                            Wd ./ (1.0 .+ beta[5].*Wl) .- C,
                            Wl .- S
@@ -29,6 +30,8 @@ F_nonl(Wl, A, Wd, C, S) = [beta[6].*S ./ ((1.0 .+ A).*(1.0 .+ C).*(1.0 .+ beta[3
 
 # Non-trivial constant steady state:
 U0 = [0.08167547924306925, 0.54587711524379, 3.6049476660047937, 1.8514050545898464, 0.08167547924306925];
+# For linear version: 
+# U0 = [0.00260781026235803, 1.0317001384988511, 1.4092614481213583, 1.3678946572658734, 0.00260781026235803];
 
 function Fmit!(F, U, p)
 	N = p.N
@@ -48,7 +51,7 @@ function Fmit!(F, U, p)
     
     f3 = similar(Wd)
 	mul!(f3, p.Δ, Wd)
-	F[2N+1:3N] .= nu[3]*f3 .+ F_nonl(Wl, A, Wd, C, S)[3]
+	F[2N+1:3N] .= p.diffcoef*f3 .+ F_nonl(Wl, A, Wd, C, S)[3]
 
     f4 = similar(C)
 	mul!(f4, p.Δ, C)
@@ -56,7 +59,7 @@ function Fmit!(F, U, p)
 
     f5 = similar(S)
 	mul!(f5, p.Δ, S)
-	F[4N+1:5N] .= p.diffcoef*f5 .+ F_nonl(Wl, A, Wd, C, S)[5]
+	F[4N+1:5N] .= nu[5]*f5 .+ F_nonl(Wl, A, Wd, C, S)[5]
 
 	return F
 end
@@ -97,6 +100,7 @@ function jacobian(U, p)
 				-beta[1]*beta[4] / (1+beta[4]*Wl[i])^2,
 				-1.0, 0.0, 0.0, 0.0),
 			hcat(
+				# beta[2], 0.0, -1.0, 0.0, 0.0),
 				beta[2]*S[i], 0.0, -1.0, 0.0, beta[2]*Wl[i]),
 			hcat(
 				-beta[5]*Wd[i] / (1+beta[5]*Wl[i])^2,
@@ -113,9 +117,9 @@ function jacobian(U, p)
     # Add diffusion (Laplace) terms on diagonals
     blocks[blk(1,1)] += nu[1] * Δ
     blocks[blk(2,2)] += nu[2] * Δ
-    blocks[blk(3,3)] += nu[3] * Δ
+    blocks[blk(3,3)] += p.diffcoef * Δ
     blocks[blk(4,4)] += nu[4] * Δ
-    blocks[blk(5,5)] += p.diffcoef * Δ
+    blocks[blk(5,5)] += nu[5] * Δ
 
     # Assemble 5×5 block matrix
     Jnew = spzeros(5N,5N)
@@ -132,8 +136,8 @@ end
 ############################################################################################################################
 # Bifurcation Problem
 # Parameters:
-DiffCoef = 0.02;
-Nx = 15; lx = 0.5;
+DiffCoef = 0.15;
+Nx = 20; lx = 0.5;
 Δ = Laplacian1D(Nx, lx);
 par_mit = (diffcoef = DiffCoef, Δ = Δ, N = Nx);
 sol0 = vcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx), U0[4] * ones(Nx), U0[5] * ones(Nx))
@@ -154,12 +158,12 @@ normC(x) = norm(x) / sqrt(length(x))
 # normC(x) = norm(x .* weight) / sqrt(length(x))
 
 
-prob = BifurcationProblem(Fmit_ps!, sol0, par_mit, (@optic _.diffcoef),;
-	J = jacobian_ps,
+prob = BifurcationProblem(Fmit!, sol0, par_mit, (@optic _.diffcoef),;
+	J = jacobian,
 	record_from_solution = (x, p; k...) -> (nrm = norm2(x[1:Int(end/5)]), nw = norm2_weighted(x[1:Int(end/5)]), n∞ = norminf(x[1:Int(end/5)]), sol=x),
 	plot_solution = (x, p; k...) -> plot!(x[1:Int(end/5)] ; k...))
 
-int_param = [0.008, 0.03]  # interval of continuation for the diffusion coefficient
+int_param = [0.08, 0.3]  # interval of continuation for the diffusion coefficient
 
 # Beispielwerte, anpassbar
 nev_N = 15; # number of eigenvalues to compute
@@ -177,7 +181,7 @@ opt_newton = BK.NewtonPar(tol = 1e-8, verbose = true, eigsolver = eigls, max_ite
 # options for continuation
 opts_br = ContinuationPar(p_min = int_param[1], p_max = int_param[2],
 	# for a good looking curve
-	dsmin = 1e-4, dsmax = 1e-2, ds = 1e-3,
+	dsmin = 1e-4, dsmax = 5e-3, ds = 1e-4, # dsmax = 1e-2
 	# detect codim 1 bifurcations
 	detect_bifurcation = 3,  # reduziert Kosten
     # number of eigenvalues to compute
@@ -188,13 +192,13 @@ opts_br = ContinuationPar(p_min = int_param[1], p_max = int_param[2],
     tol_stability = 1e-6,
 	n_inversion = 6,
     # Optional: bisection options for locating bifurcations
-    dsmin_bisection = 1e-7, max_bisection_steps = 25, tol_bisection_eigenvalue = 1e-8
+    # dsmin_bisection = 1e-9, max_bisection_steps = 25, tol_bisection_eigenvalue = 1e-8
     );
 
 ############################################################################################################################
 # Calculating branches one by one.
 
-br = continuation(prob, PALC(), opts_br, bothside=true, normC = normC)
+br = continuation(prob, PALC(), opts_br, bothside=true, normC = norminf)
 
 all_branches = Array{Branch}(undef, length(br.specialpoint)-2)
 for (index, point) in pairs(br.specialpoint)
@@ -253,7 +257,7 @@ diagram = @time bifurcationdiagram(prob, PALC(),
     # callback_newton = cb,
 	usedeflation = false,
 	# finalise_solution = finSol,
-	normC = normC
+	normC = norminf
 	)
 p4 = plot(diagram; plotfold = false, putspecialptlegend=false, markersize = 2, title = "#branches = $(size(diagram))", label="")
 # ylims!(p4, 0, 5)  # Specify the y-axis limits for the plot
@@ -261,9 +265,9 @@ p4 = plot(diagram; plotfold = false, putspecialptlegend=false, markersize = 2, t
 # If some branch in automatic bifurcation diagram is not computed, we can compute it by hand
 # (1 = endpoint; 2,... = bifurcation points; length(diagram.γ.specialpoint) = endpoint):
 br_missing = continuation(diagram.γ, 3,
-		setproperties(opts_br; detect_bifurcation = 3, ds = 0.001, p_min = int_param[1], p_max = int_param[2]), bothside=true ;
+		setproperties(opts_br; detect_bifurcation = 3, dsmin = 1e-4, dsmax = 1e-2, ds = 1e-4, p_min = int_param[1], p_max = int_param[2]), bothside=true ;
 		alg = PALC(),
-		normC = normC,
+		normC = norminf,
 		nev = nev_N,
 		)
 plot!(p4, br_missing)
@@ -273,7 +277,7 @@ bifurcationdiagram!(prob,
 	# this improves the first branch on the red? curve. Note that
 	# for symmetry reasons, the first bifurcation point
 	# has ? branches
-	get_branch(diagram, (2,)), 3, opts_br;
+	get_branch(diagram, (3,)), 3, opts_br;
 	verbosity = 0, plot = true,
 	# callback_newton = cb,
 	# finalise_solution = finSol,

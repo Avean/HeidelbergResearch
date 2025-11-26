@@ -6,16 +6,16 @@ const BK = BifurcationKit
 
 # Parameters
 beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
-nu   = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
-DiffCoef = 0.05;            # start diffusion for bifurcation parameter
+nu   = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004]; #0.0004
+DiffCoef = 0.002;            # start diffusion for bifurcation parameter
 N_species = 5;
-int_param = [0.018, 0.3];  # Interval in which we consider bifurcation parameter
-bif_param = 3;              # Number of diffusion which is used as bifurcation parameter
+int_param = [0.001, 0.01];    # Interval in which we consider bifurcation parameter
+bif_param = 5;              # Number of diffusion which is used as bifurcation parameter
 
 # Grid
 L = 1.0;
 N_fourier = 20;                 # number of Fourier modes
-Nx = 100;               # number of collocation points for nonlinearities
+Nx = 50;               # number of collocation points for nonlinearities
 x = range(0, stop=L, length=Nx);  # x_n = (n-1)/(N-1) for n=1, ..., N
 
 # Laplace operator in Fourier space
@@ -27,6 +27,8 @@ C = [cos(k * π * x[n] / L) for n in 1:Nx, k in 0:N_fourier];  # C[n, k+1] = cos
 # Initial condition (Fourier coefficients)
 U0 = [0.08167547924306925, 0.54587711524379, 3.6049476660047937,
            1.8514050545898464, 0.08167547924306925];
+# # For linear version: 
+# U0 = [0.00260781026235803, 1.0317001384988511, 1.4092614481213583, 1.3678946572658734, 0.00260781026235803];
 U0_real = hcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx), U0[4] * ones(Nx), U0[5] * ones(Nx));
 
 # ---------------------------
@@ -86,7 +88,7 @@ function F_nonl_real(U_real)
     Wl, A, Wd, C, S = U_real[:,1], U_real[:,2], U_real[:,3], U_real[:,4], U_real[:,5]
     f1 = beta[6]*S ./ ((1 .+ A) .* (1 .+ C) .* (1 .+ beta[3] .* Wl)) .- Wl
     f2 = beta[1] ./ (1 .+ beta[4] .* Wl) .- A
-    f3 = beta[2] .* Wl .* S .- Wd
+    f3 = beta[2] .* Wl .*S .- Wd
     f4 = Wd ./ (1 .+ beta[5] .* Wl) .- C
     f5 = Wl .- S
     return hcat(f1,f2,f3,f4,f5)
@@ -152,6 +154,18 @@ function nrm2_real(x_flat, ind_comp)
     return norm(x_real_comp)
 end
 
+function norminf_real(x_flat, ind_comp)
+    Nk = size(C,2)
+    x_unfl = reshape(x_flat, Nk, N_species)
+    x_real = fourier_to_real(x_unfl)
+    x_real_comp = x_real[:,ind_comp]
+    return norminf(x_real_comp)
+end
+
+function norminf_all(x)
+    return norminf_real(x,1)
+end
+
 # ---------------------------
 # BifurcationKit setup
 # ---------------------------
@@ -159,13 +173,13 @@ par_full = (diffcoef = DiffCoef,)
 prob = BifurcationProblem(F_flat!, sol0, par_full, (@optic _.diffcoef);
                            record_from_solution = (x,p; k...) -> (nrmReal=nrm2_real(x,1), nrmFirst=norm(x[1:Int(end/5)]), nrm=norm(x), n∞ = norminf(x[1:Int(end/5)]), sol=x))
 
-opts_br = ContinuationPar(ds=1e-3, dsmax=5e-3, dsmin=1e-5, p_min=int_param[1], p_max=int_param[2], nev=15,
+opts_br = ContinuationPar(ds=1e-4, dsmax=5e-3, dsmin=1e-5, p_min=int_param[1], p_max=int_param[2], nev=20, #n_inversion=16,
                           detect_bifurcation=3, max_steps=300)
 
 ##############################################################################################################################
 # Automatic Bifurcation diagram
-diagram = @time bifurcationdiagram(prob, PALC(), 2, opts_br, bothside=true; verbosity=1, plot=true)
-plot(diagram; markersize=2, title="Bifurcation diagram (Fourier-cosine)", label="", vars = (:param, :nrmFirst))
+diagram = @time bifurcationdiagram(prob, PALC(), 2, opts_br, bothside=true; verbosity=0, plot=true)
+plot(diagram; markersize=2, title="Bifurcation diagram (Fourier-cosine)", label="", vars = (:param, :nrmReal))
 
 
 ###############################################################################################################################
@@ -182,7 +196,6 @@ for (index, point) in pairs(br.specialpoint)
     branches = continuation(br, index,
         setproperties(opts_br), bothside=true ;
         alg = PALC(),
-        # nev = 30,
     )
     # if branches == Branch[]
     # 	@show "No branches found for index $(index), try smaller ds"
