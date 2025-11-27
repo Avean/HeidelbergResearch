@@ -107,7 +107,7 @@ export stop_simulation!
                     # ymax = max(maximum(data_now) + 0.1, 2)
                     ylims!(ax_local, ymin-1e-8-0.1 * Dist, ymax+1e-8+0.1 * Dist)
                     ax_local.title[] = name_local * "\n" *
-                                    "t = $(Printf.@sprintf("%0.1f", maximum(t_now)))"
+                                    "t = $(Printf.@sprintf("%0.1f", maximum(t_now))),   Variance = $(Printf.@sprintf("%0.3g", var(data_now)))"
                 end
             end
         end

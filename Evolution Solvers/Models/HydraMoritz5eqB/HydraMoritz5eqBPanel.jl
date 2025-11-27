@@ -62,12 +62,12 @@ module Panel
             BmM[i] = Bounds(0.0, max(2*getfield(Sets.Par.Diff,i),1e-8))
 
             SL[i] =  Slider(F[3+5*(i-1), 2], range = range(BmM[i].min, BmM[i].max, 1000), startvalue = getfield(Sets.Par.Diff,i), width = Width)
-            LTit[i] = Label(F[1+5*(i-1),2], @sprintf("Diffusion %s = %0.3g", string(fieldnames(Diffusions)[i]),SL[i].value[]))
+            LTit[i] = Label(F[1+5*(i-1),2], @sprintf("Diffusion %s = %0.3g", string(fieldnames(VariablesVector)[i]),SL[i].value[]))
 
 
             ############# Slider On Change #############
             on(SL[i].value) do x
-                LTit[i].text[] = @sprintf("Diffusion %s = %0.3g", string(fieldnames(Diffusions)[i]), SL[i].value[])
+                LTit[i].text[] = @sprintf("Diffusion %s = %0.3g", string(fieldnames(VariablesVector)[i]), SL[i].value[])
                 setfield!(Sets.Par.Diff,i,SL[i].value[])
                 Solvers.UpdateDiffMatrix()
                 for i in 1:fieldcount(Diffusions)
