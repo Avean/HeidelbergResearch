@@ -1,6 +1,7 @@
 module ComputeBifurctaionPoints
 
     using LinearAlgebra
+    using Printf
     using ..Struktury
     using ..Sets
     
@@ -46,16 +47,36 @@ module ComputeBifurctaionPoints
             if Dstar > 0
                 push!(Ds, Dstar)
                 push!(ks, k)
-            else
-                # jak chcesz, możesz zamiast break dać continue,
-                # ale w duchu Twojego poprzedniego kodu wychodzimy z pętli
-                break
             end
         end
 
-        D0 = zeros(length(Ds))
+        return Ds, ks
+    end
 
-        return Ds, D0, ks
+
+    function CheckDDI()
+        XEig = Float64[]
+
+        for k in 1:1000
+            wn2 = (k^2) * pi^2
+
+            M = Sets.Jac .- wn2 .* Diagonal([getfield(Sets.Par.Diff,i) for i in 1:fieldcount(Diffusions)])
+
+            eigs = eigen(M).values
+
+            if any(real.(eigs) .> 0)
+                push!(XEig, k)
+            end
+        end
+        
+        Sets.XDDI = XEig
+        
+        if !isempty(XEig)
+            return @sprintf("DDI detected for %d wavenumbers (Type DisplayDDI)", length(XEig))
+        else
+            return @sprintf("No DDI detected")
+        end
+
     end
 
 end

@@ -85,6 +85,7 @@ export stop_simulation!
         # --- Upper plots for Variables ---
         for (i, fieldname) in enumerate(fieldnames(VariablesVector))
             Xi = lift(u -> getfield(u, fieldname), UObs)
+            Xo = getfield(Sets.Ini, fieldname)
 
             ax[i] = Axis(fig[i, 1],
                     title = string(fieldname),
@@ -100,8 +101,8 @@ export stop_simulation!
 
                 on(tt) do t_now
                     data_now = X_local[]
-                    ymin = minimum(data_now)
-                    ymax = maximum(data_now)
+                    ymin = min(minimum(data_now),minimum(Xo))
+                    ymax = max(maximum(data_now),maximum(Xo))
                     Dist = ymax - ymin
                     # ymax = max(maximum(data_now) + 0.1, 2)
                     ylims!(ax_local, ymin-1e-8-0.1 * Dist, ymax+1e-8+0.1 * Dist)

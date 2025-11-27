@@ -73,7 +73,7 @@ module Solvers
 
     function UpdateDiffMatrix()
         Solvers.DiffMat = CreateDiffMatrix(Sets.Par.Diff, DictLaplace[Solvers.Type], DictSinCosFun[Solvers.BC], DictSinCosEig[Solvers.BC], SimParam.dt);
-        println("Diffusion matrix updated")
+        # println("Diffusion matrix updated")
     end
 
     function run_simulation!(U0::VariablesVector,

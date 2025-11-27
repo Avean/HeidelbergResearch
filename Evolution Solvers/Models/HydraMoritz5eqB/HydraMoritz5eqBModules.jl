@@ -1,6 +1,6 @@
 module Struktury
 
-    export Parameters, Coefficients, Diffusions, VariablesVector
+    export Parameters, Coefficients, Diffusions, VariablesVector, UnpackStruct
 
     mutable struct Coefficients
         β1::Float64
@@ -32,7 +32,9 @@ module Struktury
         SD::Vector{Float64}
     end
 
-
+    function UnpackStruct(s)
+        return [getfield(s, i) for i in fieldnames(typeof(s))]
+    end
 end
 
 module SimParam
@@ -62,7 +64,7 @@ module  Nonlinearity
         return VariablesVector(
                                 Var.SD  .* Par.Coef.β6 ./ ((1 .+ Var.DkkA).*(1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
                                 Par.Coef.β1 ./ (1 .+ Par.Coef.β4 .* Var.WntLoc) .- Var.DkkA,
-                                Par.Coef.β2  .* Var.WntLoc  .- Var.WntDiff,
+                                Par.Coef.β2  .* Var.WntLoc .* Var.SD  .- Var.WntDiff,
                                 Var.WntDiff ./ (1 .+ Par.Coef.β5 .* Var.WntLoc) .- Var.DkkC,
                                 Var.WntLoc .- Var.SD,
                               );
@@ -103,6 +105,7 @@ module Sets
     import Base: +
 
 
+
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
 
 
@@ -117,9 +120,19 @@ module Sets
     44.1374534855984       0.0                  -1.0                  0.0                   44.1374534855984
     -11.026231669288988    0.0                   0.5135733514383242  -1.0                    0.0
     1.0                    0.0                   0.0                  0.0                   -1.0
-]
+    ]
 
     U0 = [0.0026, 1.0317, 1.40926, 1.36789, 0.0026];
+
+    XDDI = []
+
+    function DisplayDDI()
+        println("Unstable eigennodes of the linearized system")
+
+        for i in eachindex(XDDI)
+            println(XDDI[i]) 
+        end
+    end
 
     function VectorToIni(V::Vector{Float64})
         W = [v .* ones(SimParam.N) for v in V]
