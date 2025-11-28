@@ -2,6 +2,8 @@ import sympy as sp
 from scipy.optimize import fsolve
 import numpy as np
 
+from matrix_subsystems import get_principle_submatrices, get_stability_submatrices
+
 Wl = sp.Symbol('Wl')
 A = sp.Symbol('A')
 Wd = sp.Symbol('Wd')
@@ -106,7 +108,24 @@ eigenvals = Jacobian.eigenvals()
 for val, mult in eigenvals.items():
     print(f"Eigenvalue: {val}, Multiplicity: {mult}")
 print("")
-print("Jacobian Matrix at the equilibrium point for copying:")
-print(Jacobian)
+# print("Jacobian Matrix at the equilibrium point for copying:")
+# print(Jacobian)
+Jac_np = np.array(Jacobian).astype(np.float64)
+print('Check Jacobian for unstable subsystems:')
+principal_submatrices = get_principle_submatrices(Jac_np)
+submatrices_stable = []
+for dim, submats in principal_submatrices.items():
+    print('')
+    print(f"Dimension: {dim}x{dim}")
+    print('Stability:')
+    submatrices_stable.append(get_stability_submatrices(submats))
+    # print('All submatrices:')
+    # for submatrix in submats:
+    #     print(submatrix)
+print('')
+if submatrices_stable == [True for dim in principal_submatrices.keys()]:
+    print('All principal submatrices are stable!')
+else:
+    print('There is at least one unstable principal submatrix.')
 
 # Jac_variant_2 = np.array([[-1.54835418090850, -0.968673468738539, 0, -0.519279522931973, 1.00000000000000], [-0.0713698848523722, -1, 0, 0, 0], [1.15960000000000, 0, -1, 0, 11.5964000000000], [-0.896792686154216, 0, 0.0760938750398222, -1, 0], [1, 0, 0, 0, -1]])
