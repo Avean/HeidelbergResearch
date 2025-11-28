@@ -57,22 +57,24 @@ function Fun!(Val,x,Par)
 end
 
 
-X0 = ones(5)
-Xs = nlsolve((F,x)-> Fun!(F,x,Par), X0) # Trzeba to dodać bo Parametry jeszcze, funkcja anonimowa
-Structures.StructPrint(Structures.Vec2Str(Xs.zero))
+# X0 = rand(5,1)
+# Xs = nlsolve((F,x)-> Fun!(F,x,Par), X0) # Trzeba to dodać bo Parametry jeszcze, funkcja anonimowa
+# Structures.StructPrint(Structures.Vec2Str(Xs.zero))
+# Xs0 = Xs.zero
 
 
 
 
+# function Fun2!(V,x,β)
+#     V .= vec(FunNonlinearity(x, β))
+#     return nothing
+# end
 
-function Fun2!(V,x,β)
-    V .= vec(FunNonlinearity(x, β))
-    return nothing
-end
 
-
-X0 = ones(5)
-XsSymbolic = nlsolve((F,x)-> Fun2!(F,x,β), X0) 
+X0 = rand(5,1)
+XsSymbolic = nlsolve(x-> FunNonlinearity(x, β), 
+                    x-> JacNonlinearity(x, β),
+                    X0) 
 Structures.StructPrint(Structures.Vec2Str(XsSymbolic.zero))
 
 ###

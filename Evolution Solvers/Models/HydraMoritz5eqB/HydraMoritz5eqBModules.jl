@@ -55,7 +55,223 @@ module  Nonlinearity
 
     using Statistics
 
-    export ApplyLaplacian, NonlinearityFunction
+    export ApplyLaplacian, NonlinearityFunction, SetNonlinearity, PrepareNonlinearity
+
+
+    module SymbolicData
+
+        using ..Struktury
+        using ModelingToolkit
+        using NLsolve
+
+
+        @variables WntLoc DkkA WntDiff DkkC SD
+        @parameters β1 β2 β3 β4 β5 β6
+
+        Var = [WntLoc DkkA WntDiff DkkC SD];
+        β = [β1 β2 β3 β4 β5 β6];
+
+
+        function PreCalc(Fun::T) where T
+            FunNonlinearity, = ModelingToolkit.build_function(Fun,Var, β, expression = Val(false))
+
+            H =  ModelingToolkit.jacobian(Fun,Var);
+            JacNonlinearity,  = ModelingToolkit.build_function(H, Var, β,expression = Val(false));
+            
+            return FunNonlinearity, JacNonlinearity
+        end
+
+        function EvaluateConstant(FunJac, β, X0)
+            Fun, Jac = FunJac()
+            Xs = nlsolve(x-> Fun(x, β), 
+                        x-> Jac(x, β),
+                        X0)
+            return Xs.zero
+        end
+
+        function Init5eq() #Full Model
+            
+            ############# Nonlinearities ############
+            F1 = β6 *SD / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = β1 / (1+ β4 * WntLoc) - DkkA
+            F3 = β2 * WntLoc * SD - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = WntLoc - SD            
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+        end
+
+        function Init5eqA() #5 equations, linear WntDiff
+            
+            ############# Nonlinearities ############
+            F1 = β6 *SD / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = β1 / (1+ β4 * WntLoc) - DkkA
+            F3 = β2 * WntLoc  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = WntLoc - SD            
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+        end
+
+        function Init4eqA() # Kick DkkA 
+            
+            ############# Nonlinearities ############
+            F1 = β6 *SD  / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = 0
+            F3 = β2 * WntLoc * SD - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = WntLoc - SD            
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+        end
+
+        function Init4eqB() # Kick DkkA and multiplication for WntDiff
+
+            ############# Nonlinearities ############
+            F1 = β6 *SD  / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = 0
+            F3 = β2 * WntLoc  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = WntLoc - SD            
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+        end
+
+        function Init4eqC() # Kick SD, quasi steady state
+
+             ############# Nonlinearities ############
+            F1 = β6 * WntLoc / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = β1 / (1+ β4 * WntLoc) - DkkA
+            F3 = β2 * WntLoc * WntLoc - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+        end
+
+        function Init4eqD() # Kick SD, WntDiff linear
+
+             ############# Nonlinearities ############
+            F1 = β6 * WntLoc / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = β1 / (1+ β4 * WntLoc) - DkkA
+            F3 = β2 * WntLoc  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+        end
+        
+
+        function Init4eqE() # Kick SD, WntDiff linear, substitue WntDiff in first equation
+
+             ############# Nonlinearities ############
+            F1 = β6 * WntDiff / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = β1 / (1+ β4 * WntLoc) - DkkA
+            F3 = β2 * WntLoc  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+        end
+
+        function Init3eqA() # Kick SD and A linear WntDiff
+
+            ############# Nonlinearities ############
+            F1 = β6 * WntLoc / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = β1 / (1+ β4 * WntLoc) - DkkA
+            F3 = β2 * WntLoc  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)            
+        end
+
+        function Init3eqB() # Kick SD and A linear WntDiff, substitute WntDiff for first equation
+
+            ############# Nonlinearities ############
+            F1 = β6 * WntDiff  / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = 0
+            F3 = β2 * WntLoc  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+            
+        end
+
+        function Init3eqC() # Kick SD and, substitute WntDiff for first equation
+
+            ############# Nonlinearities ############
+            F1 = β6 * WntDiff / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = 0
+            F3 = β2 * WntLoc  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            return PreCalc(F)
+            
+        end
+
+
+
+
+    end
+
+    ChoosenFunction =[] 
+
+    function SetNonlinearity(Fun, β, X0 = rand(fieldcount(VariablesVector)))
+        U, J(U,β), Flag = PrepareNonlinearity(Fun, β, X0)
+        if Flag
+            println("Positive constant solution found. Setting nonlinearity...")
+            X, = Fun()
+            Nonlinearity.ChoosenFunction = X
+            return U, J(U,β)
+        else 
+            println("Can not find positive solution, returning zeros")
+            return zeros(fieldcount(VariablesVector)), zeros(fieldcount(VariablesVector), fieldcount(VariablesVector))
+        end   
+    end
+
+    function PrepareNonlinearity(Fun, β, X0 = 20.0.*rand(fieldcount(VariablesVector)))
+        F, J = Fun()
+        Flag = false
+        U = SymbolicData.EvaluateConstant(Fun,β, X0)
+        for k in 1:100
+            # display(k)
+            U = SymbolicData.EvaluateConstant(Fun,β, X0)
+            if all(U .> 0.0 )
+                break
+            end
+        end
+
+        if all(U .> 0.0 )
+            Flag = true
+            return U, J(U,β), Flag
+        else
+            return [], [], false
+        end
+    end
+    
 
     # Different Variants of Nonlinearities
 
@@ -71,8 +287,9 @@ module  Nonlinearity
     end
 
     #Variant 2 with u^2 instead of exponents       
-    function N2(Par::Parameters,Var::VariablesVector) 
-        return nothing
+    function N2(Par::Parameters,Var::VariablesVector)
+
+        return 
     end
 
     #Variant 3 with u^3 instead of exponents       
@@ -101,6 +318,7 @@ end
 module Sets
     using ..Struktury
     using ..SimParam
+    using ..Nonlinearity
 
     import Base: +
 
@@ -108,21 +326,22 @@ module Sets
 
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
 
+    ######### Choose nonlinearity here - last part #########
+    NonlinearityType = Nonlinearity.SymbolicData.Init3eqB
+    ########################################################
 
-
-    # ν = [0.0, 3.8154e-03, 0.4433, 6.0713e-03, 0.0004];
     ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
     β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
+            
+    U0 = []
+    JacC = []
+    X0 = ones(fieldcount(VariablesVector))
 
-    Jac = [
-    -1.0865168027146117   -0.05283439313362805   0.0                 -0.028643941383072864   0.9999999999999997
-    -3.2510268461888066   -1.0                   0.0                  0.0                    0.0
-    44.1374534855984       0.0                  -1.0                  0.0                   44.1374534855984
-    -11.026231669288988    0.0                   0.5135733514383242  -1.0                    0.0
-    1.0                    0.0                   0.0                  0.0                   -1.0
-    ]
+    Fun, Jac = NonlinearityType()
 
-    U0 = [0.0026, 1.0317, 1.40926, 1.36789, 0.0026];
+    U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β, ones(5))
+        
+
 
     XDDI = []
 
@@ -220,5 +439,7 @@ module Sets
 
     using .BifurcationData
 end
+
+
 
 
