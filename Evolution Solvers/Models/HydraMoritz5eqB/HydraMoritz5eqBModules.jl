@@ -81,7 +81,7 @@ module  Nonlinearity
             return FunNonlinearity, JacNonlinearity
         end
 
-        function EvaluateConstant(FunJac, β, X0)
+        function EvaluateConstant(FunJac, β, X0 = 20.0.*rand(fieldcount(VariablesVector)))
             Fun, Jac = FunJac()
             Xs = nlsolve(x-> Fun(x, β), 
                         x-> Jac(x, β),
@@ -231,16 +231,12 @@ module  Nonlinearity
             return PreCalc(F)
             
         end
-
-
-
-
     end
 
     ChoosenFunction =[] 
 
-    function SetNonlinearity(Fun, β, X0 = rand(fieldcount(VariablesVector)))
-        U, J(U,β), Flag = PrepareNonlinearity(Fun, β, X0)
+    function SetNonlinearity(Fun, β)
+        U, J(U,β), Flag = PrepareNonlinearity(Fun, β)
         if Flag
             println("Positive constant solution found. Setting nonlinearity...")
             X, = Fun()
@@ -252,11 +248,12 @@ module  Nonlinearity
         end   
     end
 
-    function PrepareNonlinearity(Fun, β, X0 = 20.0.*rand(fieldcount(VariablesVector)))
+    function PrepareNonlinearity(Fun, β, )
         F, J = Fun()
         Flag = false
-        U = SymbolicData.EvaluateConstant(Fun,β, X0)
+        U = SymbolicData.EvaluateConstant(Fun,β)
         for k in 1:100
+            X0 = 20.0.*rand(fieldcount(VariablesVector))
             # display(k)
             U = SymbolicData.EvaluateConstant(Fun,β, X0)
             if all(U .> 0.0 )
@@ -339,7 +336,7 @@ module Sets
 
     Fun, Jac = NonlinearityType()
 
-    U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β, ones(5))
+    U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
         
 
 
