@@ -70,6 +70,7 @@ module  Nonlinearity
 
         Var = [WntLoc DkkA WntDiff DkkC SD];
         β = [β1 β2 β3 β4 β5 β6];
+        Configuration = []
 
 
         function PreCalc(Fun::T) where T
@@ -100,6 +101,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+
+            Configuration = [1, 1, 1, 1, 1]
             return PreCalc(F)
         end
 
@@ -114,6 +117,7 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 1, 1, 1, 1]
             return PreCalc(F)
         end
 
@@ -128,6 +132,7 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 0, 1, 1, 1]
             return PreCalc(F)
         end
 
@@ -142,6 +147,7 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 0, 1, 1, 1]
             return PreCalc(F)
         end
 
@@ -156,6 +162,7 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 1, 1, 1, 0]
             return PreCalc(F)
         end
 
@@ -170,6 +177,7 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 1, 1, 1, 0]
             return PreCalc(F)
         end
         
@@ -185,24 +193,26 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 1, 1, 1, 0]
             return PreCalc(F)
         end
 
-        function Init3eqA() # Kick SD and A linear WntDiff
+        function Init3eqA() # Kick SD, A and A linear WntDiff
 
             ############# Nonlinearities ############
-            F1 = β6 * WntLoc / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
-            F2 = β1 / (1+ β4 * WntLoc) - DkkA
+            F1 = β6 * WntLoc  / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = 0
             F3 = β2 * WntLoc  - WntDiff
             F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
             F5 = 0           
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 0, 1, 1, 0]
             return PreCalc(F)            
         end
 
-        function Init3eqB() # Kick SD and A linear WntDiff, substitute WntDiff for first equation
+        function Init3eqB() # Kick SD and A, linear WntDiff, substitute WntDiff for first equation
 
             ############# Nonlinearities ############
             F1 = β6 * WntDiff  / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
@@ -213,6 +223,7 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 0, 1, 1, 0]
             return PreCalc(F)
             
         end
@@ -222,12 +233,13 @@ module  Nonlinearity
             ############# Nonlinearities ############
             F1 = β6 * WntDiff / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
             F2 = 0
-            F3 = β2 * WntLoc  - WntDiff
+            F3 = β2 * WntLoc^2  - WntDiff
             F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
             F5 = 0           
             ########################################
 
             F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 0, 1, 1, 0]
             return PreCalc(F)
             
         end
@@ -248,15 +260,15 @@ module  Nonlinearity
         end   
     end
 
-    function PrepareNonlinearity(Fun, β, )
+    function PrepareNonlinearity(Fun, β)
         F, J = Fun()
         Flag = false
         U = SymbolicData.EvaluateConstant(Fun,β)
-        for k in 1:100
+        for k in 1:1000
             X0 = 20.0.*rand(fieldcount(VariablesVector))
             # display(k)
             U = SymbolicData.EvaluateConstant(Fun,β, X0)
-            if all(U .> 0.0 )
+            if all(U[SymbolicData.Configuration .== 1] .> 0.0 )
                 break
             end
         end
@@ -324,7 +336,7 @@ module Sets
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
 
     ######### Choose nonlinearity here - last part #########
-    NonlinearityType = Nonlinearity.SymbolicData.Init3eqB
+    NonlinearityType = Nonlinearity.SymbolicData.Init3eqC
     ########################################################
 
     ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
