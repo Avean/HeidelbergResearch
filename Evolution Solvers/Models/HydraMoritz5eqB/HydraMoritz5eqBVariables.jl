@@ -32,8 +32,8 @@ Order = "8";
 ###### Choosing Nonlinearity
 ######
 
-NonlinearityFunction = "Nonlinearity 1"; # Classical model
-
+# NonlinearityFunction = "Nonlinearity 1"; # Classical model
+NonlinearityFunction = "Nonlinearity 2"; # Reduced 3eq model
 ######
 ###### Initial conditions and parameters
 ######

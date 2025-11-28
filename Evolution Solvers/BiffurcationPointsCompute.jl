@@ -28,8 +28,8 @@ module ComputeBifurctaionPoints
             
             D1[idx, idx] = 1.0
 
-            M0 = Sets.Jac .- wn2 .* D0
-            M1 = Sets.Jac .- wn2 .* D1
+            M0 = Sets.JacC .- wn2 .* D0
+            M1 = Sets.JacC .- wn2 .* D1
 
             f0 = det(M0)  # f(0) = b
             f1 = det(M1)  # f(1) = a + b
@@ -60,7 +60,7 @@ module ComputeBifurctaionPoints
         for k in 1:1000
             wn2 = (k^2) * pi^2
 
-            M = Sets.Jac .- wn2 .* Diagonal([getfield(Sets.Par.Diff,i) for i in 1:fieldcount(Diffusions)])
+            M = Sets.JacC .- wn2 .* Diagonal([getfield(Sets.Par.Diff,i) for i in 1:fieldcount(Diffusions)])
 
             eigs = eigen(M).values
 

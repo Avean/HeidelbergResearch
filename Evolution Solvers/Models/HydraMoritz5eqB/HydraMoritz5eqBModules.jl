@@ -71,6 +71,7 @@ module  Nonlinearity
         Var = [WntLoc DkkA WntDiff DkkC SD];
         β = [β1 β2 β3 β4 β5 β6];
         Configuration = []
+        X0 = ones(fieldcount(VariablesVector)) # Initial guess for constant solution
 
 
         function PreCalc(Fun::T) where T
@@ -82,7 +83,8 @@ module  Nonlinearity
             return FunNonlinearity, JacNonlinearity
         end
 
-        function EvaluateConstant(FunJac, β, X0 = 20.0.*rand(fieldcount(VariablesVector)))
+        function EvaluateConstant(FunJac, β, X0 = SymbolicData.X0)
+            display(X0)
             Fun, Jac = FunJac()
             Xs = nlsolve(x-> Fun(x, β), 
                         x-> Jac(x, β),
@@ -240,6 +242,8 @@ module  Nonlinearity
 
             F = [F1 F2 F3 F4 F5]
             Configuration = [1, 0, 1, 1, 0]
+            # SymbolicData.X0 = [47.459090682404835, 0.0, 1217178.87756134, 2207.61535199080, 0.0]
+            SymbolicData.X0 = [42.59036855933033, 0.0, 7981.33377368621, 16.2622428298969, 0.0]
             return PreCalc(F)
             
         end
@@ -264,14 +268,14 @@ module  Nonlinearity
         F, J = Fun()
         Flag = false
         U = SymbolicData.EvaluateConstant(Fun,β)
-        for k in 1:1000
-            X0 = 20.0.*rand(fieldcount(VariablesVector))
-            # display(k)
-            U = SymbolicData.EvaluateConstant(Fun,β, X0)
-            if all(U[SymbolicData.Configuration .== 1] .> 0.0 )
-                break
-            end
-        end
+        # for k in 1:1000
+        #     X0 = 20.0.*rand(fieldcount(VariablesVector))
+        #     # display(k)
+        #     U = SymbolicData.EvaluateConstant(Fun,β, X0)
+        #     if all(U[SymbolicData.Configuration .== 1] .> 0.0 )
+        #         break
+        #     end
+        # end
 
         if all(U .> 0.0 )
             Flag = true
@@ -296,9 +300,14 @@ module  Nonlinearity
     end
 
     #Variant 2 with u^2 instead of exponents       
-    function N2(Par::Parameters,Var::VariablesVector)
-
-        return 
+    function N2(Par::Parameters,Var::VariablesVector, t::Float64)
+        return VariablesVector(
+                                Var.WntDiff  .* Par.Coef.β6 ./ ((1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
+                                .- Var.DkkA,
+                                Par.Coef.β2  .* Var.WntLoc .* Var.WntLoc  .- Var.WntDiff,
+                                Var.WntDiff ./ (1 .+ Par.Coef.β5 .* Var.WntLoc) .- Var.DkkC,
+                                .- Var.SD,
+                              );
     end
 
     #Variant 3 with u^3 instead of exponents       
@@ -340,7 +349,8 @@ module Sets
     ########################################################
 
     ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
-    β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
+    # β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
+    β =  [1.06, 4.4, 1.2, 11.5, 11.5, 4.8];
             
     U0 = []
     JacC = []
@@ -348,8 +358,14 @@ module Sets
 
     Fun, Jac = NonlinearityType()
 
-    U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
-        
+    ####### Find automatic Steady state ##########
+    # U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
+    ##############################################
+
+    ####### Force Steady state ##########
+    U0 = Nonlinearity.SymbolicData.X0
+    JacC = Jac(U0, Sets.β)
+    ##############################################
 
 
     XDDI = []
