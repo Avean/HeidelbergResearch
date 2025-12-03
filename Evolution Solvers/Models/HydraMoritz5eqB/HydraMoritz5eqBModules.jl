@@ -299,7 +299,7 @@ module  Nonlinearity
                               );
     end
 
-    #Variant 2 with u^2 instead of exponents       
+    #Variant 2 reduced three equations       
     function N2(Par::Parameters,Var::VariablesVector, t::Float64)
         return VariablesVector(
                                 Var.WntDiff  .* Par.Coef.β6 ./ ((1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,

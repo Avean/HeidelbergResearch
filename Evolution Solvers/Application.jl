@@ -8,9 +8,10 @@ using Base.Threads
 
 # Choose a model by selecting a folder
 
+ModelName = "HydraDietmarA";  # Linear WntDiff with WntLoc coupling only 
 # ModelName = "HydraMoritz5eq";   # Original model with 5 equations   
 # ModelName = "HydraMoritz5eqA";  # Linear WntDiff with SD and WntLoc coupling
-ModelName = "HydraMoritz5eqB";  # Linear WntDiff with WntLoc coupling only 
+# ModelName = "HydraMoritz5eqB";  # Linear WntDiff with WntLoc coupling only 
 # ModelName = "HydraMoritz4eqA";  # 4 equations without SD, original parameters
 # ModelName = "HydraMoritz4eqB";  # 4 equations without SD, changed paramters
 # ModelName = "Test1";
