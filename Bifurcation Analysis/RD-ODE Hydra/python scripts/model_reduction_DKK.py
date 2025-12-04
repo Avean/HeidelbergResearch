@@ -336,7 +336,7 @@ def investigate_DDI_woAS():
     print(f"J23 eigenvalues: {LA.eigvals([[float(Jac_eval[1][1]), float(Jac_eval[1][2])],
                                         [float(Jac_eval[2][1]), float(Jac_eval[2][2])]])}")
 
-alpha = [2.0, 1.2, 1.5, 4.0]
+alpha = [1.5, 1.2, 1.5, 4.0]
 def investigate_DDI_woAS_v2():
     f_1 = a4*Wd / ((1 + C)*(1+a2*Wl)) - Wl
     f_2 = a1*Wl**2 - Wd
@@ -362,6 +362,24 @@ def investigate_DDI_woAS_v2():
     g_st = f_1.subs({C: Wd/(1 + a3*Wl)}).simplify()
     g_st = g_st.subs({Wd: a1*Wl**2}).simplify()
     g_st = g_st.subs({a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+
+    # #####
+    # g_st = g_st.subs(a1, alpha[0])
+    # sols = sp.solve(g_st, Wl)
+    # for sol in sols:
+    #     if np.abs(sp.im(sol)) < 10**(-17) and sp.re(sol) >= 0:
+    #         print(f"Steady state Wl: {sol}, Wd: {a1*sp.re(sol)**2}, C: {a1*sp.re(sol)**2/(1 + a3*sp.re(sol))}")
+    #         j11_val = j11.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j12_val = j12.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j13_val = j13.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j21_val = j21.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j22_val = j22.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j23_val = j23.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j31_val = j31.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j32_val = j32.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         j33_val = j33.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+    #         print(f"Jacobian at steady state: [[{j11_val}, {j12_val}, {j13_val}], [{j21_val}, {j22_val}, {j23_val}], [{j31_val}, {j32_val}, {j33_val}]]")
+    # #####
 
     trace = trace.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
     determinant = determinant.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()

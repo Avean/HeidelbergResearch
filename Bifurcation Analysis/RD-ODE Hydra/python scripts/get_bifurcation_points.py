@@ -38,7 +38,8 @@ if __name__ == '__main__':
     # D = Matrix.diag(0.0, d, 6.5)
 
     Jac = Matrix([[-1.84228031377574, 0.0510690552489811, -0.360247875064841], [39.1626590750355, -1, 0], [-2.21878322298442, 0.130285465527934, -1]])
-    D = Matrix.diag(0.0, 0.005, d)
+    Jac = Matrix([[-1.81327685161692, 0.183674868415938, -0.892587063306863], [10.8888059496029, -1, 0], [-0.713731963241883, 0.155173412325415, -1]])
+    D = Matrix.diag(0.0, 0.0015, d)
 
     wave_numbers, bif_points = get_bif_points_fast(Jac, D)
     print(f"{len(bif_points)} bifurcation points {bif_points} cor. to wave numbers: {wave_numbers}")
