@@ -16,31 +16,32 @@ b4 = sp.Symbol('b4')
 b5 = sp.Symbol('b5')
 b6 = sp.Symbol('b6')
 
-beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254]
+beta = [1.06, 4.4, 1.2, 11.5, 1.5, 4.0]  # [4.4, 1.2, 11.5, 4.8]
+# beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254]
 
 # Nonlinearities:
-f1 = b6*S / ((1 + A)*(1 + C)*(1 + b3*Wl)) - Wl
+f1 = b6*Wd / ((1 + C)*(1 + b3*Wl)) - Wl
 
 expr_f2 = b1 / (1 + b4*Wl)
-f2 = 1.0*(expr_f2 - A)
+f2 = 0.0*(expr_f2 - A)
 
 # expr_f3 = b2/2*Wl + b2/2*S
 # expr_f3 = b3*Wl + b4*S
-expr_f3 = b2*Wl*S
+expr_f3 = b2*Wl**2
 f3 = expr_f3 - Wd
 
 expr_f4 = Wd / (1 + b5*Wl)
 f4 = expr_f4 - C
 
 expr_f5 = Wl
-f5 = 1.0*(expr_f5 - S)
+f5 = 0.0*(expr_f5 - S)
 
 f1_eval = f1
 for j in range(1,5):
     f1_eval = f1_eval.subs({S: expr_f5, C: expr_f4, Wd: expr_f3, A: expr_f2, b1: beta[0], b2: beta[1], b3: beta[2], b4: beta[3], b5: beta[4], b6: beta[5]})
 u0 = sp.solve(f1_eval, Wl)
 print(u0)
-u0_real = [np.real(np.complex128(u)) for u in u0 if abs(sp.im(u)) < 10e-8]
+u0_real = [np.real(np.complex128(u)) for u in u0 if abs(sp.im(u)) < 10e-15]
 
 if u0_real:
     Wl0 = max(u0_real)
@@ -108,8 +109,8 @@ eigenvals = Jacobian.eigenvals()
 for val, mult in eigenvals.items():
     print(f"Eigenvalue: {val}, Multiplicity: {mult}")
 print("")
-# print("Jacobian Matrix at the equilibrium point for copying:")
-# print(Jacobian)
+print("Jacobian Matrix at the equilibrium point for copying:")
+print(Jacobian)
 Jac_np = np.array(Jacobian).astype(np.float64)
 print('Check Jacobian for unstable subsystems:')
 principal_submatrices = get_principle_submatrices(Jac_np)

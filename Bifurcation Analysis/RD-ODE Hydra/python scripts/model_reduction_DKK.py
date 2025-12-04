@@ -13,6 +13,10 @@ b3 = sp.Symbol('b3')
 b4 = sp.Symbol('b4')
 b5 = sp.Symbol('b5')
 b6 = sp.Symbol('b6')
+a1 = sp.Symbol('a1')
+a2 = sp.Symbol('a2')
+a3 = sp.Symbol('a3')
+a4 = sp.Symbol('a4')
 
 beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254]
 
@@ -332,6 +336,58 @@ def investigate_DDI_woAS():
     print(f"J23 eigenvalues: {LA.eigvals([[float(Jac_eval[1][1]), float(Jac_eval[1][2])],
                                         [float(Jac_eval[2][1]), float(Jac_eval[2][2])]])}")
 
+alpha = [2.0, 1.2, 1.5, 4.0]
+def investigate_DDI_woAS_v2():
+    f_1 = a4*Wd / ((1 + C)*(1+a2*Wl)) - Wl
+    f_2 = a1*Wl**2 - Wd
+    f_3 = Wd / (1 + a3*Wl) - C
+
+    j11 = sp.diff(f_1, Wl)
+    j12 = sp.diff(f_1, Wd)
+    j13 = sp.diff(f_1, C)
+    j21 = sp.diff(f_2, Wl)
+    j22 = sp.diff(f_2, Wd)
+    j23 = sp.diff(f_2, C)
+    j31 = sp.diff(f_3, Wl)
+    j32 = sp.diff(f_3, Wd)
+    j33 = sp.diff(f_3, C)
+
+    trace = j11 + j22 + j33
+    determinant = (j11*j22*j33 + j12*j23*j31 + j13*j21*j32
+                   - j13*j22*j31 - j12*j21*j33 - j11*j23*j32)
+    p2 = j11*j22 - j12*j21 + j11*j33 - j13*j31 + j22*j33 - j23*j32
+    detJ12 = j11*j22 - j12*j21
+
+    # To calculate steady states, reformulate problem to g_st(Wl) = 0:
+    g_st = f_1.subs({C: Wd/(1 + a3*Wl)}).simplify()
+    g_st = g_st.subs({Wd: a1*Wl**2}).simplify()
+    g_st = g_st.subs({a2: alpha[1], a3: alpha[2], a4: alpha[3]})
+
+    trace = trace.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+    determinant = determinant.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+    detJ12 = detJ12.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+    p2 = p2.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+    
+    for alpha_val in np.linspace(0.25, 2.5, 100):
+        g_st_eval = g_st.subs({a1: alpha_val})
+        sols = sp.solve(g_st_eval, Wl)
+        for sol in sols:
+            if np.abs(sp.im(sol)) < 10**(-17) and sp.re(sol) >= 0:
+                trace_val = trace.subs({Wl: sp.re(sol), a1: alpha_val})
+                det_val = determinant.subs({Wl: sp.re(sol), a1: alpha_val})
+                p2_val = p2.subs({Wl: sp.re(sol), a1: alpha_val})
+                detJ12_val = detJ12.subs({Wl: sp.re(sol), a1: alpha_val})
+                if trace_val < 0 and det_val < 0 and -trace_val*p2_val + det_val > 0:
+                    if detJ12_val < 0: # DDI:
+                        plt.plot(alpha_val, sp.re(sol), 'ro', markersize=4)
+                    else: # always stable:
+                        plt.plot(alpha_val, sp.re(sol), 'bo', markersize=4)
+                else: # unstable:
+                    plt.plot(alpha_val, sp.re(sol), 'go', markersize=4)
+    plt.xlabel('alpha1')
+    plt.ylabel('Wl v2')
+    plt.show()
+
 ############################################################################################################
 # Kickout S using QSSA:
 
@@ -404,8 +460,8 @@ def investigate_DDI_woS():
 #############################################################################################################
 
 # Use QSSA for A, C and S:
-print("QSSA for A, C, S:")
-find_simpler_bistability()
+# print("QSSA for A, C, S:")
+# find_simpler_bistability()
 # check_bistability_woACS()
 # investigate_DDI_woACS()
 # print(" ")
@@ -413,6 +469,7 @@ find_simpler_bistability()
 # Kickout A (without QSSA) and use QSSA for S:
 # print("Kickout A and QSSA for S:")
 # investigate_DDI_woAS()
+investigate_DDI_woAS_v2()
 # print(" ")
 
 # Kickout S using QSSA:
