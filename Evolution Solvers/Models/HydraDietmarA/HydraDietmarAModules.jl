@@ -2,7 +2,7 @@ module Struktury
 
     export Parameters, Coefficients, Diffusions, VariablesVector, Kernels, UnpackStruct
 
-    Base.@kwdef struct Coefficients
+    Base.@kwdef mutable struct Coefficients
         κ::Float64
         Slope::Float64
         lbreak::Float64
@@ -38,11 +38,11 @@ end
 
 module SimParam
     N = 1000; # Number of discretization points
-    dt = 0.01; # Time step
+    dt = 1e-2; # Time step
     L = 1; # Domain size
     dx = L/(N-1); # Spatial step
     x = range(0,L,N); # Discretisation Vector
-    SicCosNodes = 20; # Sine Cosine Nodes
+    SicCosNodes = 100; # Sine Cosine Nodes
 end
 
 
@@ -194,8 +194,8 @@ module Sets
 
     
 
-    D = [1e-3];
-    κ = [0.0];
+    D = [1e-4];
+    κ = 0.0;
 
     
     ####### Find automatic Steady state ##########
@@ -257,13 +257,13 @@ module Sets
                       ]
 
 
-    Par = Parameters(Diffusions(D...), Coefficients(κ...)); # Parameters
+    Par = Parameters(Diffusions(D...), Coefficients(κ, 0.1, 2.2)); # Parameters
 
     Ini = IniCstPerturbed[3]; # Here Choose initial condition
 
 
     function ResetParameters()
-        Sets.Par = Parameters(Diffusions(D...), Coefficients(κ...));
+        Sets.Par = Parameters(Diffusions(D...), Coefficients(κ, 0.1, 2.2));
     end
 
     module BifurcationData

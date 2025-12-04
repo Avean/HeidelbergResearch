@@ -25,6 +25,7 @@ export stop_simulation!
 
 
     fps = 60
+    Fig = nothing
 
     function ResetVariables!(U0,tdom, tval, V10, dt::Float64)
 
@@ -43,6 +44,7 @@ export stop_simulation!
         SharedState.pause_simulation[] = false
 
         SharedState.stop_simulation[] =true
+        SharedState.stop_viewer[] = true
         
         sleep(0.5)
         
@@ -93,7 +95,7 @@ export stop_simulation!
                     ylabel = "Concentration")
 
             lines!(ax[i], Ω, Xi)
-            lines!(ax[i], Ω, getfield(Sets.Ini,i), color = :red, linestyle = :dash)
+            # lines!(ax[i], Ω, getfield(Sets.Ini,i), color = :red, linestyle = :dash)
 
             let ax_local = ax[i],
                 X_local  = Xi,
@@ -105,20 +107,53 @@ export stop_simulation!
                     ymax = max(maximum(data_now),maximum(Xo))
                     Dist = ymax - ymin
                     # ymax = max(maximum(data_now) + 0.1, 2)
-                    ylims!(ax_local, ymin-1e-8-0.1 * Dist, ymax+1e-8+0.1 * Dist)
+                    ylims!(ax_local, ymin-1e-8-0.1 * Dist, max(ymax+1e-8+0.1 * Dist, 2.5))
                     ax_local.title[] = name_local * "\n" *
                                     "t = $(Printf.@sprintf("%0.1f", maximum(t_now))),   Variance = $(Printf.@sprintf("%0.3g", var(data_now)))"
                 end
             end
         end
 
+        ExtraPlots(fig, V1Obs, tt, ttv, THistory)
+
         XVars = (V10, tdom, tval, UObs, V1Obs, tt, ttv)
+        Viewer.Fig = fig
+
         return XVars
     end
-
     
     
+    
+    function ExtraPlots(fig, V1Obs, tt, ttv, THistory)
+        nvars = fieldcount(VariablesVector)
+        axv = Axis(fig[nvars + 1, 1], xlabel = "Time", ylabel = "Variance")
+        lines!(axv, tt, V1Obs)  
 
+        axt = Axis(fig[nvars + 2, 1],
+        title = "Value of κ(l-L) over time",
+            xlabel = "Time",
+            ylabel = "κ(l-L)")
+        lines!(axt, tt, ttv)
+        
+        on(tt) do tz
+            ta = maximum(tz)
+            xlims!(axt, max(0, ta - THistory), max(ta, 0.1))
+
+            xlims!(axv, max(0, ta - THistory), max(ta,0.1))
+            vals = V1Obs[]
+            vals = vals[1:min(max(end-100,2),end)]
+            ymin =minimum(vals) - 0.1*(maximum(vals) - minimum(vals))-1e-8 
+            ymax = maximum(vals) + 0.1*(maximum(vals) - minimum(vals))+1e-8
+            ylims!(axv, ymin, ymax)
+
+            tvmax = maximum(ttv[])
+            ylims!(axt, -0.1, max(Sets.Par.Coef.lbreak + 0.1,tvmax + 0.1)) 
+        end
+    end
+    
+    
+    
+    
     function viewer_loop!(X)
         V10, tdom, tval, UObs, V1Obs, tt, ttv = X
         
@@ -127,10 +162,10 @@ export stop_simulation!
         SharedState.stop_viewer[] = false
         while !SharedState.stop_viewer[]
             # println("Viewer loop time: ", time() - time_start)
-            # time_start = time()
+            time_start = time()
             # New frame:
             SharedState.request_frame[] = true
-
+            
             # poczekaj aż symulacja ją wypełni
             # (bardzo krótko; symulacja biega w kółko i zauważy to prawie od razu)
             # proste aktywne czekanie:
@@ -138,28 +173,43 @@ export stop_simulation!
                 # jeszcze nie gotowe, daj innym wątkom czas
                 yield()
             end
-
+            
             # teraz frame_buffer[] powinno być ustawione
             time_start = time()
             snap = SharedState.frame_buffer[]
+            # @time begin
             if snap !== nothing
                 U_now, t_now = snap
 
-                # push!(V10, var(U_now.u))
+                push!(V10, var(U_now.u))
                 push!(tdom, t_now)
-                # push!(tval, TimeSlope(Par,t_now))
-
+                push!(tval, Nonlinearity.TimeSlope(Sets.Par,t_now))
+                
                 UObs[]  = U_now
 
                 notify(V1Obs)
                 notify(tt)
                 notify(ttv)
             end
-
-            sleep(1/fps)
+            # display((-time_start + time()) )
+            # sleep(1/fps)
+            # end
         end
     end
+    
+    function RecordAnimation(T::Float64, FileName::AbstractString, delay::Float64)
+        # display(Viewer.Fig)
+        time_start = time()
+        record(Viewer.Fig, FileName, 1:Int(floor(T*fps)), close = false, framerate = fps) do i
+            # we do nothing, just wait for the viewer to update the observables
+            display(time() - time_start)
+            time_start = time()    
+            sleep(delay)
+        end
 
+        display("Recording saved to $FileName")
+    end
+    
     function server_loop!(Par::Parameters, X)
         V10, tdom, tval, UObs, V1Obs, tt, ttv = X
         fps = 60

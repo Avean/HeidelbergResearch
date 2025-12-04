@@ -16,8 +16,8 @@ Scheme = "IMEX";
 ######
 
 # BoundaryConditions = "Dirichlet";
-BoundaryConditions = "Neumann";
-# BoundaryConditions = "Periodic";
+# BoundaryConditions = "Neumann";
+BoundaryConditions = "Periodic";
 
 ######
 ###### Choose one of the following levels of Laplacian discretization

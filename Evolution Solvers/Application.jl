@@ -35,14 +35,13 @@ using .Panel: SetPanel, ResetPanel
 XVars = Viewer.setup_viewer();
 
 
-@async begin
-    Viewer.viewer_loop!(XVars)
-end
 
 # include("Parametry.jl")
 
 Viewer.stop_simulation!(XVars)
-
+Viewer_task = @async begin
+    Viewer.viewer_loop!(XVars)
+end
 sim_task = Threads.@spawn Solvers.run_simulation!(
     Sets.Ini,
     Scheme,
@@ -50,8 +49,9 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
     Order,
     NonlinearityFunction
     )
-
-
+    
+    
+@async Viewer.RecordAnimation(20.0, "HydraStable1.9.mp4", 0.0)
 
 
 SharedState.pause_simulation[] = true
