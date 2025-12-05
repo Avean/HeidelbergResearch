@@ -30,3 +30,14 @@ module SymbolicJacobian
 
 end
 
+
+module SymbolicSteadyState
+    
+    using ModelingToolkit
+
+    @variables WntLoc DkkA WntDiff DkkC SD
+    @parameters β1 β2 β3 β4 β5 β6
+
+    F1 = β6 *SD / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+
+end
