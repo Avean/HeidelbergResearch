@@ -99,3 +99,12 @@ def linear_model():
 # print(evaluate_symbolic_at_value_three_vars(func_f, *steady_state))
 # print(evaluate_symbolic_at_value_three_vars(func_g, *steady_state))
 # print(evaluate_symbolic_at_value_three_vars(func_h, *steady_state))
+
+
+def DKK_model_three_equs():
+    a = [1.5, 1.2, 1.5, 4.0]
+    func_f = f"{a[3]}*y / ((1 + z)*(1 + {a[1]}*x)) - x"
+    func_g = f"{a[0]}*x**2 - y"
+    func_h = f"y / (1 + {a[2]}*x) - z"
+    initial_guess_steady_state = [3.62960198320098, 19.76101583468475, 3.066384258084593] #[1, a[0]*1.0**2, a[0]*1.0**2 / (1 + a[2]*1.0)]
+    return [func_f, func_g, func_h], initial_guess_steady_state

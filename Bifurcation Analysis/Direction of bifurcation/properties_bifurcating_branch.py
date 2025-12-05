@@ -783,7 +783,10 @@ class TuringBifurcationThreeEqu:
             d_j_plus, d_j_minus = self._get_bifurcation_p1p2_p3(l_j)
 
             bif_points_p3.append(d_j)
-            if np.isreal(d_j_plus):
+            if np.isreal(d_j_plus) and d_j_plus > 0: 
+                # TODO: check if we already want to exclude negative bifurcation points here.
+                # If not, we can get nan when we have a increasing sequence of negative values and 
+                # thus the maximum is always last entry of list.
                 bif_points_p1p2_p3.append(d_j_plus)
             else:
                 bif_points_p1p2_p3.append(0)
@@ -793,6 +796,7 @@ class TuringBifurcationThreeEqu:
         else:
             d_p3_ind = -1
             d_p3 = 0
+        # print(f'bif_points_p1p2_p3: {bif_points_p1p2_p3}')
         if bif_points_p1p2_p3:
             d_p1p2_p3_ind = np.argmax(bif_points_p1p2_p3)
             d_p1p2_p3 = bif_points_p1p2_p3[d_p1p2_p3_ind]
@@ -801,6 +805,7 @@ class TuringBifurcationThreeEqu:
             d_p1p2_p3 = 0
         if d_p3_ind+2 == max_range or d_p1p2_p3_ind+2 == max_range:
             print('We don\'t look far enough for maximal bifurcation point!')
+            # print(f'd_p3_ind+2 = {d_p3_ind+2}, d_p1p2_p3_ind+2 = {d_p1p2_p3_ind+2}, max_range = {max_range}')
             if d_p3_ind+2 == max_range:
                 d_p3_ind, d_p3 = np.nan, np.nan
             if d_p1p2_p3_ind+2 == max_range:

@@ -8,10 +8,10 @@ from surpress_print import suppress_print
 
 if __name__ == '__main__':
 
-    [func_f, func_g, func_h], initial_guess_steady_state = models.extended_brusselator_model()
+    [func_f, func_g, func_h], initial_guess_steady_state = models.DKK_model_three_equs()
 
-    length_domain = 3.5
-    Diff_2 = 1 #0.017 #1.14056387
+    length_domain = 1.0
+    Diff_2 = 1.0 #0.017 #1.14056387
 
     turing_bif = TuringBifurcationThreeEqu(func_f, func_g, func_h, Diff_2, length_domain,
                                            initial_guess_steady_state)
@@ -27,7 +27,7 @@ if __name__ == '__main__':
 
     with suppress_print():
         j_max, max_bif_point_p3 = turing_bif.approx_max_wave_number_p3(rounded=True, both=False)
-        _, d_max_searched = turing_bif.search_max_bifurcation_point(max_range=10+2*j_max)
+        _, d_max_searched = turing_bif.search_max_bifurcation_point(max_range=20+2*j_max)
     print(f'Max bif point p3: {max_bif_point_p3}')
     print(f'D_max searched: {d_max_searched}')
     print(max_bif_point_p3 < d_max_searched - 1e-3)

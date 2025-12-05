@@ -368,7 +368,7 @@ def investigate_DDI_woAS_v2():
     # sols = sp.solve(g_st, Wl)
     # for sol in sols:
     #     if np.abs(sp.im(sol)) < 10**(-17) and sp.re(sol) >= 0:
-    #         print(f"Steady state Wl: {sol}, Wd: {a1*sp.re(sol)**2}, C: {a1*sp.re(sol)**2/(1 + a3*sp.re(sol))}")
+    #         print(f"Steady state Wl: {sol}, Wd: {(a1*sp.re(sol)**2).subs(a1, alpha[0])}, C: {(a1*sp.re(sol)**2/(1 + a3*sp.re(sol))).subs({a1: alpha[0], a3: alpha[2]})}")
     #         j11_val = j11.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
     #         j12_val = j12.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})
     #         j13_val = j13.subs({Wl: sp.re(sol), Wd: a1*sp.re(sol)**2, C: a1*sp.re(sol)**2/(1 + a3*sp.re(sol)), a1:alpha[0], a2: alpha[1], a3: alpha[2], a4: alpha[3]})

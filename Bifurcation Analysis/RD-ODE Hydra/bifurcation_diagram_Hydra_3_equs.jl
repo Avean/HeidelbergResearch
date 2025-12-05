@@ -6,16 +6,16 @@ const BK = BifurcationKit
 
 # Parameters
 beta = [1.5, 1.2, 1.5, 4.0];
-# nu2  = [0.0, 0.0002, 7.055];
-nu2  = [0.0, 0.005, 0.7];
+# nu2  = [0.0, 0.005, 0.7];
+nu2  = [0.0, 0.005, 1.0];
 # For nu = 0.001 we have bifurcation points at approximately:
 # k = 1: 0.417691561504161, k = 2: 0.160777206945010, k = 3: 0.346146105912033
 # For nu = 0.005 we have bifurcation points at approximately:
 # k = 1: 0.773562293936147
-bif_param = 3;             # Number of diffusion which is used as bifurcation parameter
+bif_param = 2;             # Number of diffusion which is used as bifurcation parameter
 DiffCoef = nu2[bif_param];            # start diffusion for bifurcation parameter
 N_species = 3;
-int_param = [0.1, 2.0];    # Interval in which we consider bifurcation parameter
+int_param = [0.0004, 0.01];    # Interval in which we consider bifurcation parameter
 
 # Grid
 L = 1.0;
@@ -173,7 +173,7 @@ end
 par_full = (diffcoef = DiffCoef,)
 prob = BifurcationProblem(F_flat!, sol0, par_full, (@optic _.diffcoef);
                            record_from_solution = (x,p; k...) -> (nrmFirst=norm(x[1:Int(end/3)]), nrmReal=nrm2_real(x,1), nrm=norm(x), n∞ = norminf(x[1:Int(end/N_species)]), sol=x),
-                           plot_solution = (x, p; k...) -> plot!(C * x[(bif_param-1)*Int(end/N_species)+1:bif_param*Int(end/N_species)] ; k...))
+                           plot_solution = (x, p; k...) -> plot!(C * x[(bif_param-1)*Int(end/N_species)+1:(bif_param)*Int(end/N_species)] ; k...))
 # options for Newton solver, we pass the eigen solver
 # opt_newton = BK.NewtonPar(tol = 1e-10, max_iterations = 20);
 opts_br = ContinuationPar(ds=1e-4, dsmax=5e-2, dsmin=1e-5,
@@ -185,11 +185,11 @@ opts_br = ContinuationPar(ds=1e-4, dsmax=5e-2, dsmin=1e-5,
 ##############################################################################################################################
 # Automatic Bifurcation diagram
 diagram = @time bifurcationdiagram(prob, PALC(), 2, opts_br, bothside=true; verbosity=0, plot=true)
-p1 = plot(diagram; markersize=2, title="Bifurcation diagram for nu_2 = $(nu2[2])", label="", vars = (:param, :nrmFirst))
+p1 = plot(diagram; markersize=2, title="Bifurcation diagram with d_3 = $(nu2[3])", label="", vars = (:param, :nrmFirst))
 
 # If some branch in automatic bifurcation diagram is not computed, we can compute it by hand
 # (1 = endpoint; 2,... = bifurcation points; length(diagram.γ.specialpoint) = endpoint):
-br_missing = continuation(diagram.child[1].γ, 2,
+br_missing = continuation(diagram.γ, 3, #diagram.child[1].γ, 2,
 		opts_br,
 		alg = PALC(),
 		bothside=true;
