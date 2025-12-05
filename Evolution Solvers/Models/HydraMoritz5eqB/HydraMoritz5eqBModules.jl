@@ -85,7 +85,7 @@ module  Nonlinearity
 
         function EvaluateConstant(FunJac, β, X0 = SymbolicData.X0)
             display(X0)
-            Fun, Jac = FunJac()
+            (Fun, Jac), Con = FunJac()
             Xs = nlsolve(x-> Fun(x, β), 
                         x-> Jac(x, β),
                         X0)
@@ -104,8 +104,8 @@ module  Nonlinearity
 
             F = [F1 F2 F3 F4 F5]
 
-            Configuration = [1, 1, 1, 1, 1]
-            return PreCalc(F)
+            Configuration = [1, 2, 3, 4, 5]
+            return PreCalc(F), Configuration
         end
 
         function Init5eqA() #5 equations, linear WntDiff
@@ -119,8 +119,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 1, 1, 1, 1]
-            return PreCalc(F)
+            Configuration = [1, 2, 3, 4, 5]
+            return PreCalc(F), Configuration
         end
 
         function Init4eqA() # Kick DkkA 
@@ -134,8 +134,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 0, 1, 1, 1]
-            return PreCalc(F)
+            Configuration = [1, 3, 4, 5]
+            return PreCalc(F), Configuration
         end
 
         function Init4eqB() # Kick DkkA and multiplication for WntDiff
@@ -149,8 +149,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 0, 1, 1, 1]
-            return PreCalc(F)
+            Configuration = [1, 3, 4, 5]
+            return PreCalc(F), Configuration
         end
 
         function Init4eqC() # Kick SD, quasi steady state
@@ -164,8 +164,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 1, 1, 1, 0]
-            return PreCalc(F)
+            Configuration = [1, 2, 3, 4]
+            return PreCalc(F), Configuration
         end
 
         function Init4eqD() # Kick SD, WntDiff linear
@@ -179,8 +179,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 1, 1, 1, 0]
-            return PreCalc(F)
+            Configuration = [1, 2, 3, 4]
+            return PreCalc(F), Configuration
         end
         
 
@@ -195,8 +195,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 1, 1, 1, 0]
-            return PreCalc(F)
+            Configuration = [1, 2, 3, 4]
+            return PreCalc(F), Configuration
         end
 
         function Init3eqA() # Kick SD, A and A linear WntDiff
@@ -210,8 +210,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 0, 1, 1, 0]
-            return PreCalc(F)            
+            Configuration = [1, 3, 4]
+            return PreCalc(F), Configuration            
         end
 
         function Init3eqB() # Kick SD and A, linear WntDiff, substitute WntDiff for first equation
@@ -225,8 +225,8 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 0, 1, 1, 0]
-            return PreCalc(F)
+            Configuration = [1, 3, 4]
+            return PreCalc(F), Configuration
             
         end
 
@@ -241,10 +241,32 @@ module  Nonlinearity
             ########################################
 
             F = [F1 F2 F3 F4 F5]
-            Configuration = [1, 0, 1, 1, 0]
+            Configuration = [1, 3, 4]
             # SymbolicData.X0 = [47.459090682404835, 0.0, 1217178.87756134, 2207.61535199080, 0.0]
-            SymbolicData.X0 = [42.59036855933033, 0.0, 7981.33377368621, 16.2622428298969, 0.0]
-            return PreCalc(F)
+            # SymbolicData.X0 = [42.59036855933033, 0.0, 7981.33377368621, 16.2622428298969, 0.0]
+
+
+            SymbolicData.X0 = [4.597505915864616, 0.0, 145.766642048790, 18.4602157019578, 0.0]
+            return PreCalc(F), Configuration
+            
+        end
+
+
+        function Init3eqD() # Kick SD and, substitute WntDiff for first equation
+
+            ############# Nonlinearities ############
+            F1 = β6 * WntDiff ./ (1+DkkC) ./ (1+ β3 .* WntLoc) .- WntLoc
+            F2 = 0
+            F3 = β2 .* WntLoc.^3  .- WntDiff
+            F4 = WntDiff ./ (1 + β5 .* WntLoc) .- DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 3, 4]
+
+            SymbolicData.X0 = [4.597505915864616, 0.0, 145.766642048790, 18.4602157019578, 0.0]
+            return PreCalc(F), Configuration
             
         end
     end
@@ -265,7 +287,7 @@ module  Nonlinearity
     end
 
     function PrepareNonlinearity(Fun, β)
-        F, J = Fun()
+        (F, J), C = Fun()
         Flag = false
         U = SymbolicData.EvaluateConstant(Fun,β)
         # for k in 1:1000
@@ -304,7 +326,7 @@ module  Nonlinearity
         return VariablesVector(
                                 Var.WntDiff  .* Par.Coef.β6 ./ ((1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
                                 .- Var.DkkA,
-                                Par.Coef.β2  .* Var.WntLoc .* Var.WntLoc  .- Var.WntDiff,
+                                Par.Coef.β2  .* Var.WntLoc .* Var.WntLoc .^2  .- Var.WntDiff,
                                 Var.WntDiff ./ (1 .+ Par.Coef.β5 .* Var.WntLoc) .- Var.DkkC,
                                 .- Var.SD,
                               );
@@ -345,26 +367,29 @@ module Sets
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
 
     ######### Choose nonlinearity here - last part #########
-    NonlinearityType = Nonlinearity.SymbolicData.Init3eqC
+    NonlinearityType = Nonlinearity.SymbolicData.Init3eqD
     ########################################################
 
-    ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
+    # ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
     # β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
-    β =  [1.06, 4.4, 1.2, 11.5, 11.5, 4.8];
+    # β =  [1.06, 4.4, 1.2, 11.5, 11.5, 4.8];
+    β = [0.0, 1.5, 1.2, 0.0, 1.5, 4.0];
+    ν = [0.0, 0.0, 0.0062, 1.0, 0.0];
             
     U0 = []
     JacC = []
+    Configuration = []
     X0 = ones(fieldcount(VariablesVector))
 
-    Fun, Jac = NonlinearityType()
+    ((Fun, Jac), Configuration) = NonlinearityType()
 
     ####### Find automatic Steady state ##########
-    # U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
+    U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
     ##############################################
 
     ####### Force Steady state ##########
-    U0 = Nonlinearity.SymbolicData.X0
-    JacC = Jac(U0, Sets.β)
+    # U01 = Nonlinearity.SymbolicData.X0
+    # JacC = Jac(U0, Sets.β)
     ##############################################
 
 

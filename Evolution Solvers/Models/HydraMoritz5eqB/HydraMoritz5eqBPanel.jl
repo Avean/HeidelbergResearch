@@ -5,6 +5,7 @@ module WindowCreator
     # Screen References -> 2 windows, initialy no windows
     screen1 = Ref{Union{Nothing, GLMakie.Screen}}(nothing)
     screen2 = Ref{Union{Nothing, GLMakie.Screen}}(nothing)
+    screen3 = Ref{Union{Nothing, GLMakie.Screen}}(nothing)
 
     function show_fig!(screen_ref::Base.RefValue, fig::Figure) # Creating new window
         if screen_ref[] === nothing || !isopen(screen_ref[])

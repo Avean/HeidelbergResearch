@@ -17,19 +17,21 @@ module ComputeBifurctaionPoints
         D0 = Diagonal(D0)
         D1 = copy(D0)
 
+        Trunc = Sets.Configuration # Kick out zero rows/columns
+
         for k in 1:max_wn
             wn2 = (k^2) * pi^2
 
-            # D = 0 w wybranej współrzędnej
+            # D = 0 in choosen coordinate
             
             D0[idx, idx] = 0.0
 
-            # D = 1 w wybranej współrzędnej
+            # D = 1 in choosen coordinate
             
             D1[idx, idx] = 1.0
 
-            M0 = Sets.JacC .- wn2 .* D0
-            M1 = Sets.JacC .- wn2 .* D1
+            M0 = Sets.JacC[Trunc, Trunc] .- wn2 .* D0[Trunc, Trunc]  #Kick out zero rows/columns
+            M1 = Sets.JacC[Trunc, Trunc] .- wn2 .* D1[Trunc, Trunc]
 
             f0 = det(M0)  # f(0) = b
             f1 = det(M1)  # f(1) = a + b
