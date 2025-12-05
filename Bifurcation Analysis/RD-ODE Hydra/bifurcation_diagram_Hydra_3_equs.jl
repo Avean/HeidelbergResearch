@@ -13,9 +13,9 @@ nu2  = [0.0, 0.005, 1.0];
 # For nu = 0.005 we have bifurcation points at approximately:
 # k = 1: 0.773562293936147
 bif_param = 2;             # Number of diffusion which is used as bifurcation parameter
-DiffCoef = nu2[bif_param];            # start diffusion for bifurcation parameter
+DiffCoef = 0.03;#nu2[bif_param];            # start diffusion for bifurcation parameter
 N_species = 3;
-int_param = [0.0004, 0.01];    # Interval in which we consider bifurcation parameter
+int_param = [0.001, 0.1];    # Interval in which we consider bifurcation parameter
 
 # Grid
 L = 1.0;
@@ -32,6 +32,9 @@ C = [cos(k * π * x[n] / L) for n in 1:Nx, k in 0:N_fourier];  # C[n, k+1] = cos
 # Initial condition (Fourier coefficients)
 # U0 = [42.59036855933033, 7981.33377368621, 16.2622428298969]; # for beta = [4.4, 1.2, 11.5, 4.8]
 U0 = [3.62960198320098, 19.76101583468475, 3.066384258084593]; # [for beta = [1.5, 1.2, 1.5, 4.0]
+U0 = [1.270944831652471, 2.42295114765619, 2.01990690394548]; # expr_f4 = Wd**2 / (1 + b5*Wl)
+U0 = [4.597505915864616, 145.766642048790, 18.4602157019578]; # expr_f3 = b2*Wl**3
+# U0 = [4.531829436676579, 112.956129237206, 14.4857444655403]; # beta1 = 5.5
 U0_real = hcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx));
 
 # ---------------------------
@@ -90,7 +93,7 @@ end
 function F_nonl_real(U_real)
     Wl, Wd, C = U_real[:,1], U_real[:,2], U_real[:,3]
     f1 = beta[4]*Wd ./ ((1 .+ C) .* (1 .+ beta[2] .* Wl)) .- Wl
-    f2 = beta[1] .* Wl .*Wl .- Wd
+    f2 = beta[1] .* Wl .*Wl .*Wl .- Wd
     f3 = Wd ./ (1 .+ beta[3] .* Wl) .- C
     return hcat(f1,f2,f3)
 end
@@ -176,20 +179,20 @@ prob = BifurcationProblem(F_flat!, sol0, par_full, (@optic _.diffcoef);
                            plot_solution = (x, p; k...) -> plot!(C * x[(bif_param-1)*Int(end/N_species)+1:(bif_param)*Int(end/N_species)] ; k...))
 # options for Newton solver, we pass the eigen solver
 # opt_newton = BK.NewtonPar(tol = 1e-10, max_iterations = 20);
-opts_br = ContinuationPar(ds=1e-4, dsmax=5e-2, dsmin=1e-5,
+opts_br = ContinuationPar(ds=1e-3, dsmax=5e-2, dsmin=1e-4,
                           p_min=int_param[1], p_max=int_param[2], nev=3*N_fourier, n_inversion=20,
                         #   newton_options=opt_newton,
                           detect_bifurcation=3, #max_bisection_steps=42, tol_bisection_eigenvalue=1e-5,
-                          max_steps=400)
+                          max_steps=500)
 
 ##############################################################################################################################
 # Automatic Bifurcation diagram
-diagram = @time bifurcationdiagram(prob, PALC(), 2, opts_br, bothside=true; verbosity=0, plot=true)
+diagram = @time bifurcationdiagram(prob, PALC(), 3, opts_br, bothside=true; verbosity=0, plot=true)
 p1 = plot(diagram; markersize=2, title="Bifurcation diagram with d_3 = $(nu2[3])", label="", vars = (:param, :nrmFirst))
 
 # If some branch in automatic bifurcation diagram is not computed, we can compute it by hand
 # (1 = endpoint; 2,... = bifurcation points; length(diagram.γ.specialpoint) = endpoint):
-br_missing = continuation(diagram.γ, 3, #diagram.child[1].γ, 2,
+br_missing = continuation(diagram.child[2].γ, 2,
 		opts_br,
 		alg = PALC(),
 		bothside=true;
