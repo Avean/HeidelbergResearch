@@ -5,17 +5,17 @@ const BK = BifurcationKit
 ###############################################################################################################################
 
 # Parameters
-beta = [1.5, 1.2, 1.5, 4.0];
+beta = [5.5, 1.2, 1.5, 4.0];
 # nu2  = [0.0, 0.005, 0.7];
-nu2  = [0.0, 0.005, 1.0];
+nu2  = [0.0, 0.005, 0.3];
 # For nu = 0.001 we have bifurcation points at approximately:
 # k = 1: 0.417691561504161, k = 2: 0.160777206945010, k = 3: 0.346146105912033
 # For nu = 0.005 we have bifurcation points at approximately:
 # k = 1: 0.773562293936147
 bif_param = 2;             # Number of diffusion which is used as bifurcation parameter
-DiffCoef = 0.03;#nu2[bif_param];            # start diffusion for bifurcation parameter
+DiffCoef = 0.0003;#nu2[bif_param];            # start diffusion for bifurcation parameter
 N_species = 3;
-int_param = [0.001, 0.1];    # Interval in which we consider bifurcation parameter
+int_param = [0.00005, 0.0012];    # Interval in which we consider bifurcation parameter
 
 # Grid
 L = 1.0;
@@ -34,7 +34,7 @@ C = [cos(k * π * x[n] / L) for n in 1:Nx, k in 0:N_fourier];  # C[n, k+1] = cos
 U0 = [3.62960198320098, 19.76101583468475, 3.066384258084593]; # [for beta = [1.5, 1.2, 1.5, 4.0]
 U0 = [1.270944831652471, 2.42295114765619, 2.01990690394548]; # expr_f4 = Wd**2 / (1 + b5*Wl)
 U0 = [4.597505915864616, 145.766642048790, 18.4602157019578]; # expr_f3 = b2*Wl**3
-# U0 = [4.531829436676579, 112.956129237206, 14.4857444655403]; # beta1 = 5.5
+U0 = [4.531829436676579, 112.956129237206, 14.4857444655403]; # beta1 = 5.5
 U0_real = hcat(U0[1] * ones(Nx), U0[2] * ones(Nx), U0[3] * ones(Nx));
 
 # ---------------------------
@@ -93,7 +93,7 @@ end
 function F_nonl_real(U_real)
     Wl, Wd, C = U_real[:,1], U_real[:,2], U_real[:,3]
     f1 = beta[4]*Wd ./ ((1 .+ C) .* (1 .+ beta[2] .* Wl)) .- Wl
-    f2 = beta[1] .* Wl .*Wl .*Wl .- Wd
+    f2 = beta[1] .* Wl .*Wl .- Wd
     f3 = Wd ./ (1 .+ beta[3] .* Wl) .- C
     return hcat(f1,f2,f3)
 end
@@ -144,7 +144,7 @@ function F_flat!(F_flat, U_flat, p)
 end
 
 # Initial solution in Fourier
-U0_hat = real_to_fourier(U0_real)
+U0_hat = real_to_fourier(U0_real);
 # Initial solution flattened
 sol0 = vec(U0_hat);
 
@@ -176,10 +176,10 @@ end
 par_full = (diffcoef = DiffCoef,)
 prob = BifurcationProblem(F_flat!, sol0, par_full, (@optic _.diffcoef);
                            record_from_solution = (x,p; k...) -> (nrmFirst=norm(x[1:Int(end/3)]), nrmReal=nrm2_real(x,1), nrm=norm(x), n∞ = norminf(x[1:Int(end/N_species)]), sol=x),
-                           plot_solution = (x, p; k...) -> plot!(C * x[(bif_param-1)*Int(end/N_species)+1:(bif_param)*Int(end/N_species)] ; k...))
+                           plot_solution = (x, p; k...) -> plot!(C * x[(bif_param)*Int(end/N_species)+1:(bif_param+1)*Int(end/N_species)] ; k...))
 # options for Newton solver, we pass the eigen solver
 # opt_newton = BK.NewtonPar(tol = 1e-10, max_iterations = 20);
-opts_br = ContinuationPar(ds=1e-3, dsmax=5e-2, dsmin=1e-4,
+opts_br = ContinuationPar(ds=1e-4, dsmax=5e-2, dsmin=1e-5,
                           p_min=int_param[1], p_max=int_param[2], nev=3*N_fourier, n_inversion=20,
                         #   newton_options=opt_newton,
                           detect_bifurcation=3, #max_bisection_steps=42, tol_bisection_eigenvalue=1e-5,
@@ -192,7 +192,7 @@ p1 = plot(diagram; markersize=2, title="Bifurcation diagram with d_3 = $(nu2[3])
 
 # If some branch in automatic bifurcation diagram is not computed, we can compute it by hand
 # (1 = endpoint; 2,... = bifurcation points; length(diagram.γ.specialpoint) = endpoint):
-br_missing = continuation(diagram.child[2].γ, 2,
+br_missing = continuation(diagram.γ, 3,
 		opts_br,
 		alg = PALC(),
 		bothside=true;
@@ -201,6 +201,7 @@ br_missing = continuation(diagram.child[2].γ, 2,
 plot!(p1, br_missing, vars = (:param, :nrmFirst))
 
 ###############################################################################################################################
+
 br = continuation(prob, PALC(), opts_br, bothside=true, normC = normC)
 
 all_branches = Vector{Vector{Branch}}(undef, length(br.specialpoint)-2)
