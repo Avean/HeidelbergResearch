@@ -105,6 +105,7 @@ module Solvers
         UpdateDiffMatrix()
 
         println( time() - t1)
+        println("Starting main simulation loop")
         
         # --- Main Simulation loop ---
         SharedState.stop_simulation[] = false

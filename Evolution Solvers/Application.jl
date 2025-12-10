@@ -9,9 +9,10 @@ using Base.Threads
 # Choose a model by selecting a folder
 
 # ModelName = "HydraDietmarA";  # Linear WntDiff with WntLoc coupling only 
+ModelName = "HydraDietmarB";  # Linear WntDiff with WntLoc coupling only 
 # ModelName = "HydraMoritz5eq";   # Original model with 5 equations   
 # ModelName = "HydraMoritz5eqA";  # Linear WntDiff with SD and WntLoc coupling
-ModelName = "HydraMoritz5eqB";  # Linear WntDiff with WntLoc coupling only 
+# ModelName = "HydraMoritz5eqB";  # Linear WntDiff with WntLoc coupling only 
 # ModelName = "HydraMoritz4eqA";  # 4 equations without SD, original parameters
 # ModelName = "HydraMoritz4eqB";  # 4 equations without SD, changed paramters
 # ModelName = "Test1";
@@ -52,12 +53,14 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
 
 
 
+
+using GLMakie
 using .SharedState
 F = Figure()
 ax = Axis(F[1, 1])
 Y = frame_buffer[][1];
-lines!(ax, Y.WntLoc)
-
+lines!(ax, Y.WntDiff)
+# lines!(ax, Y.DkkC)
 
 @time begin
     Y = UnpackStruct(Sets.Ini);

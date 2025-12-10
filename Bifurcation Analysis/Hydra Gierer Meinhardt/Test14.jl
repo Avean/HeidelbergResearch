@@ -51,11 +51,12 @@
     
 
 
-    
+
     
     F1 = β6 * WntDiff / (1+DkkC) / (1 + DkkA) / (1+ β3 * WntLoc) - WntLoc
     F1_frac = expand_derivatives(simplify(F1))
     num, den = numerator(F1_frac), denominator(F1_frac)
+
     # Coef = Symbolics.coefficients(num, WntLoc)
     X = (symbolic_solve(num~0, WntLoc))
     Y = Symbolics.symbolic_to_float.(X)
@@ -65,3 +66,11 @@
     for i in Z
         push!(U0, [i; DkkAV(i); WntDiffV(i); DkkCV(i); SDV(i)])
     end
+
+function pretty_H(H)
+    L = latexify(H)  # albo bez env, jak wolisz
+    println(L)                       # wypisz jako zwykły tekst
+    return nothing                   # żeby REPL nie wyświetlał jeszcze raz stringa
+end
+
+H_sub = substitute(H, dict(WntDiff => WntDiff))

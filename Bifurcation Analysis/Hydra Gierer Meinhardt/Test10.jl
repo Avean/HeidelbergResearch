@@ -1,17 +1,36 @@
     
     using ModelingToolkit
-    using NonlinearSolve
+    # using NonlinearSolve
 
 
     @variables WntLoc DkkA WntDiff DkkC SD
     @parameters β1 β2 β3 β4 β5 β6
 
-    F1 = β6 *SD / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
-    F2 = β1 / (1+ β4 * WntLoc) - DkkA
-    F3 = β2 * WntLoc * SD - WntDiff
-    # F3 = β2 * WntLoc + 0.0002 * β2 * SD - WntDiff
-    F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
-    F5 = WntLoc - SD
+    # F1 = β6 *SD / (1+DkkA) / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+    # F2 = β1 / (1+ β4 * WntLoc) - DkkA
+    # F3 = β2 * WntLoc * SD - WntDiff
+    # # F3 = β2 * WntLoc + 0.0002 * β2 * SD - WntDiff
+    # F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+    # F5 = WntLoc - SD
+
+            # ############# Nonlinearities ############
+            # F1 = β6 * WntDiff / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            # F2 = 0
+            # F3 = β2 * WntLoc^2  - WntDiff
+            # F4 = WntDiff / (1 + β5 * WntLoc) - DkkC
+            # F5 = 0           
+            # ########################################
+
+
+            ############# Nonlinearities ############
+            F1 = β6 * WntDiff / (1+DkkC) / (1+ β3 * WntLoc) - WntLoc
+            F2 = 0
+            F3 = β2 * WntLoc^2  - WntDiff
+            F4 = WntDiff / (1 + β5 * WntLoc)^2 - DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
 
 
     F = [F1 F2 F3 F4 F5]
@@ -51,11 +70,38 @@
 
 
 
+using Latexify
 
-            function PrepareNonlinearity2(Fun, β, X0 = rand(fieldcount(VariablesVector)))
-        F, J = Fun()
-        U = SymbolicData.EvaluateConstant(Fun,β, X0)
-        # if all(U .> 0.0 )
-        #     return U, J(U,β)
-        # end
-    end
+"""
+Zwraca ładny kod LaTeX dla zadanej macierzy H::Matrix{Num},
+z podmianą nazw zmiennych:
+  WntDiff -> W_D
+  WntLoc  -> W_L
+  DkkC/ DKKC -> C
+  β2, β3, β5, β6 -> \beta_{2}, \beta_{3}, ...
+i opakowaniem w \begin{align*} ... \end{align*}.
+"""
+function matrix_to_pretty_latex(H)
+    # Mapa zamiany nazw symboli na ładniejsze LaTeX-owe
+    repl = Dict(
+        :WntDiff => "W_D",
+        :WntLoc  => "W_L",
+        :DkkC    => "C",
+        :DKKC    => "C",
+        :β2      => "\\beta_{2}",
+        :β3      => "\\beta_{3}",
+        :β5      => "\\beta_{5}",
+        :β6      => "\\beta_{6}",
+    )
+
+    # LaTeX samej macierzy w środowisku pmatrix
+    pm = latexify(H;
+        mathtype = :pmatrix,
+        symbol_replace = repl
+    )
+
+    # Opakowanie w align*
+    return "\\begin{align*}\n" * String(pm) * "\n\\end{align*}"
+end
+
+println(matrix_to_pretty_latex(H))

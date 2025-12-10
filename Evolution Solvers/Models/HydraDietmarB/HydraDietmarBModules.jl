@@ -12,6 +12,7 @@ module Struktury
 
     mutable struct Diffusions
         D1::Float64
+        D2::Float64
     end
 
     struct Kernels
@@ -26,7 +27,8 @@ module Struktury
     end
 
     struct VariablesVector
-        u::Vector{Float64}
+        WD::Vector{Float64}
+        BK::Vector{Float64}
     end
 
     Parameters(D::Diffusions, C::Coefficients) = Parameters(D, C, missing)
@@ -65,118 +67,15 @@ function TimeSlope(Par::Parameters,t)
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
-                                - Var.u + (Par.Coef.κ  +  TimeSlope(Par,t)) * exp.(Var.u) ./ mean(exp.(Var.u)) 
+                                - Var.WD + Par.Coef.κ  * exp.(Var.BK) ./ mean(exp.(Var.BK)),
+                                - Var.BK + Var.WD
                               );
     end
 
-
-    #Variant 2 with u^2 instead of exponents       
-    function N2(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                                - Var.u + Par.Coef.κ * (Var.u).^2 ./ mean((Var.u).^2)
-                              );
-    end
-
-    #Variant 3 with u^3 instead of exponents       
-    function N3(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                                - Var.u + Par.Coef.κ * (Var.u).^3 ./ mean((Var.u).^3)
-                              );
-    end
-    
-    function N4(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                                - Var.u + Par.Coef.κ * (Var.u).^10 ./ mean((Var.u).^10)
-                              );
-    end
-    
-    function N5(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                            - Var.u + Par.Coef.κ * (Var.u).^2 ./ mean((Var.u).^3)
-                              );
-    end
-
-
-    ###### 
-    ### Nonlinearities with kernels
-    ######
-
-    
-    ### Simple Rectangle Kernel ####
-
-
-
-    function N6(Par::Parameters,Var::VariablesVector) 
-        KernelSize = 0.25;
-        One = [ones(map(Int,SimParam.N*KernelSize)); 1; ones(map(Int,SimParam.N*KernelSize))]; 
-        M = FiniteDiffercePeriodic(One)./sum(One);
-        return VariablesVector(
-                            - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M*exp.(Var.u))
-                              );
-    end
-
-    ### Cosine Kernel ####
-    
-
-    function N7(Par::Parameters, Var::VariablesVector)
-        KernelSize = 1/5;
-        C = range(0.0,pi/2,map(Int,(map(Int,SimParam.N*KernelSize))));
-        CosKernel = [reverse(cos.(C)); 1; cos.(C)];
-        CosKernel = CosKernel ./ sum(CosKernel);
-        M_cos = FiniteDiffercePeriodic(CosKernel);
-        return VariablesVector(
-            - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M_cos * exp.(Var.u))
-            );
-    end
-
-
-    ### Gaussian Kernel ####
-    
-    function N8(Par::Parameters, Var::VariablesVector)
-        KernelSize = 0.5;   
-        C = range(0.0,4,map(Int,(map(Int,SimParam.N*KernelSize))));
-        GaussKernel = [reverse(exp.(-C.^2)); 1; exp.(-C.^2)];
-        GaussKernel = GaussKernel ./ sum(GaussKernel);
-        M_gauss = FiniteDiffercePeriodic(GaussKernel);
-        return VariablesVector(
-                            - Var.u + Par.Coef.κ * exp.(Var.u) ./ (M_gauss * exp.(Var.u))
-                              );
-    end
-
-    
-    ### Introduce MORE kernels ####
-    ### Kernel structure with matrix and parameter a ##
-
-    ## Kernel only in the nominantor ## 
-
-    function N9(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                            - Var.u + Par.Coef.κ * (Par.Ker.M*exp.(Var.u)) ./ mean(exp.(Var.u))
-                              );
-    end
-
-    ## Kernel in both nominator and denominator with parameter a ##
-
-    function N10(Par::Parameters,Var::VariablesVector) 
-        return VariablesVector(
-                            - Var.u + Par.Coef.κ * ((Par.Ker.M*exp.(sign(Par.Ker.a).*Var.u)).^(Par.Ker.a)) ./ mean((Par.Ker.M*exp.(sign(Par.Ker.a).*Var.u)).^(Par.Ker.a))
-                              );
-    end
-
-    
 
 
     NonlinearityFunction = Dict(
         "Nonlinearity 1" => N1,
-        "Nonlinearity 2" => N2,
-        "Nonlinearity 3" => N3,
-        "Nonlinearity 4" => N4,
-        "Nonlinearity 5" => N5,
-        "Nonlinearity 6" => N6,
-        "Nonlinearity 7" => N7,
-        "Nonlinearity 8" => N8,
-        "Nonlinearity 9" => N9,
-        "Nonlinearity 10" => N10
         )
 end
 
@@ -194,18 +93,18 @@ module Sets
 
     
 
-    D = [1e-4];
-    κ = 0.0;
+    D = [1e-4, 0.0]; # Diffusion Coefficients
+    κ = 2.0;
 
     
     ####### Find automatic Steady state ##########
     # U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
-    JacC = [1.0];
+    JacC = ones(fieldcount(VariablesVector), fieldcount(VariablesVector)) # Placeholder
     ##############################################
 
 
     XDDI = []
-    Configuration = 1;
+    Configuration = [1, 2];
 
     function DisplayDDI()
         println("Unstable eigennodes of the linearized system")
@@ -220,10 +119,6 @@ module Sets
         return VariablesVector(W...)
     end
 
-    function VectorToIni(V::Float64)
-        W = V .* ones(SimParam.N) 
-        return VariablesVector(W)
-    end
 
     function PerturbationRandom(l::Float64)
         W = [2.0 .* l.* (rand(SimParam.N).-0.5) for i in 1:fieldcount(VariablesVector)]
@@ -240,7 +135,7 @@ module Sets
         return VariablesVector(W...)
     end
 
-    IniCst = VectorToIni(κ[1])   # Constant initial condition
+    IniCst = VectorToIni([κ[1]/2, κ[1]/2])   # Constant initial condition
 
     IniCstPerturbed = [ # Initial conditions plus small pertubation around constant with amplitude (ℓ)
                         IniCst + PerturbationRandom(0.01),

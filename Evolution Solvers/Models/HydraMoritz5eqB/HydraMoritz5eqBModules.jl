@@ -246,7 +246,8 @@ module  Nonlinearity
             # SymbolicData.X0 = [42.59036855933033, 0.0, 7981.33377368621, 16.2622428298969, 0.0]
 
 
-            SymbolicData.X0 = [3.62960198320098, 0.0, 19.7610158346847, 3.066384258084593, 0.0]
+            # SymbolicData.X0 = [3.62960198320098, 0.0, 19.7610158346847, 3.066384258084593, 0.0]
+            SymbolicData.X0 = [4.531829436676579, 0.0, 112.956129237206, 14.4857444655403, 0.0]
             return PreCalc(F), Configuration
             
         end
@@ -266,6 +267,25 @@ module  Nonlinearity
             Configuration = [1, 3, 4]
 
             SymbolicData.X0 = [4.597505915864616, 0.0, 145.766642048790, 18.4602157019578, 0.0]
+            return PreCalc(F), Configuration
+            
+        end
+
+
+        function Init3eqE() # Kick SD and, substitute WntDiff for first equation, square in WntDiff
+
+            ############# Nonlinearities ############
+            F1 = β6 * WntDiff.^2 ./ (1+DkkC) ./ (1+ β3 .* WntLoc) .- WntLoc
+            F2 = 0
+            F3 = β2 .* WntLoc  .- WntDiff
+            F4 = WntDiff ./ (1 + β5 .* WntLoc) .- DkkC
+            F5 = 0           
+            ########################################
+
+            F = [F1 F2 F3 F4 F5]
+            Configuration = [1, 3, 4]
+
+            SymbolicData.X0 = [4.747391670604822, 0.0, 19.939045016540, 2.45521859012561, 0.0]
             return PreCalc(F), Configuration
             
         end
@@ -324,9 +344,9 @@ module  Nonlinearity
     #Variant 2 reduced three equations       
     function N2(Par::Parameters,Var::VariablesVector, t::Float64)
         return VariablesVector(
-                                Var.WntDiff  .* Par.Coef.β6 ./ ((1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
+                                Var.WntDiff .^2  .* Par.Coef.β6 ./ ((1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
                                 .- Var.DkkA,
-                                Par.Coef.β2  .* Var.WntLoc .* Var.WntLoc .^2  .- Var.WntDiff,
+                                Par.Coef.β2  .* Var.WntLoc  .- Var.WntDiff,
                                 Var.WntDiff ./ (1 .+ Par.Coef.β5 .* Var.WntLoc) .- Var.DkkC,
                                 .- Var.SD,
                               );
@@ -367,14 +387,15 @@ module Sets
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
 
     ######### Choose nonlinearity here - last part #########
-    NonlinearityType = Nonlinearity.SymbolicData.Init3eqD
+    NonlinearityType = Nonlinearity.SymbolicData.Init3eqE
     ########################################################
 
     # ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
     # β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
     # β =  [1.06, 4.4, 1.2, 11.5, 11.5, 4.8];
-    β = [0.0, 1.5, 1.2, 0.0, 1.5, 4.0];
-    ν = [0.0, 0.0, 0.0062, 1.0, 0.0];
+    # β = [0.0, 5.5, 1.2, 0.0, 1.5, 4.0];
+    β = [0.0, 4.2, 10.0, 0.0, 1.5, 2.0];
+    ν = [0.0, 0.0, 0.004, 1.0, 0.0];
             
     U0 = []
     JacC = []
@@ -384,12 +405,12 @@ module Sets
     ((Fun, Jac), Configuration) = NonlinearityType()
 
     ####### Find automatic Steady state ##########
-    U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
+    # U0, JacC,  = SetNonlinearity(Sets.NonlinearityType, Sets.β)
     ##############################################
 
     ####### Force Steady state ##########
-    # U01 = Nonlinearity.SymbolicData.X0
-    # JacC = Jac(U0, Sets.β)
+    U0 = Nonlinearity.SymbolicData.X0
+    JacC = Jac(U0, Sets.β)
     ##############################################
 
 
