@@ -72,10 +72,34 @@ function TimeSlope(Par::Parameters,t)
                               );
     end
 
+    #Variant 1
+    function N2(Par::Parameters,Var::VariablesVector,t::Float64) 
+        return VariablesVector(
+                                - Var.WD + Par.Coef.κ  * exp.(Var.BK.^2) ./ mean(exp.(Var.BK.^2)),
+                                - Var.BK + Var.WD
+                              );
+    end
+    
+
+    function N3(Par::Parameters,Var::VariablesVector,t::Float64) 
+        return VariablesVector(
+                                - Var.WD + 5.0 .* Var.BK .^2 - Var.WD, 
+                                - Var.BK .+ 1.0 .* exp.(Var.BK) ./ mean(exp.(Var.WD)) ./ (1.0 .+ Var.BK)
+                              );
+    end
+
+        function N4(Par::Parameters,Var::VariablesVector,t::Float64) 
+        return VariablesVector(
+                                - Var.WD + (Par.Coef.κ .+ Var.BK) .*  exp.(Var.WD) ./ mean(exp.(Var.WD)), 
+                                - Var.BK .* 100.0 + 1.0 .* Var.WD
+                              );
+    end
 
 
     NonlinearityFunction = Dict(
         "Nonlinearity 1" => N1,
+        "Nonlinearity 2" => N2,
+        "Nonlinearity 3" => N3,
         )
 end
 
@@ -87,6 +111,7 @@ module Sets
 
     import Base: +
 
+    export SetTower
 
 
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
@@ -156,6 +181,34 @@ module Sets
     Par = Parameters(Diffusions(D...), Coefficients(κ, 0.1, 2.2)); # Parameters
 
     Ini = IniCstPerturbed[3]; # Here Choose initial condition
+
+    Perturbation = PerturbationRandom(0.0);
+
+    P1 = PerturbationRandom(0.05);
+    P2 = PerturbationRandom(0.1);
+    P3 = PerturbationRandom(0.2);
+    P4 = PerturbationRandom(0.5);
+    P5 = PerturbationRandom(1.0);
+    P6 = PerturbationRandom(2.0);
+    P7 = PerturbationRandom(5.0);
+    P8 = PerturbationRandom(10.0);
+    
+    function SetTower(x1, x2, amp)
+        W = [zeros(SimParam.N) for i in 1:fieldcount(VariablesVector)]
+        x1 = round(Int, x1 / SimParam.dx)
+        x2 = round(Int, x2 / SimParam.dx)
+        for i in 1:fieldcount(VariablesVector)
+            W[i][x1:x2] .= amp
+        end
+        Sets.Perturbation =  VariablesVector(W...)
+    end
+
+
+
+
+    function PerturbState(U::VariablesVector)
+        return U += Perturbation
+    end
 
 
     function ResetParameters()

@@ -28,6 +28,8 @@ using .Sets: DisplayDDI
 using .Extractor
 using .Viewer
 using .Panel: SetPanel, ResetPanel
+using .SharedState
+using .Sets
 
 # server_task =  Solvers.snapshot_server!()
 
@@ -54,26 +56,35 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
 
 
 
-using GLMakie
-using .SharedState
-F = Figure()
-ax = Axis(F[1, 1])
-Y = frame_buffer[][1];
-lines!(ax, Y.WntDiff)
-# lines!(ax, Y.DkkC)
 
-@time begin
-    Y = UnpackStruct(Sets.Ini);
-    A = hcat(Y...);
-    B = eachrow(A);
-    Sets.Fun.(B, Ref(Sets.β));
-end
+
+
+## For manual pausing and modifying the state and recording
+
+
+
+# SharedState.pause_simulation[] = true
+# SharedState.pause_simulation[] = false
+
+# 1
+
+# using GLMakie
+# using .SharedState
+# F = Figure()
+# ax = Axis(F[1, 1])
+# Y = frame_buffer[][1];
+# lines!(ax, Y.WntDiff)
+# # lines!(ax, Y.DkkC)
+
+# @time begin
+#     Y = UnpackStruct(Sets.Ini);
+#     A = hcat(Y...);
+#     B = eachrow(A);
+#     Sets.Fun.(B, Ref(Sets.β));
+# end
     
 # @async Viewer.RecordAnimation(20.0, "HydraStable1.9.mp4", 0.0)
 
-
-SharedState.pause_simulation[] = true
-SharedState.pause_simulation[] = false
 
 
 ##

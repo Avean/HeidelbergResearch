@@ -52,12 +52,12 @@ Parameters
 - `dt`   – time step used for constructing the time domain
 """
 function ResetVariables!(
-    UObs::Observable,
-    tdom,
-    tval,
-    V10,
-    dt::Float64,
-)
+                            UObs::Observable,
+                            tdom,
+                            tval,
+                            V10,
+                            dt::Float64,
+                        )
     tval[1:end] .= 0.0
     V10[1:end]  .= 0.0
     tdom[1:end] .= 0.0
@@ -92,6 +92,7 @@ This function:
 - notifies the relevant observables.
 """
 function stop_simulation!(XVars)
+    
     SharedState.pause_simulation[] = false
     SharedState.stop_simulation[]  = true
     SharedState.stop_viewer[]      = true

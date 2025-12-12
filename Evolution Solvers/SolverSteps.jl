@@ -1,13 +1,14 @@
 
 
 module SharedState
-    export request_frame, frame_buffer
+    export request_frame, frame_buffer, modify_state
 
     const request_frame = Ref(false)
     const frame_buffer  = Ref{Any}(nothing)
     const stop_simulation = Ref(false)
     const pause_simulation = Ref(false)
     const stop_viewer = Ref(false)
+    const modify_state = Ref(false)
 
 end
 
@@ -129,6 +130,14 @@ module Solvers
             # zapisz np. wariancję jako prosty przykład obserwacji
             # push!(V1, var(U1a.u))
 
+            if SharedState.modify_state[]
+                # tutaj można zmodyfikować stan U1a według potrzeb
+                U1a = Sets.PerturbState(U1a)
+                println("State modified manualy")
+                
+                SharedState.modify_state[] = false
+            end
+            
             # --- sprawdź, czy viewer prosi o nową klatkę ---
             if SharedState.request_frame[]
                 # kopiujemy stan, żeby viewer dostał spójne dane
@@ -143,6 +152,8 @@ module Solvers
             # sleep(5)
             # oddaj schedulerowi czas na inne wątki (np. viewer)
             yield()
+
+
         end
     end
 
