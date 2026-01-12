@@ -170,7 +170,7 @@ def investigate_DDI_woACS():
 
 def find_simpler_bistability():
     # g1 = -Wl + 5.0*Wl*(Wl+1)/((Wl + b1)*(0.1*Wd + 1.0))
-    g1 = -Wl + b1/5.0*Wl*(Wl+1)/((0.2*Wl + 1.0)*(0.1*Wd + 1.0))  # np.linspace(3.75, 6.0, 200)
+    g1 = -Wl + b1*Wl*(Wl+1)/((0.2*Wl + 1.0)*(0.1*Wd + 1.0))  # np.linspace(3.75, 6.0, 200)
     # g1 = -Wl + b1*Wl**2/((Wd + 1.0))
     g2 = -Wd + 4.0*Wl**2
     g_st = g1.subs(Wd, 4.0*Wl**2)
@@ -222,7 +222,7 @@ def find_simpler_bistability():
     #                          True))
     #           ]
 
-    for beta1_val in np.linspace(3.0, 10.0, 200):
+    for beta1_val in np.linspace(3.0/5.0, 10.0/5.0, 200):
         # sols = []
         # for pw in U0_list:
         #     if type(pw) != float:
@@ -336,11 +336,13 @@ def investigate_DDI_woAS():
     print(f"J23 eigenvalues: {LA.eigvals([[float(Jac_eval[1][1]), float(Jac_eval[1][2])],
                                         [float(Jac_eval[2][1]), float(Jac_eval[2][2])]])}")
 
-alpha = [1.5, 1.2, 1.5, 4.0]
+alpha = [1.5, 1.2, 1.5, 4.0] #[4.2, 1.8, 10.5, 10.0]
 def investigate_DDI_woAS_v2():
     f_1 = a4*Wd / ((1 + C)*(1+a2*Wl)) - Wl
-    f_2 = a1*Wl**2 - Wd
-    f_3 = Wd / (1 + a3*Wl) - C
+    expr_Wd = a1*Wl**2
+    f_2 = expr_Wd - Wd
+    expr_C = Wd / (1 + a3*Wl)
+    f_3 = expr_C - C
 
     j11 = sp.diff(f_1, Wl)
     j12 = sp.diff(f_1, Wd)
@@ -359,8 +361,8 @@ def investigate_DDI_woAS_v2():
     detJ12 = j11*j22 - j12*j21
 
     # To calculate steady states, reformulate problem to g_st(Wl) = 0:
-    g_st = f_1.subs({C: Wd/(1 + a3*Wl)}).simplify()
-    g_st = g_st.subs({Wd: a1*Wl**2}).simplify()
+    g_st = f_1.subs({C: expr_C}).simplify()
+    g_st = g_st.subs({Wd: expr_Wd}).simplify()
     g_st = g_st.subs({a2: alpha[1], a3: alpha[2], a4: alpha[3]})
 
     # #####
@@ -381,12 +383,19 @@ def investigate_DDI_woAS_v2():
     #         print(f"Jacobian at steady state: [[{j11_val}, {j12_val}, {j13_val}], [{j21_val}, {j22_val}, {j23_val}], [{j31_val}, {j32_val}, {j33_val}]]")
     # #####
 
-    trace = trace.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
-    determinant = determinant.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
-    detJ12 = detJ12.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
-    p2 = p2.subs({Wd: a1*Wl**2, C: a1*Wl**2/(1 + a3*Wl), a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
-    
-    for alpha_val in np.linspace(0.25, 2.5, 100):
+    trace = trace.subs({C: expr_C, Wd: expr_Wd})
+    determinant = determinant.subs({C: expr_C, Wd: expr_Wd})
+    detJ12 = detJ12.subs({C: expr_C, Wd: expr_Wd})
+    p2 = p2.subs({C: expr_C, Wd: expr_Wd})
+    trace = trace.subs({C: expr_C, Wd: expr_Wd, a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+    determinant = determinant.subs({C: expr_C, Wd: expr_Wd, a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+    detJ12 = detJ12.subs({C: expr_C, Wd: expr_Wd, a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+    p2 = p2.subs({C: expr_C, Wd: expr_Wd, a2: alpha[1], a3: alpha[2], a4: alpha[3]}).simplify()
+
+    counter_DDI = 0
+    counter_stable = 0
+    counter_unstable = 0
+    for alpha_val in np.linspace(0.1, 5.0, 100):
         g_st_eval = g_st.subs({a1: alpha_val})
         sols = sp.solve(g_st_eval, Wl)
         for sol in sols:
@@ -397,13 +406,29 @@ def investigate_DDI_woAS_v2():
                 detJ12_val = detJ12.subs({Wl: sp.re(sol), a1: alpha_val})
                 if trace_val < 0 and det_val < 0 and -trace_val*p2_val + det_val > 0:
                     if detJ12_val < 0: # DDI:
-                        plt.plot(alpha_val, sp.re(sol), 'ro', markersize=4)
+                        if counter_DDI == 0:
+                            label = 'DDI'
+                        else:
+                            label = None
+                        counter_DDI += 1
+                        plt.plot(alpha_val, sp.re(sol), 'ro', markersize=4, label=label)
                     else: # always stable:
-                        plt.plot(alpha_val, sp.re(sol), 'bo', markersize=4)
+                        if counter_stable == 0:
+                            label = 'Stable'
+                        else:
+                            label = None
+                        counter_stable += 1
+                        plt.plot(alpha_val, sp.re(sol), 'bo', markersize=4, label=label)
                 else: # unstable:
-                    plt.plot(alpha_val, sp.re(sol), 'go', markersize=4)
+                    if counter_unstable == 0:
+                            label = 'Unstable'
+                    else:
+                        label = None
+                    counter_unstable += 1
+                    plt.plot(alpha_val, sp.re(sol), 'go', markersize=4, label=label)
     plt.xlabel('alpha1')
     plt.ylabel('Wl v2')
+    plt.legend()
     plt.show()
 
 ############################################################################################################
