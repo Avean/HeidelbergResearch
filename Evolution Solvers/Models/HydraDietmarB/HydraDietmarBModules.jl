@@ -81,16 +81,16 @@ function TimeSlope(Par::Parameters,t)
     end
     
 
-    function N3(Par::Parameters,Var::VariablesVector,t::Float64) 
+    function N3a(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
                                 - Var.WD + 5.0 .* Var.BK .^2 - Var.WD, 
                                 - Var.BK .+ 1.0 .* exp.(Var.BK) ./ mean(exp.(Var.WD)) ./ (1.0 .+ Var.BK)
                               );
     end
 
-        function N4(Par::Parameters,Var::VariablesVector,t::Float64) 
+        function N3(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
-                                - Var.WD + (Par.Coef.κ .+ Var.BK) .*  exp.(Var.WD) ./ mean(exp.(Var.WD)), 
+                                - Var.WD + (Par.Coef.κ .- Var.BK).^2 .*  exp.(Var.WD) ./ mean(exp.(Var.WD)), 
                                 - Var.BK .* 100.0 + 1.0 .* Var.WD
                               );
     end

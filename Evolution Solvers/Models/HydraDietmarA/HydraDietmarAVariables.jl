@@ -32,7 +32,8 @@ Order = "8";
 ###### Choosing Nonlinearity
 ######
 
-NonlinearityFunction = "Nonlinearity 1"; # Classical model
+NonlinearityFunction = "Nonlinearity 0"; # Classical model
+# NonlinearityFunction = "Nonlinearity 1"; # Classical model with time slope
 # NonlinearityFunction = "Nonlinearity 2"; # 
 ######
 ###### Initial conditions and parameters

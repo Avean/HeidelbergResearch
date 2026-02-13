@@ -32,9 +32,9 @@ Order = "8";
 ###### Choosing Nonlinearity
 ######
 
-# NonlinearityFunction = "Nonlinearity 1"; # Classical model
+NonlinearityFunction = "Nonlinearity 1"; # Classical model
 # NonlinearityFunction = "Nonlinearity 2"; # 
-NonlinearityFunction = "Nonlinearity 3"; # 
+# NonlinearityFunction = "Nonlinearity 3"; # 
 ######
 ###### Initial conditions and parameters
 ######

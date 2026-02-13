@@ -62,6 +62,13 @@ function TimeSlope(Par::Parameters,t)
 
     # Different Variants of Nonlinearities
 
+    #Variant 0 - Base model
+    function N0(Par::Parameters,Var::VariablesVector,t::Float64) 
+        return VariablesVector(
+                                - Var.u + (Par.Coef.κ) * exp.(Var.u) ./ mean(exp.(Var.u)) 
+                              );
+    end
+
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
@@ -167,6 +174,7 @@ function TimeSlope(Par::Parameters,t)
 
 
     NonlinearityFunction = Dict(
+        "Nonlinearity 0" => N0,
         "Nonlinearity 1" => N1,
         "Nonlinearity 2" => N2,
         "Nonlinearity 3" => N3,
