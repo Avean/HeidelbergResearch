@@ -8,7 +8,7 @@ using Base.Threads
 
 # Choose a model by selecting a folder
 
-ModelName = "HydraDietmarA";  # Dietmar A 
+# ModelName = "HydraDietmarA";  # Dietmar A 
 # ModelName = "HydraDietmarB";  # Dietmar B 
 # ModelName = "HydraMoritz5eq";   # Original model with 5 equations   
 # ModelName = "HydraMoritz5eqA";  # Linear WntDiff with SD and WntLoc coupling
@@ -18,7 +18,7 @@ ModelName = "HydraDietmarA";  # Dietmar A
 # ModelName = "Test1";
 # ModelName = "GiereMeinhardt";
 # ModelName = "ReceptorBased";
-
+ModelName = "StemCellsFilip";
 
 
 includet("FilesImport.jl")
@@ -52,7 +52,6 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
     Order,
     NonlinearityFunction
     )
-
 
 
 
