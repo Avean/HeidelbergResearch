@@ -108,3 +108,76 @@ def DKK_model_three_equs():
     func_h = f"y / (1 + {a[2]}*x) - z"
     initial_guess_steady_state = [3.62960198320098, 19.76101583468475, 3.066384258084593] #[1, a[0]*1.0**2, a[0]*1.0**2 / (1 + a[2]*1.0)]
     return [func_f, func_g, func_h], initial_guess_steady_state
+
+def vegetation_model_subcrit_PF():
+    beta = [0.9090909090909092, 0.4722550177095633, 8.586454867446605, 0.9090909090909092]
+    # For Diff_2 = 1.0, max bif point is subcritical for wave number 1, rest bif points supercritical.
+    # For Diff_2 = 2.0  max bif point is supercritical for wave number 1, all superctritical.
+    # For Diff_2 = 0.5, max bif point is supercritical for wave number 1, all superctritical.
+    # For Diff_2 = 0.5, Diff_2 = 2.0 TP, for Diff_2 = 1.0 not? No, also TP but after fold bif, so shifted peak for x and y.
+    # old:[0.7936507936507936, 0.9358240650757659, 38.621310622174455, 0.7936507936507936]
+    alp = beta[0]
+    bet = beta[1]
+    gam = beta[2]
+    lam = beta[3]
+    func_f = f"{alp}*y - (1 - {bet}*y)*x"  # f"-{alp}*x + {bet}*(x*y)/(1+x*y)"
+    func_g = f"{gam}*y**2*z - ({alp} + {bet}*x)*y"
+    func_h = f"1 - {gam}*y**2*z - {lam}*z"
+    Delta = np.sqrt(gam*(gam - 4*(alp+bet)*alp*lam))
+    initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+def mod_vegetation_model_SDDI():
+    # Modify vegetation model such that zero branch in f exists.
+    beta = [0.5, 0.2, 0.5, 5.0, 1.0]
+    #S-DDI (D_2 = 1.0): [0.5, 0.2, 0.5, 5.0, 1.0]:
+    # but zero branch has autocatalysis condition at y_bar = 2.0797,
+    # so for stable jump patterns: y has to be sufficiently far away from y_bar (y < alp/bet = 0.5/0.5 = 1.0).
+    # Also for Jacobian to be stable at zero branch, we need y<=0.5.
+    alp = beta[0]
+    alp_2 = beta[1]
+    bet = beta[2]
+    gam = beta[3]
+    lam = beta[4]
+    func_f = f"-{alp}*x + {bet}*(x*y)/(1+x*y)"
+    func_g = f"{gam}*y**2*z - ({alp_2} + {bet}*x)*y"
+    func_h = f"1 - {gam}*y**2*z - {lam}*z"
+    Delta = np.sqrt(gam*(gam - 4*(alp+bet)*alp*lam))
+    initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+def mod_vegetation_model_WDDI():
+    # Modify vegetation model such that zero branch in f exists.
+    beta = [0.5, 0.5, 0.5, 5.0, 1.0]
+    #Wave-DDI (D_2 = 1.0):
+    # Max bif point of p1p2-p3=0: 0.00625 for j=2. d_j^+ > 0 for j>=2.
+    # Max bif point of p3=0: 0.00182 for j=3. d_j > 0 for j>=2. B(3)=-0.2255, B(j)<0 for j>=2.
+    alp = beta[0]
+    alp_2 = beta[1]
+    bet = beta[2]
+    gam = beta[3]
+    lam = beta[4]
+    func_f = f"-{alp}*x + {bet}*(x*y)/(1+x*y)"
+    func_g = f"{gam}*y**2*z - ({alp_2} + {bet}*x)*y"
+    func_h = f"1 - {gam}*y**2*z - {lam}*z"
+    Delta = np.sqrt(gam*(gam - 4*(alp+bet)*alp*lam))
+    initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+def mod_vegetation_model_WDDI_old():
+    # Modify vegetation model such that zero branch in f exists.
+    beta = [0.5, 0.5, 0.47, 8.6, 0.9]
+    #Wave-DDI (D_2 = 1.0): [0.5, 0.47, 8.6, 0.9]
+    # Max bif point of p1p2-p3=0: 0.002875 for j=3. d_j^+ > 0 for j>=2.
+    # Max bif point of p3=0: 0.00115 for j=4. d_j > 0 for j>=3. B(4)=-0.22, B(j) < 0 for j>=3.
+    alp = beta[0]
+    alp_2 = beta[1]
+    bet = beta[2]
+    gam = beta[3]
+    lam = beta[4]
+    func_f = f"-{alp}*x + {bet}*(x*y)/(1+x*y)"
+    func_g = f"{gam}*y**2*z - ({alp_2} + {bet}*x)*y"
+    func_h = f"1 - {gam}*y**2*z - {lam}*z"
+    Delta = np.sqrt(gam*(gam - 4*(alp+bet)*alp*lam))
+    initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
+    return [func_f, func_g, func_h], initial_guess_steady_state
