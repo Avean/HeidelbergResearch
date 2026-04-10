@@ -60,11 +60,11 @@ module  Nonlinearity
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector, t::Float64) 
         return VariablesVector(
-                                Var.SD  .* Par.Coef.β6 ./ ((1 .+ Var.DkkA).*(1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
-                                Par.Coef.β1 ./ (1 .+ Par.Coef.β4 .* Var.WntLoc) .- Var.DkkA,
-                                Par.Coef.β2  .* Var.WntLoc  .- Var.WntDiff,
+                                Var.SD  .* Par.Coef.β6 ./ ((1 .+ Var.DkkC).*(1 .+ Par.Coef.β3 .* Var.WntLoc)) .- Var.WntLoc,
+                                .- Var.DkkA,
+                                Par.Coef.β2  .* Var.WntLoc .* Var.SD  .- Var.WntDiff,
                                 Var.WntDiff ./ (1 .+ Par.Coef.β5 .* Var.WntLoc) .- Var.DkkC,
-                                Var.WntLoc .- Var.SD,
+                                Var.WntLoc.- Var.SD,
                               );
     end
 
@@ -108,8 +108,8 @@ module Sets
 
 
     # ν = [0.0, 3.8154e-03, 0.4433, 6.0713e-03, 0.0004];
-    ν = [0.0, 3.8154e-05, 0.4433, 6.0713e-08, 0.0004];
-    β = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254];
+    ν = [0.0, 0.0, 0.0018, 1.0, 0.0];
+    β = [0.0, 1.5, 1.2, 0.0, 1.5, 4.0];
 
     Jac = [
     -1.0865168027146117   -0.05283439313362805   0.0                 -0.028643941383072864   0.9999999999999997
@@ -119,7 +119,7 @@ module Sets
     1.0                    0.0                   0.0                  0.0                   -1.0
 ]
 
-    U0 = [0.0026, 1.0317, 1.40926, 1.36789, 0.0026];
+    U0 = [3.62960198320098, 0.0, 19.76101583468475, 3.066384258084593, 0.0];
 
     function VectorToIni(V::Vector{Float64})
         W = [v .* ones(SimParam.N) for v in V]

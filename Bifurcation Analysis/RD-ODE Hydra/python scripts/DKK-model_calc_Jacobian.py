@@ -17,25 +17,25 @@ b5 = sp.Symbol('b5')
 b6 = sp.Symbol('b6')
 
 # beta = [1.06, 4.4, 1.2, 11.5, 1.5, 4.0]  # [4.4, 1.2, 11.5, 4.8]
-# beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254]
-beta = [0.0, 1.5, 1.2, 0.0, 1.5, 4.0]  # alpha = [1.5, 1.2, 1.5, 4.0]
+beta = [1.0629, 540.4003, 1.1596, 11.5964, 11.5964, 4.8254]
+# beta = [0.0, 1.5, 1.2, 0.0, 1.5, 4.0]  # alpha = [1.5, 1.2, 1.5, 4.0]
 
 # Nonlinearities:
-f1 = b6*Wd / ((1 + C)*(1 + b3*Wl)) - Wl
+f1 = b6*S / ((1+A)*(1 + C)*(1 + b3*Wl)) - Wl
 
 expr_f2 = b1 / (1 + b4*Wl)
-f2 = 0.0*(expr_f2 - A)
+f2 = 1.0*(expr_f2 - A)
 
 # expr_f3 = b2/2*Wl + b2/2*S
 # expr_f3 = b3*Wl + b4*S
-expr_f3 = b2*Wl**2
+expr_f3 = b2*Wl*S
 f3 = expr_f3 - Wd
 
 expr_f4 = Wd / (1 + b5*Wl)
 f4 = expr_f4 - C
 
 expr_f5 = Wl
-f5 = 0.0*(expr_f5 - S)
+f5 = 1.0*(expr_f5 - S)
 
 f1_eval = f1
 for j in range(1,5):
