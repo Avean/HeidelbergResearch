@@ -181,3 +181,21 @@ def mod_vegetation_model_WDDI_old():
     Delta = np.sqrt(gam*(gam - 4*(alp+bet)*alp*lam))
     initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
     return [func_f, func_g, func_h], initial_guess_steady_state
+
+def mod_vegetation_model_autocat():
+    # Modify vegetation model such that zero branch in f exists.
+    beta = [0.05, 0.2, 0.5, 8.0, 1.0]
+    # Steady state: (0.9633217955403929, 1.8119101848200547, 0.03667820445960722)
+    # Jacobian: [[0.07019289, 0.06390186, 0.],[-0.90595509,0.3816609,26.26414814],[0., -1.0633218, -27.26414814]]
+    # Unstable subsystems: J_1, J_2, J_12, J_13.
+    alp = beta[0]
+    alp_2 = beta[1]
+    bet = beta[2]
+    gam = beta[3]
+    lam = beta[4]
+    func_f = f"-{alp}*x + {bet}*(x*y)/(1+x*y)"
+    func_g = f"{gam}*y**2*z - ({alp_2} + {bet}*x)*y"
+    func_h = f"1 - {gam}*y**2*z - {lam}*z"
+    Delta = np.sqrt(gam*(gam - 4*(alp+bet)*alp*lam))
+    initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
+    return [func_f, func_g, func_h], initial_guess_steady_state
