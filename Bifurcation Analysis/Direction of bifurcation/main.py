@@ -8,10 +8,10 @@ from surpress_print import suppress_print
 
 if __name__ == '__main__':
 
-    [func_f, func_g, func_h], initial_guess_steady_state = models.mod_vegetation_model_WDDI()
+    [func_f, func_g, func_h], initial_guess_steady_state = models.DKK_model_three_equs()
 
     length_domain = 1.0
-    Diff_2 = 1.0
+    Diff_2 = 1.0 #0.05
 
     turing_bif = TuringBifurcationThreeEqu(func_f, func_g, func_h, Diff_2, length_domain,
                                            initial_guess_steady_state)
@@ -59,9 +59,9 @@ if __name__ == '__main__':
     # turing_bif.turing_bifurcation(6)
 
     # turing_bif.plot_d_2_for_multiple_wave_numbers(range(1,31))
-    turing_bif.plot_B_j_for_multiple_wave_numbers(range(1, 31))
+    turing_bif.plot_B_j_for_multiple_wave_numbers(range(1, 16))
     # turing_bif.plot_B_k_for_multiple_domain_sizes(np.linspace(0.01, 10, 1000))
 
-    turing_bif.plot_all_possible_bifurcation_points(range_wavenumber=range(1, 31))
+    turing_bif.plot_all_possible_bifurcation_points(range_wavenumber=range(1, 21))
 
     # turing_bif.plot_bif_point_d_2_for_mult_wave_numbers(range_wavenumber=range(1, 21))

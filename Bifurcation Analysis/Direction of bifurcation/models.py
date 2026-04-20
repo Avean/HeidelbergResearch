@@ -109,8 +109,24 @@ def DKK_model_three_equs():
     initial_guess_steady_state = [3.62960198320098, 19.76101583468475, 3.066384258084593] #[1, a[0]*1.0**2, a[0]*1.0**2 / (1 + a[2]*1.0)]
     return [func_f, func_g, func_h], initial_guess_steady_state
 
+def DKK_model_three_equs_v2():
+    a = [4.2, 10.0, 1.5, 2.0]
+    func_f = f"{a[3]}*y**2 / ((1 + z)*(1 + {a[1]}*x)) - x"
+    func_g = f"{a[0]}*x - y"
+    func_h = f"y / (1 + {a[2]}*x) - z"
+    initial_guess_steady_state = [4.747, 19.939, 2.455]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+def DKK_model_three_equs_trivial_branch():
+    beta = [0.0, 540.4003, 1.1596, 0.0, 11.5964, 4.8254]
+    func_f = f"{beta[5]}*x / ((1 + y)*(1 + {beta[2]}*x)) - x" # b6 * Wl ./ ((1 + C) .* (1 + b3*Wl)) - Wl;
+    func_g = f"z / (1 + {beta[4]}*x) - y" # Wd ./ (1 + b5 * Wl) - C; 
+    func_h = f"{beta[1]}*x**2 - z" # b2 * Wl .* Wl - Wd;
+    initial_guess_steady_state = [0.11958, 7.72763, 3.23776]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
 def vegetation_model_subcrit_PF():
-    beta = [0.9090909090909092, 0.4722550177095633, 8.586454867446605, 0.9090909090909092]
+    beta = [0.9, 0.4, 8.5, 0.9] #[0.9090909090909092, 0.4722550177095633, 8.586454867446605, 0.9090909090909092]
     # For Diff_2 = 1.0, max bif point is subcritical for wave number 1, rest bif points supercritical.
     # For Diff_2 = 2.0  max bif point is supercritical for wave number 1, all superctritical.
     # For Diff_2 = 0.5, max bif point is supercritical for wave number 1, all superctritical.
@@ -184,10 +200,8 @@ def mod_vegetation_model_WDDI_old():
 
 def mod_vegetation_model_autocat():
     # Modify vegetation model such that zero branch in f exists.
-    beta = [0.05, 0.2, 0.5, 8.0, 1.0]
-    # Steady state: (0.9633217955403929, 1.8119101848200547, 0.03667820445960722)
-    # Jacobian: [[0.07019289, 0.06390186, 0.],[-0.90595509,0.3816609,26.26414814],[0., -1.0633218, -27.26414814]]
-    # Unstable subsystems: J_1, J_2, J_12, J_13.
+    beta = [0.1, 0.2, 0.5, 8.0, 1.0]
+    # Does not work, no autocatalysis!
     alp = beta[0]
     alp_2 = beta[1]
     bet = beta[2]
@@ -196,6 +210,7 @@ def mod_vegetation_model_autocat():
     func_f = f"-{alp}*x + {bet}*(x*y)/(1+x*y)"
     func_g = f"{gam}*y**2*z - ({alp_2} + {bet}*x)*y"
     func_h = f"1 - {gam}*y**2*z - {lam}*z"
-    Delta = np.sqrt(gam*(gam - 4*(alp+bet)*alp*lam))
+    Delta = np.sqrt(gam*(gam - 4*(alp_2+bet)*alp_2*lam))
     initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
+    # initial_guess_steady_state = [1.25659, 0.114372, 0.905266]
     return [func_f, func_g, func_h], initial_guess_steady_state
