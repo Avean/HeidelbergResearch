@@ -214,3 +214,18 @@ def mod_vegetation_model_autocat():
     initial_guess_steady_state = [(-2*alp*bet*lam + gam + Delta) / (2*(bet**2*lam + gam)), (gam + Delta) / (2*(alp + bet)*gam), (2*(alp+bet)*bet*lam + gam - Delta) / (2*lam*(bet**2*lam+gam))]
     # initial_guess_steady_state = [1.25659, 0.114372, 0.905266]
     return [func_f, func_g, func_h], initial_guess_steady_state
+
+def approx_nonlocal_dispersal():
+    # For existence of steady state: A >= 2 B
+    # For autocatalysis: B > du
+    du = 1.3# 1.5 #0.5
+    B = 1.0
+    eps = 1.0
+    A = 3.0
+    func_f = f"{du}*(y - x) + x**2*z - {B}*x"
+    func_g = f"-1/{eps}*y + 1/{eps}*x"
+    func_h = f"{A} - z - x**2*z"
+    u0 = (A + np.sqrt(A**2 - 4*B**2)) / (2*B)
+    w0 = (A - np.sqrt(A**2 - 4*B**2)) / 2
+    initial_guess_steady_state = [u0, u0, w0]
+    return [func_f, func_g, func_h], initial_guess_steady_state

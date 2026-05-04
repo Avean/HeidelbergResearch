@@ -8,7 +8,7 @@ from surpress_print import suppress_print
 
 if __name__ == '__main__':
 
-    [func_f, func_g, func_h], initial_guess_steady_state = models.DKK_model_three_equs()
+    [func_f, func_g, func_h], initial_guess_steady_state = models.approx_nonlocal_dispersal()
 
     length_domain = 1.0
     Diff_2 = 1.0 #0.05
