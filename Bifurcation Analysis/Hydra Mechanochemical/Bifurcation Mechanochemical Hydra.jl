@@ -30,8 +30,8 @@ GradDis = ([1/280, -4/105, 1/5, -4/5, 0, 4/5, -1/5, 4/105, -1/280]);
 
 # we define a Bifurcation Problem
 # D_fixed = 1.0 / 20.0 * 1/(20*pi^2);
-# D_fixed =0.0004;
-D_fixed = 0.02;
+D_fixed =0.0004;
+# D_fixed = 0.02;
 # D_fixed = 1.0 /(20.0*pi^2);
 # D_fixed = 1.0 /(2.0.*pi^2);
 
@@ -63,7 +63,8 @@ end
 function F_SinCos(Ru, par)
 	(;kappa, Dcoef) = par
 	w = 
-	return  - D_fixed .* Eigenvalues .* Ru .- Ru .+ kappa .*  (BasisTrun * exp.(BasisFull' * Ru) ./ (SimParam.N - 1) ) ./ (dot(exp.(BasisFull' * Ru),W)) - [kappa ; zeros(SimParam.SicCosNodes *2)];
+	# return  - D_fixed .* Eigenvalues .* Ru .- Ru .+ kappa .*  (BasisTrun * exp.(BasisFull' * Ru) ./ (SimParam.N - 1) ) ./ (dot(exp.(BasisFull' * Ru),W)) - [kappa ; zeros(SimParam.SicCosNodes *2)];
+	return  - D_fixed .* Eigenvalues .* Ru .- Ru .+ kappa .*  (BasisTrun * exp.(2.0.*BasisFull' * Ru) ./ (SimParam.N - 1) ) ./ (dot(exp.(BasisFull' * Ru),W)).^2.0 - [kappa ; zeros(SimParam.SicCosNodes *2)];
 end
 
 function F_J_Discrete(u, par)
@@ -129,8 +130,9 @@ diagram = @time bifurcationdiagram(re_make(prob, params = @set par_ks.kappa = ka
 
 p1 = plot(diagram, plotfold = true, markersize = 2, ylabel = "", legend = false) # legend = :outertopleft, plotstability = true, plotspecialpoints = true, putspecialptlegend = true, 
 # title!("#branches = $(size(diagram))")
-# xlims!(p1, 0.4, 1.5)
 Plots.display(p1)
+xlims!(p1, 0.0, 1.0)
+ylims!(p1, 0, 10.0)
 
 ##
 

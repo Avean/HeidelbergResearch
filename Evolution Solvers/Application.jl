@@ -16,10 +16,10 @@ using Base.Threads
 # ModelName = "HydraMoritz4eqA";  # 4 equations without SD, original parameters
 # ModelName = "HydraMoritz4eqB";  # 4 equations without SD, changed paramters
 # ModelName = "Test1";
-# ModelName = "GiereMeinhardt";
+# ModelName = "GiererMeinhardt";
 # ModelName = "ReceptorBased";
-ModelName = "StemCellsFilip";
-
+# ModelName = "StemCellsFilip";
+ModelName = "GiererMainhardt";
 
 includet("FilesImport.jl")
 
@@ -54,7 +54,7 @@ sim_task = Threads.@spawn Solvers.run_simulation!(
     )
 
 
-
+1
 
 
 

@@ -3,17 +3,17 @@ module Struktury
     export Parameters, Coefficients, Diffusions, VariablesVector, Kernels, UnpackStruct
 
     Base.@kwdef mutable struct Coefficients
-        r0::Float64
-        b0::Float64
-        p0::Float64
-        β::Float64
-        H::Float64
-        K::Float64
+        μu::Float64
+        μv::Float64
+        a::Float64
+        b::Float64
+        pu::Float64
+        pv::Float64
     end
 
     mutable struct Diffusions
-        DA::Float64
-        DQ::Float64
+        Du::Float64
+        Dv::Float64
     end
 
     struct Kernels
@@ -27,8 +27,8 @@ module Struktury
     end
 
     struct VariablesVector
-        Q::Vector{Float64}
-        A::Vector{Float64}
+        u::Vector{Float64}
+        v::Vector{Float64}
     end
 
 
@@ -39,11 +39,12 @@ end
 
 module SimParam
     N = 1000; # Number of discretization points
-    dt = 1e-1; # Time step
+    dt = 1e-2; # Time step
     L = 1; # Domain size
     dx = L/(N-1); # Spatial step
     x = range(0,L,N); # Discretisation Vector
     SicCosNodes = 20; # Sine Cosine Nodes
+
 end
 
 
@@ -78,16 +79,16 @@ module  Nonlinearity
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
-                                - r(Par,Var) .* Var.Q + 2.0 .* b(Par,Var) .* p(Par,Var) .* Var.A,
-                                r(Par,Var) .* Var.Q - p(Par,Var) .* Var.A
+                                - Par.Coef.μu .* Var.u + Par.Coef.a .* (Var.u.^2) ./ (1.0 .+ Var.v) .+ Par.Coef.pu,
+                                - Par.Coef.μv .* Var.v + Par.Coef.b .* Var.u.^2 .+ Par.Coef.pv
                               );
     end
 
     #Variant 1
     function N2(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
-                                - r(Par,Var) .* Var.Q + 2.0 .* b(Par,Var) .* p(Par,Var) .* Var.A,
-                                r(Par,Var) .* Var.Q - p(Par,Var) .* Var.A
+                                - Par.Coef.μu .* Var.u + Par.Coef.a .* (Var.u.^2) ./ ( Var.v) .+ Par.Coef.pu,
+                                - Par.Coef.μv .* Var.v + Par.Coef.b .* Var.u.^2 .+ Par.Coef.pv
                               );
     end
     
@@ -115,14 +116,14 @@ module Sets
 
     import Base: +
 
-    export SetTowerRelative, SetTowerAbsolute
+    export SetTowerRelative, SetTowerAbsolute, ChangeStateLive, SetConstantLive
 
 
     +(x::T, y::T) where T = T([getfield(x,i) + getfield(y,i) for i in fieldnames(T)]...)
 
     
 
-    D = [1e-4, 0.0]; # Diffusion Coefficients
+    D = [1e-4, 1e-1]; # Diffusion Coefficients
     
     # r0 = 0.5; # Proliferation rate
     # b0 = 0.5; # Self-renewal probability
@@ -139,17 +140,30 @@ module Sets
     # K = 66.808; # Carrying capacity
 
 
-    r0 = 10.0; # Proliferation rate
-    b0 = 0.55; # Self-renewal probability
-    p0 = 1.0; # Differentiation rate
-    β = 0.01; # Feedback strength
-    H = 0.2; # Half-saturation constant
-    K = 5.0; # Carrying capacity
+    # r0 = 10.0; # Proliferation rate
+    # b0 = 0.55; # Self-renewal probability
+    # p0 = 1.0; # Differentiation rate
+    # β = 0.01; # Feedback strength
+    # H = 0.2; # Half-saturation constant
+    # K = 5.0; # Carrying capacity
+
+    μu = 0.5; 
+    μv = 1.0; 
+    a = 1.5;
+    b = 2.0;
+    pu = 0.0;
+    pv = 0.0;
 
 
-    Qcst = 10.0;
-    Acst = 0.4;
 
+    ucst = 1.0;
+    vcst = 2.0;
+
+    # ucst = a/b*μv/μu;
+    # vcst = ucst^2*b/μv;
+
+    # ucst = 1e-4;
+    # vcst = 1e-4;
 
     
     ####### Find automatic Steady state ##########
@@ -190,7 +204,7 @@ module Sets
         return VariablesVector(W...)
     end
 
-    IniCst = VectorToIni([Qcst, Acst])   # Constant initial condition
+    IniCst = VectorToIni([ucst, vcst])   # Constant initial condition
 
     IniCstPerturbed = [ # Initial conditions plus small pertubation around constant with amplitude (ℓ)
                         IniCst + PerturbationRandom(0.01),
@@ -209,9 +223,11 @@ module Sets
                       ]
 
 
-    Par = Parameters(Diffusions(D...), Coefficients(r0, b0, p0, β, H, K)); # Parameters
+    Par = Parameters(Diffusions(D...), Coefficients(μu, μv, a, b, pu, pv)); # Parameters
 
-    Ini = IniCstPerturbed[4]; # Here Choose initial condition
+    Ini = IniCstPerturbed[2]; # Here Choose initial condition
+    # Ini = IniCst; # Here Choose initial condition
+
 
     PerturbationAbsolute = PerturbationRandom(0.0);
     PErturbationRelative = PerturbationRandom(0.0);
@@ -255,9 +271,25 @@ module Sets
         end
     end
 
+    function ChangeStateLive(x1, x2, amp, Type::Char)
+        if Type == 'P'
+            SetTowerRelative(x1, x2, amp)
+        elseif Type == 'S'
+            SetTowerAbsolute(x1, x2, amp)
+        else
+            error("Wrong modification type")
+        end
+        SharedState.ModifyState(Type)
+    end
+
+    function SetConstantLive(u::Float64,v::Float64)
+        IC = VectorToIni([u, v])
+        Sets.PerturbationAbsolute = IC;
+        SharedState.ModifyState('S')
+    end
 
     function ResetParameters()
-        Sets.Par = Parameters(Diffusions(D...), Coefficients(r0, b0, p0, β, H, K));
+        Sets.Par = Parameters(Diffusions(D...), Coefficients(μu, μv, a, b, pu, pv));
     end
 
     module BifurcationData

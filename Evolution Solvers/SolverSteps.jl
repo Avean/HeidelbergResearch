@@ -1,17 +1,5 @@
 
 
-module SharedState
-    export request_frame, frame_buffer, modify_state
-
-    const request_frame = Ref(false)
-    const frame_buffer  = Ref{Any}(nothing)
-    const stop_simulation = Ref(false)
-    const pause_simulation = Ref(false)
-    const stop_viewer = Ref(false)
-    const modify_state = Ref(false)
-
-end
-
 module Solvers
     using ..SimParam
     using ..Struktury
@@ -36,13 +24,20 @@ module Solvers
     using Sockets
     using Serialization
 
-    export Iteration
+    export Iteration, UpdateDt
 
     const last_snapshot = Ref{Any}(nothing)
     global DiffMat = undef
     global BC = undef
     global Order = undef
     global Type = undef
+
+    function UpdateDt(new_dt::Float64)
+        SharedState.pause_simulation[] = true
+        SimParam.dt = new_dt
+        UpdateDiffMatrix()
+        SharedState.pause_simulation[] = false
+    end
 
     # Solvers
     function ExpliciteEuler(U::Vector{Float64}, DiffMat::DiffusionMat, FU::Vector{Float64}, dt::Float64)
