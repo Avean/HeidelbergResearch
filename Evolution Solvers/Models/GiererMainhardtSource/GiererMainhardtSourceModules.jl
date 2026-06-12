@@ -14,6 +14,7 @@ module Struktury
     mutable struct Diffusions
         Du::Float64
         Dv::Float64
+        Ds::Float64
     end
 
     struct Kernels
@@ -29,6 +30,7 @@ module Struktury
     struct VariablesVector
         u::Vector{Float64}
         v::Vector{Float64}
+        s::Vector{Float64}
     end
 
 
@@ -56,7 +58,7 @@ module  Nonlinearity
 
     using Statistics
 
-    export ApplyLaplacian, NonlinearityFunction, SetNonlinearity, PrepareNonlinearity, UpdateRho, RhoSlope
+    export ApplyLaplacian, NonlinearityFunction, SetNonlinearity, PrepareNonlinearity
 
     function TimeSlope(Par::Parameters,t)
         return (Par.Coef.Slope * (t - Par.Coef.lbreak/Par.Coef.Slope * floor.(t*Par.Coef.Slope/Par.Coef.lbreak))).^1;
@@ -74,23 +76,14 @@ module  Nonlinearity
         return Par.Coef.p0 .* (Var.A .+ Var.Q) ./ (Par.Coef.H .+ 1.0 .* Var.Q + Var.A)
     end
 
-    # Define the x-dependent ρ(x)
-
-    ρ = ones(SimParam.N) # Placeholder for spatially varying proliferation rate
-    
-    using Revise
-    includet("GiererMainhardtρChange.jl")
-
-
-    
     # Different Variants of Nonlinearities
-
 
     #Variant 1
     function N1(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
-                                - Par.Coef.μu .* Var.u + ρ .* Par.Coef.a .* (Var.u.^2) ./ (1.0 .+ Var.v) .+ Par.Coef.pu,
-                                - Par.Coef.μv .* Var.v + Par.Coef.b .* Var.u.^2 .+ Par.Coef.pv
+                                - Par.Coef.μu .* Var.u + Var.s .* Par.Coef.a .* (Var.u.^2) ./ (1.0 .+ Var.v) .+ Par.Coef.pu,
+                                - Par.Coef.μv .* Var.v + Var.s .* Par.Coef.b .* Var.u.^2 .+ Par.Coef.pv,
+                                Var.u - Var.s
                               );
     end
 
@@ -98,7 +91,8 @@ module  Nonlinearity
     function N2(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
                                 - Par.Coef.μu .* Var.u + Par.Coef.a .* (Var.u.^2) ./ ( Var.v) .+ Par.Coef.pu,
-                                - Par.Coef.μv .* Var.v + Par.Coef.b .* Var.u.^2 .+ Par.Coef.pv
+                                - Par.Coef.μv .* Var.v + Par.Coef.b .* Var.u.^2 .+ Par.Coef.pv,
+                                -Var.s
                               );
     end
     
@@ -106,7 +100,8 @@ module  Nonlinearity
     function N3(Par::Parameters,Var::VariablesVector,t::Float64) 
         return VariablesVector(
                                 - r(Par,Var) .* Var.Q + 2.0 .* b(Par,Var) .* p(Par,Var) .* Var.A,
-                                r(Par,Var) .* Var.Q - p(Par,Var) .* Var.A
+                                r(Par,Var) .* Var.Q - p(Par,Var) .* Var.A,
+                                -Var.s
                               );
     end
 
@@ -133,7 +128,7 @@ module Sets
 
     
 
-    D = [1e-4, 1e-1]; # Diffusion Coefficients
+    D = [1e-4, 1e-1, 1e-1]; # Diffusion Coefficients
     
     # r0 = 0.5; # Proliferation rate
     # b0 = 0.5; # Self-renewal probability
@@ -168,6 +163,7 @@ module Sets
 
     ucst = 1.0;
     vcst = 2.0;
+    scst = 1.0;
 
     # ucst = a/b*μv/μu;
     # vcst = ucst^2*b/μv;
@@ -214,7 +210,7 @@ module Sets
         return VariablesVector(W...)
     end
 
-    IniCst = VectorToIni([ucst, vcst])   # Constant initial condition
+    IniCst = VectorToIni([ucst, vcst, scst])   # Constant initial condition
 
     IniCstPerturbed = [ # Initial conditions plus small pertubation around constant with amplitude (ℓ)
                         IniCst + PerturbationRandom(0.01),
@@ -292,8 +288,8 @@ module Sets
         SharedState.ModifyState(Type)
     end
 
-    function SetConstantLive(u::Float64,v::Float64)
-        IC = VectorToIni([u, v])
+    function SetConstantLive(u::Float64,v::Float64, s::Float64)
+        IC = VectorToIni([u, v, s])
         Sets.PerturbationAbsolute = IC;
         SharedState.ModifyState('S')
     end

@@ -52,6 +52,11 @@ module Solvers
         return DiffMat.Fun.Full'*((DiffMat.Fun.Trunc*(U + dt .* FU)).*DiffMat.Eig);
     end
 
+    function TRBDF2(U::Vector{Float64}, DiffMat::DiffusionMat, FU::Vector{Float64}, dt::Float64)
+       
+        error("TR-BDF2 method not implemented yet")
+    end
+
     function Choice(Scheme::String, BC::String, Order::String, NonFun::String)
         
         if Scheme == "ExpliciteEuler"
@@ -60,6 +65,8 @@ module Solvers
             SchemeF = IMEX;
         elseif Scheme == "SpectralSinCos"
             SchemeF = SpectralSinCos;
+        elseif Scheme == "TRBDF2"
+            SchemeF = TRBDF2;
         else
             error("Wrong Scheme");
         end

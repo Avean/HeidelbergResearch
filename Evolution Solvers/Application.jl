@@ -20,6 +20,7 @@ using Base.Threads
 # ModelName = "ReceptorBased";
 # ModelName = "StemCellsFilip";
 ModelName = "GiererMainhardt";
+# ModelName = "GiererMainhardtSource";
 
 includet("FilesImport.jl")
 

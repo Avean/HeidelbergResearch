@@ -31,9 +31,6 @@ const VIEWER_FPS = 60  # target frame rate for the viewer
 # Global figure handle used e.g. by RecordAnimation
 Fig = nothing
 
-# Number of Extra plots
-ExtraPlotsNumber = 0
-
 
 # ============================================================================
 # Internal utilities
@@ -198,9 +195,6 @@ function setup_viewer()
     # Optionally enable extra plots (variance and κ(l-L) over time)
     # ExtraPlots(fig, V1Obs, tt, ttv, THistory)
 
-    # Extra plot for ρ
-    ρPlot(fig)
-
     XVars = (V10, tdom, tval, UObs, V1Obs, tt, ttv)
     Viewer.Fig = fig
 
@@ -223,17 +217,16 @@ This function assumes:
 """
 function ExtraPlots(fig, V1Obs, tt, ttv, THistory)
     nvars = fieldcount(VariablesVector)
-    
 
     axv = Axis(
-        fig[nvars + ExtraPlotsNumber + 1, 1];
+        fig[nvars + 1, 1];
         xlabel = "Time",
         ylabel = "Variance",
     )
     lines!(axv, tt, V1Obs)
 
     axt = Axis(
-        fig[nvars + Viewer.ExtraPlotsNumber + 2, 1];
+        fig[nvars + 2, 1];
         title  = "Value of κ(l-L) over time",
         xlabel = "Time",
         ylabel = "κ(l-L)",
@@ -257,28 +250,6 @@ function ExtraPlots(fig, V1Obs, tt, ttv, THistory)
         tvmax = maximum(ttv[])
         ylims!(axt, -0.1, max(Sets.Par.Coef.lbreak + 0.1, tvmax + 0.1))
     end
-
-    Viewer.ExtraPlotsNumber += 2
-end
-
-using ..ρChange
-
-function ρPlot(fig)
-    nvars = fieldcount(VariablesVector)
-    Ω = range(0, SimParam.L, SimParam.N)
-
-    axρ = Axis(
-        fig[nvars + Viewer.ExtraPlotsNumber + 1, 1];
-        xlabel = "Ω",
-        ylabel = "ρ",
-    )
-    lines!(axρ, Ω, ρChange.ρObs, color = :red, label = "ρ", linewidth = 2, linestyle = :dash)
-
-    on(ρChange.ρObs) do ρz
-        ylims!(axρ, minimum(ρz) - 0.1 * (maximum(ρz) - minimum(ρz)) - 1e-8,
-                 maximum(ρz) + 0.1 * (maximum(ρz) - minimum(ρz)) + 1e-8)
-    end
-    Viewer.ExtraPlotsNumber += 1
 end
 
 
