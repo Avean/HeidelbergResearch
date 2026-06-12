@@ -32,7 +32,7 @@ end
 
 
 function fisher_kpp_demo(;
-    N = 200,
+    N = 1000,
     D = 0.01,
     reltol = 1e-5,
     abstol = 1e-7,
