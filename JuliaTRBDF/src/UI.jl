@@ -6,23 +6,80 @@
 #
 # This file builds the GLMakie application window.
 #
-# Responsibilities:
+# Threaded architecture:
 #
-#     - create the Figure layout,
-#     - create the model selection menu,
-#     - create buttons and text boxes,
-#     - connect UI callbacks to the simulation engine,
-#     - run the asynchronous simulation loop,
-#     - refresh the plot panel.
+#     Worker thread:
+#         - advances the DifferentialEquations.jl integrator,
+#         - creates SimulationSnapshot objects,
+#         - writes only to SnapshotBuffer.
 #
-# Models are not loaded dynamically here.
-# They are already loaded into MODEL_REGISTRY when the module starts.
+#     UI task:
+#         - reads the newest SimulationSnapshot,
+#         - updates Makie Observables,
+#         - updates axes and labels.
+#
+# The worker thread must never update GLMakie objects directly.
 #
 # ============================================================
 
 
-function refresh_app_observables!(app::AppState)
-    # Refresh scalar observables displayed in the UI.
+# ============================================================
+# Snapshot-based UI refresh
+# ============================================================
+
+function snapshot_matches_current_app(
+    app::AppState,
+    snapshot::SimulationSnapshot,
+)
+    # Check whether a snapshot still belongs to the currently displayed model.
+    #
+    # This prevents drawing an old snapshot after switching models.
+
+    return snapshot.generation == app.generation[] &&
+           snapshot.model_id == app.sim.model.id &&
+           snapshot.N == app.sim.N &&
+           snapshot.nvars == app.sim.model.nvars
+end
+
+
+function refresh_app_observables_from_snapshot!(
+    app::AppState,
+    snapshot::SimulationSnapshot,
+)
+    # Refresh scalar observables displayed in the UI using a snapshot.
+
+    app.time_obs[] = snapshot.t
+    app.dt_obs[] = snapshot.dt
+    app.dtmax_obs[] = snapshot.dtmax
+    app.step_counter_obs[] = snapshot.steps
+
+    return nothing
+end
+
+
+function refresh_app_from_snapshot!(
+    app::AppState,
+    snapshot::SimulationSnapshot,
+)
+    # Refresh plots and scalar UI observables from a thread-safe snapshot.
+    #
+    # This function should be called only from the UI side.
+
+    snapshot_matches_current_app(app, snapshot) ||
+        return nothing
+
+    refresh_plot_panel_from_snapshot!(app.plot_panel, snapshot)
+    refresh_app_observables_from_snapshot!(app, snapshot)
+
+    return nothing
+end
+
+
+function refresh_app_observables_from_live_state!(app::AppState)
+    # Refresh scalar observables from the live simulation state.
+    #
+    # Use this only when the worker is stopped or when the caller knows that
+    # access to the simulation state is safe.
 
     app.time_obs[] = current_display_time(app.sim)
     app.dt_obs[] = current_internal_dt(app.sim)
@@ -33,55 +90,151 @@ function refresh_app_observables!(app::AppState)
 end
 
 
-function refresh_app!(app::AppState)
-    # Refresh both plots and scalar UI observables.
+function refresh_app_from_live_state!(app::AppState)
+    # Refresh plots and scalar UI observables directly from the live state.
+    #
+    # This is used at initialization and immediately after controlled manual
+    # operations, not during threaded stepping.
 
     refresh_plot_panel!(app.plot_panel, app.sim)
-    refresh_app_observables!(app)
+    refresh_app_observables_from_live_state!(app)
 
     return nothing
 end
 
 
-function stop_app!(app::AppState)
-    # Stop the asynchronous simulation loop.
+# ============================================================
+# Worker control
+# ============================================================
 
+function request_stop_worker!(app::AppState)
+    # Ask the worker thread to stop.
+    #
+    # This does not wait until the worker actually finishes.
+
+    app.worker_running[] = false
     app.running[] = false
 
     return nothing
 end
 
 
-function start_app!(
+function wait_for_worker!(app::AppState)
+    # Wait until the worker task finishes.
+    #
+    # Important:
+    # Do not call this while holding app.simlock.
+
+    task = app.worker_task_ref[]
+
+    if task !== nothing && !istaskdone(task)
+        wait(task)
+    end
+
+    return nothing
+end
+
+
+function stop_worker!(app::AppState; wait::Bool = false)
+    # Stop the worker.
+    #
+    # For buttons, wait = false is more responsive.
+    # For model switching or solver mutation, wait = true is safer.
+
+    request_stop_worker!(app)
+
+    if wait
+        wait_for_worker!(app)
+    end
+
+    return nothing
+end
+
+
+function start_ui_snapshot_poller!(
+    app::AppState;
+    refresh_interval::Float64 = 1 / 30,
+)
+    # Start the UI-side task that polls the latest snapshot and updates Makie.
+    #
+    # This task runs on the UI side. It does not step the solver.
+
+    if app.ui_task_ref[] !== nothing && !istaskdone(app.ui_task_ref[])
+        return nothing
+    end
+
+    app.ui_task_ref[] = @async begin
+        while true
+            snapshot = take_latest_snapshot!(app.snapshot_buffer)
+
+            if snapshot !== nothing
+                try
+                    refresh_app_from_snapshot!(app, snapshot)
+                catch err
+                    @error "Error while refreshing UI from snapshot." exception = (err, catch_backtrace())
+                end
+            end
+
+            # If the worker stopped because of an error, reflect that in the UI.
+            if app.running[] &&
+               !app.worker_running[] &&
+               app.worker_task_ref[] !== nothing &&
+               istaskdone(app.worker_task_ref[])
+                app.running[] = false
+            end
+
+            yield()
+            sleep(refresh_interval)
+        end
+    end
+
+    return nothing
+end
+
+
+function start_worker!(
     app::AppState;
     steps_per_frame::Int = 5,
     sleep_time::Float64 = 0.001,
 )
-    # Start the asynchronous simulation loop.
+    # Start the threaded simulation worker.
     #
-    # If the loop is already running, do nothing.
+    # The worker advances the solver and publishes snapshots.
+    # It must not touch GLMakie objects.
 
-    if app.task_ref[] !== nothing && !istaskdone(app.task_ref[])
+    if app.worker_task_ref[] !== nothing && !istaskdone(app.worker_task_ref[])
+        app.worker_running[] = true
         app.running[] = true
         return nothing
     end
 
+    app.worker_running[] = true
     app.running[] = true
 
-    app.task_ref[] = @async begin
-        while app.running[]
+    app.worker_task_ref[] = Threads.@spawn begin
+        while app.worker_running[]
+            snapshot = nothing
+
             lock(app.simlock)
 
             try
                 step_simulation!(app.sim, steps_per_frame)
-                refresh_app!(app)
+
+                snapshot = make_snapshot(
+                    app.sim,
+                    app.generation[],
+                )
 
             catch err
-                @error "Critical error in the simulation loop." exception = (err, catch_backtrace())
-                app.running[] = false
+                @error "Critical error in the simulation worker." exception = (err, catch_backtrace())
+                app.worker_running[] = false
 
             finally
                 unlock(app.simlock)
+            end
+
+            if snapshot !== nothing
+                put_latest_snapshot!(app.snapshot_buffer, snapshot)
             end
 
             yield()
@@ -93,17 +246,43 @@ function start_app!(
 end
 
 
+# ============================================================
+# Controlled simulation mutations
+# ============================================================
+
+function make_locked_snapshot(app::AppState)
+    # Create a snapshot while holding the simulation lock.
+    #
+    # The caller must already hold app.simlock.
+
+    return make_snapshot(app.sim, app.generation[])
+end
+
+
 function step_once_app!(app::AppState)
     # Advance the simulation by one solver step.
+    #
+    # If the worker is running, this button does nothing. Manual stepping is
+    # intended for the stopped state.
+
+    if app.worker_running[]
+        return nothing
+    end
+
+    snapshot = nothing
 
     lock(app.simlock)
 
     try
         step_simulation!(app.sim)
-        refresh_app!(app)
+        snapshot = make_locked_snapshot(app)
 
     finally
         unlock(app.simlock)
+    end
+
+    if snapshot !== nothing
+        refresh_app_from_snapshot!(app, snapshot)
     end
 
     return nothing
@@ -112,88 +291,145 @@ end
 
 function set_dtmax_app!(app::AppState, new_dtmax::Float64)
     # Change dtmax through the UI.
+    #
+    # This can be done while the worker is running. The solver state is locked
+    # briefly, and the UI is refreshed from a snapshot.
+
+    snapshot = nothing
 
     lock(app.simlock)
 
     try
         set_dtmax!(app.sim, new_dtmax)
-        refresh_app!(app)
+        snapshot = make_locked_snapshot(app)
 
     finally
         unlock(app.simlock)
+    end
+
+    if snapshot !== nothing
+        refresh_app_from_snapshot!(app, snapshot)
     end
 
     return nothing
 end
 
 
-function kick_all_app!(app::AppState)
+function with_worker_paused!(
+    app::AppState,
+    f::Function;
+    restart_if_was_running::Bool = true,
+    steps_per_frame::Int = 5,
+)
+    # Pause the worker, apply a mutation to the live simulation state,
+    # refresh from a snapshot, and optionally restart the worker.
+    #
+    # This is used for manual perturbations.
+
+    was_running = app.worker_running[]
+
+    if was_running
+        stop_worker!(app; wait = true)
+    end
+
+    snapshot = nothing
+
+    lock(app.simlock)
+
+    try
+        f()
+        snapshot = make_locked_snapshot(app)
+
+    finally
+        unlock(app.simlock)
+    end
+
+    clear_snapshot_buffer!(app.snapshot_buffer)
+
+    if snapshot !== nothing
+        refresh_app_from_snapshot!(app, snapshot)
+    end
+
+    if was_running && restart_if_was_running
+        start_worker!(
+            app;
+            steps_per_frame = steps_per_frame,
+        )
+    end
+
+    return nothing
+end
+
+
+function kick_all_app!(
+    app::AppState;
+    steps_per_frame::Int = 5,
+)
     # Add a constant perturbation to the first variable.
 
-    lock(app.simlock)
-
-    try
-        kick_all!(app.sim; amount = 1.0, variable = 1)
-        refresh_app!(app)
-
-    finally
-        unlock(app.simlock)
-    end
+    with_worker_paused!(
+        app,
+        () -> kick_all!(app.sim; amount = 1.0, variable = 1);
+        restart_if_was_running = true,
+        steps_per_frame = steps_per_frame,
+    )
 
     return nothing
 end
 
 
-function sinusoidal_kick_app!(app::AppState)
+function sinusoidal_kick_app!(
+    app::AppState;
+    steps_per_frame::Int = 5,
+)
     # Add a sinusoidal perturbation to the first variable.
 
-    lock(app.simlock)
-
-    try
-        sinusoidal_kick!(
+    with_worker_paused!(
+        app,
+        () -> sinusoidal_kick!(
             app.sim;
             amount = 1.0,
             mode = 1,
             variable = 1,
             shift = 0.0,
             clip_to_nonnegative = false,
-        )
-
-        refresh_app!(app)
-
-    finally
-        unlock(app.simlock)
-    end
+        );
+        restart_if_was_running = true,
+        steps_per_frame = steps_per_frame,
+    )
 
     return nothing
 end
 
 
-function sinusoidal_kick_clipped_app!(app::AppState)
+function sinusoidal_kick_clipped_app!(
+    app::AppState;
+    steps_per_frame::Int = 5,
+)
     # Add a shifted sinusoidal perturbation and clip the first variable
     # to nonnegative values.
 
-    lock(app.simlock)
-
-    try
-        sinusoidal_kick!(
+    with_worker_paused!(
+        app,
+        () -> sinusoidal_kick!(
             app.sim;
             amount = 1.0,
             mode = 1,
             variable = 1,
             shift = 1.5,
             clip_to_nonnegative = true,
-        )
-
-        refresh_app!(app)
-
-    finally
-        unlock(app.simlock)
-    end
+        );
+        restart_if_was_running = true,
+        steps_per_frame = steps_per_frame,
+    )
 
     return nothing
 end
 
+
+# ============================================================
+# Plot panel rebuilding
+# ============================================================
 
 function clear_plot_panel!(panel::PlotPanel)
     # Delete old axes before rebuilding the plot panel.
@@ -205,8 +441,6 @@ function clear_plot_panel!(panel::PlotPanel)
         try
             delete!(ax)
         catch
-            # Fallback for Makie versions where delete!(ax) is unavailable.
-            # Hiding is less clean, but prevents the application from crashing.
             try
                 ax.visible = false
             catch
@@ -234,12 +468,16 @@ function switch_model_app!(
 )
     # Switch to another already-loaded model.
     #
-    # The model is taken from MODEL_REGISTRY, so no dynamic include happens here.
+    # The worker is stopped, old snapshots are discarded, and a new generation
+    # number is assigned so stale snapshots cannot be drawn.
+
+    stop_worker!(app; wait = true)
 
     lock(app.simlock)
 
     try
-        stop_app!(app)
+        app.generation[] = app.generation[] + 1
+        clear_snapshot_buffer!(app.snapshot_buffer)
 
         app.sim = create_simulation_state(
             model;
@@ -259,7 +497,7 @@ function switch_model_app!(
             title_obs = title_obs,
         )
 
-        refresh_app!(app)
+        refresh_app_from_live_state!(app)
 
     finally
         unlock(app.simlock)
@@ -269,16 +507,35 @@ function switch_model_app!(
 end
 
 
+# ============================================================
+# Main UI
+# ============================================================
+
 function run_app(;
     N::Int = 1000,
     dtmax0::Float64 = 1e-2,
     reltol::Float64 = 1e-5,
     abstol::Float64 = 1e-7,
     steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
+    ui_refresh_interval::Float64 = 1 / 30,
 )
     # Start the full GLMakie application.
 
     GLMakie.activate!()
+
+    if Threads.nthreads() == 1
+        @warn """
+        Julia is running with only one thread.
+
+        The application will still work, but the simulation worker cannot run
+        on a separate thread. Start Julia with for example:
+
+            julia --threads=2 main.jl
+
+        or set JULIA_NUM_THREADS before starting Julia.
+        """
+    end
 
     # --------------------------------------------------------
     # Models
@@ -358,7 +615,11 @@ function run_app(;
         dt_obs,
         time_obs,
         step_counter_obs,
+        Threads.Atomic{Bool}(false),
         Ref{Union{Nothing, Task}}(nothing),
+        Ref{Union{Nothing, Task}}(nothing),
+        empty_snapshot_buffer(),
+        Threads.Atomic{Int}(0),
         ReentrantLock(),
     )
 
@@ -451,14 +712,15 @@ function run_app(;
     )
 
     on(bstart.clicks) do _
-        start_app!(
+        start_worker!(
             app;
             steps_per_frame = steps_per_frame,
+            sleep_time = worker_sleep_time,
         )
     end
 
     on(bstop.clicks) do _
-        stop_app!(app)
+        stop_worker!(app; wait = false)
     end
 
     on(bone.clicks) do _
@@ -488,28 +750,43 @@ function run_app(;
     )
 
     on(bkick.clicks) do _
-        kick_all_app!(app)
+        kick_all_app!(
+            app;
+            steps_per_frame = steps_per_frame,
+        )
     end
 
     on(bsinkick.clicks) do _
-        sinusoidal_kick_app!(app)
+        sinusoidal_kick_app!(
+            app;
+            steps_per_frame = steps_per_frame,
+        )
     end
 
     on(bsinkickclip.clicks) do _
-        sinusoidal_kick_clipped_app!(app)
+        sinusoidal_kick_clipped_app!(
+            app;
+            steps_per_frame = steps_per_frame,
+        )
     end
 
     # --------------------------------------------------------
-    # Start
+    # Start UI poller and simulation worker
     # --------------------------------------------------------
 
-    refresh_app!(app)
+    refresh_app_from_live_state!(app)
 
     display(fig)
 
-    start_app!(
+    start_ui_snapshot_poller!(
+        app;
+        refresh_interval = ui_refresh_interval,
+    )
+
+    start_worker!(
         app;
         steps_per_frame = steps_per_frame,
+        sleep_time = worker_sleep_time,
     )
 
     return app

@@ -3,25 +3,6 @@
 # ============================================================
 # Model specification
 # ============================================================
-#
-# Every file in models/ must define:
-#
-#     function build_model()
-#         return ModelSpec(...)
-#     end
-#
-# The solver stores the solution as a single vector y.
-# Inside model functions we reshape it as:
-#
-#     U = reshape(y, N, nvars)
-#
-# Convention:
-#
-#     U[:, 1] = first variable
-#     U[:, 2] = second variable
-#     ...
-#
-# ============================================================
 
 Base.@kwdef struct ModelSpec
     id::Symbol
@@ -41,6 +22,7 @@ Base.@kwdef struct ModelSpec
 
     initialize!::Function
     # Function initializing the solution matrix U at t = 0.
+    #
     # Signature:
     #
     #     initialize!(U, x, p)
@@ -49,6 +31,7 @@ Base.@kwdef struct ModelSpec
 
     rhs!::Function
     # Right-hand side of the semi-discrete ODE system.
+    #
     # Signature:
     #
     #     rhs!(dU, U, Lap, x, p, t)
@@ -111,6 +94,61 @@ end
 
 
 # ============================================================
+# Snapshot passed from worker thread to UI
+# ============================================================
+
+mutable struct SimulationSnapshot
+    y::Vector{Float64}
+    # Copy of the current solver state.
+    # This is safe to read from the UI thread because it is independent
+    # of the live integrator.
+
+    N::Int
+    # Number of spatial grid points used when the snapshot was created.
+
+    nvars::Int
+    # Number of variables in the model used when the snapshot was created.
+
+    model_id::Symbol
+    # Identifier of the model used when the snapshot was created.
+
+    generation::Int
+    # Application generation number.
+    # This prevents old snapshots from a previous model from being drawn
+    # after switching models.
+
+    t::Float64
+    # Displayed physical simulation time.
+
+    dt::Float64
+    # Current internal/proposed solver time step.
+
+    dtmax::Float64
+    # Current maximum allowed solver time step.
+
+    steps::Int
+    # Number of accepted solver steps since the last full restart.
+end
+
+
+mutable struct SnapshotBuffer
+    latest::Base.RefValue{Union{Nothing, SimulationSnapshot}}
+    # The newest snapshot produced by the worker thread.
+
+    lock::ReentrantLock
+    # Lock protecting access to the latest snapshot.
+end
+
+
+function empty_snapshot_buffer()
+    return SnapshotBuffer(
+        Ref{Union{Nothing, SimulationSnapshot}}(nothing),
+        ReentrantLock(),
+    )
+end
+
+
+# ============================================================
 # Plot panel
 # ============================================================
 
@@ -136,7 +174,8 @@ mutable struct AppState
     # Current collection of plots displaying the solution.
 
     running::Observable{Bool}
-    # Whether the simulation is currently running.
+    # Whether the simulation is currently running from the UI perspective.
+    # This observable should be updated only from the UI thread.
 
     dtmax_obs::Observable{Float64}
     # Observable storing the current maximum allowed time step.
@@ -150,10 +189,22 @@ mutable struct AppState
     step_counter_obs::Observable{Int}
     # Observable storing the number of solver steps shown in the UI.
 
-    task_ref::Base.RefValue{Union{Nothing, Task}}
-    # Reference to the asynchronous simulation task.
-    # It is nothing if the simulation loop has not been started yet.
+    worker_running::Threads.Atomic{Bool}
+    # Thread-safe flag used by the simulation worker.
+
+    worker_task_ref::Base.RefValue{Union{Nothing, Task}}
+    # Reference to the threaded simulation worker task.
+
+    ui_task_ref::Base.RefValue{Union{Nothing, Task}}
+    # Reference to the UI-side snapshot polling task.
+
+    snapshot_buffer::SnapshotBuffer
+    # Latest simulation snapshot shared between the worker and UI.
+
+    generation::Threads.Atomic{Int}
+    # Incremented whenever the model is switched.
+    # Old snapshots with older generations are ignored.
 
     simlock::ReentrantLock
-    # Lock protecting the solver state from simultaneous UI and simulation updates.
+    # Lock protecting the live solver state.
 end

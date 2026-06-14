@@ -8,15 +8,9 @@
 # It does not create UI elements and does not know how the solution
 # is plotted.
 #
-# Main responsibilities:
-#
-#     - create the spatial grid,
-#     - build the initial condition,
-#     - build the ODEProblem,
-#     - initialize the time integrator,
-#     - step the simulation,
-#     - restart the solver after manual perturbations,
-#     - control dtmax.
+# In the threaded version, the live integrator belongs to the
+# simulation worker. The UI should receive SimulationSnapshot objects
+# instead of reading directly from the integrator while the worker runs.
 #
 # ============================================================
 
@@ -42,6 +36,11 @@ end
 
 
 function make_initial_state(model::ModelSpec, x::Vector{Float64})
+    # Create the initial condition for a given model.
+    #
+    # The model initializes a matrix U0 of size N × nvars.
+    # The solver receives vec(U0).
+
     N = length(x)
 
     params = copy(model.default_params)
@@ -52,6 +51,7 @@ function make_initial_state(model::ModelSpec, x::Vector{Float64})
     return vec(U0), params
 end
 
+
 function make_problem(
     model::ModelSpec,
     y0::Vector{Float64},
@@ -59,6 +59,11 @@ function make_problem(
     x::Vector{Float64},
     params::Dict{Symbol, Float64},
 )
+    # Build an ODEProblem from a ModelSpec.
+    #
+    # Internally, DifferentialEquations.jl works with vectors.
+    # Inside the RHS we reshape the vector into an N × nvars matrix.
+
     N = length(x)
     nvars = model.nvars
 
@@ -74,9 +79,10 @@ function make_problem(
     return ODEProblem(rhs!, y0, (0.0, Inf))
 end
 
+
 function create_simulation_state(
     model::ModelSpec;
-    N::Int = 1000,
+    N::Int = 100,
     xmin::Float64 = 0.0,
     xmax::Float64 = 1.0,
     dtmax::Float64 = 1e-2,
@@ -315,6 +321,85 @@ function sinusoidal_kick!(
     end
 
     restart_after_manual_change!(sim, vec(U))
+
+    return nothing
+end
+
+
+# ============================================================
+# Snapshots
+# ============================================================
+
+
+function make_snapshot(sim::SimulationState, generation::Int)
+    # Create a thread-safe copy of the current simulation state.
+    #
+    # This function should be called while holding app.simlock if the
+    # worker thread may be stepping the integrator.
+
+    return SimulationSnapshot(
+        copy(sim.integrator_ref[].u),
+        sim.N,
+        sim.model.nvars,
+        sim.model.id,
+        generation,
+        current_display_time(sim),
+        current_internal_dt(sim),
+        current_dtmax(sim),
+        sim.step_counter[],
+    )
+end
+
+
+function put_latest_snapshot!(
+    buffer::SnapshotBuffer,
+    snapshot::SimulationSnapshot,
+)
+    # Store the newest snapshot.
+    #
+    # This buffer intentionally keeps only the latest snapshot. If the worker
+    # produces 100 snapshots while the UI draws 1 frame, the UI should draw
+    # only the most recent one instead of replaying obsolete frames.
+
+    lock(buffer.lock)
+
+    try
+        buffer.latest[] = snapshot
+    finally
+        unlock(buffer.lock)
+    end
+
+    return nothing
+end
+
+
+function take_latest_snapshot!(buffer::SnapshotBuffer)
+    # Take the newest snapshot and clear the buffer.
+    #
+    # Returns nothing if no snapshot is available.
+
+    lock(buffer.lock)
+
+    try
+        snapshot = buffer.latest[]
+        buffer.latest[] = nothing
+        return snapshot
+    finally
+        unlock(buffer.lock)
+    end
+end
+
+
+function clear_snapshot_buffer!(buffer::SnapshotBuffer)
+    # Remove any pending snapshot.
+
+    lock(buffer.lock)
+
+    try
+        buffer.latest[] = nothing
+    finally
+        unlock(buffer.lock)
+    end
 
     return nothing
 end

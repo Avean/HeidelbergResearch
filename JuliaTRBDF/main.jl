@@ -11,4 +11,6 @@ include(joinpath(@__DIR__, "src", "ReactionDiffusionApp.jl"))
 using .ReactionDiffusionApp
 
 # Start the application.
-ReactionDiffusionApp.run_app()
+ReactionDiffusionApp.run_app();
+
+1

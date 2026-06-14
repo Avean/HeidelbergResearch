@@ -17,19 +17,27 @@
 # Each variable gets its own vertical axis and its own automatic
 # y-axis scaling.
 #
+# In the threaded version, the UI should preferably update plots
+# from SimulationSnapshot objects, not directly from the live
+# integrator.
+#
 # ============================================================
 
 
 function empty_plot_panel()
     # Create an empty plot panel.
-    #
-    # The actual Makie axes and observables are created later by
-    # build_plot_panel!.
 
     return PlotPanel(
         Axis[],
         Observable{Vector{Float64}}[],
     )
+end
+
+
+function solution_matrix_from_snapshot(snapshot::SimulationSnapshot)
+    # Return the snapshot state reshaped as an N × nvars matrix.
+
+    return reshape(snapshot.y, snapshot.N, snapshot.nvars)
 end
 
 
@@ -40,20 +48,9 @@ function build_plot_panel!(
 )
     # Build one plot for each variable of the current model.
     #
-    # Arguments:
-    #
-    #     grid      - Makie GridLayout where the axes will be placed
-    #     sim       - current simulation state
-    #     title_obs - optional observable used as the title of the first axis
-    #
-    # Returns:
-    #
-    #     PlotPanel
-    #
-    # The plot panel stores:
-    #
-    #     axes        - one Axis per variable
-    #     observables - one Observable per variable
+    # This function is used when a model is initialized or switched.
+    # At this moment the UI owns the operation, so reading directly
+    # from sim is acceptable.
 
     model = sim.model
     U = solution_matrix(sim)
@@ -93,6 +90,10 @@ end
 
 function refresh_plot_panel!(panel::PlotPanel, sim::SimulationState)
     # Refresh all solution plots from the current simulation state.
+    #
+    # This should only be used when the UI safely owns the simulation state,
+    # for example immediately after initialization or after a locked manual
+    # perturbation.
 
     model = sim.model
     U = solution_matrix(sim)
@@ -110,8 +111,34 @@ function refresh_plot_panel!(panel::PlotPanel, sim::SimulationState)
 end
 
 
+function refresh_plot_panel_from_snapshot!(
+    panel::PlotPanel,
+    snapshot::SimulationSnapshot,
+)
+    # Refresh all solution plots from a thread-safe simulation snapshot.
+    #
+    # This is the preferred update path while the worker thread is running.
+
+    U = solution_matrix_from_snapshot(snapshot)
+
+    length(panel.observables) == snapshot.nvars ||
+        error("Plot panel does not match the number of snapshot variables.")
+
+    for j in 1:snapshot.nvars
+        panel.observables[j][] = copy(U[:, j])
+    end
+
+    rescale_solution_axes_from_snapshot!(panel, snapshot)
+
+    return nothing
+end
+
+
 function rescale_solution_axes!(panel::PlotPanel, sim::SimulationState)
     # Automatically rescale each y-axis to the current range of its variable.
+    #
+    # This reads from the live simulation state, so it should not be called
+    # concurrently with the worker thread.
 
     model = sim.model
     U = solution_matrix(sim)
@@ -120,6 +147,36 @@ function rescale_solution_axes!(panel::PlotPanel, sim::SimulationState)
         error("Plot panel does not match the number of model variables.")
 
     for j in 1:model.nvars
+        u = @view U[:, j]
+
+        umin = minimum(u)
+        umax = maximum(u)
+
+        margin = max(0.2 * (umax - umin), 0.1)
+
+        ylims!(
+            panel.axes[j],
+            umin - margin,
+            umax + margin,
+        )
+    end
+
+    return nothing
+end
+
+
+function rescale_solution_axes_from_snapshot!(
+    panel::PlotPanel,
+    snapshot::SimulationSnapshot,
+)
+    # Automatically rescale each y-axis using a thread-safe snapshot.
+
+    U = solution_matrix_from_snapshot(snapshot)
+
+    length(panel.axes) == snapshot.nvars ||
+        error("Plot panel does not match the number of snapshot variables.")
+
+    for j in 1:snapshot.nvars
         u = @view U[:, j]
 
         umin = minimum(u)
