@@ -183,6 +183,7 @@ function build_control_panel!(
     )
 
     on(bstart.clicks) do _
+        clear_perturbation_previews!(app.plot_panel)
         start_worker!(
             app;
             steps_per_frame = steps_per_frame,
@@ -191,7 +192,12 @@ function build_control_panel!(
     end
 
     on(bstop.clicks) do _
-        stop_worker!(app; wait = false)
+        stop_worker!(app; wait = true)
+
+        update_all_perturbation_previews!(
+            app;
+            stop_simulation = false,
+        )
     end
 
 

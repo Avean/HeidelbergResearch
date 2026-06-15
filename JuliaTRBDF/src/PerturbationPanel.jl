@@ -3,22 +3,19 @@
 # ============================================================
 # Perturbation panel
 # ============================================================
-#
-# This file builds the local perturbation controls displayed
-# under every plot.
-#
-# Each variable receives:
-#
-#     - center slider in [0, 1],
-#     - Perturb button,
-#     - constant/random switch,
-#     - width numeric field with +/- buttons,
-#     - height numeric field with +/- buttons.
-#
-# Moving any control stops the simulation and updates a gray
-# preview curve.
-#
-# ============================================================
+
+
+mutable struct PerturbationControlState
+    variable::Int
+    center_slider::Any
+    random_toggle::Any
+    set_toggle::Any
+    width_textbox::Any
+    height_textbox::Any
+    preview_obs::Observable{Vector{Float64}}
+    increment::Vector{Float64}
+    has_valid_preview::Bool
+end
 
 
 function local_perturbation_mask(
@@ -33,7 +30,6 @@ function local_perturbation_mask(
     half_width = width / 2
 
     if boundary_condition == :periodic
-        # Assumes normalized domain [0, 1].
         return [min(abs(xi - center), 1.0 - abs(xi - center)) <= half_width for xi in x]
     else
         return [abs(xi - center) <= half_width for xi in x]
@@ -66,11 +62,6 @@ function build_float_spinner!(
     min_value::Float64 = -Inf,
     max_value::Float64 = Inf,
 )
-    # Small custom numeric field:
-    #
-    #     label
-    #     [-] [value] [+]
-
     label_block = Label(
         grid[1, 1:3],
         label,
@@ -116,45 +107,55 @@ function build_float_spinner!(
 end
 
 
-function clear_preview_observable!(
-    preview_obs::Observable{Vector{Float64}},
-    N::Int,
-)
-    preview_obs[] = fill(NaN, N)
-    return nothing
-end
-
-
 function update_local_perturbation_preview!(
     app::AppState,
-    preview_obs::Observable{Vector{Float64}},
-    variable::Int,
-    center::Float64,
-    width::Union{Nothing, Float64},
-    height::Union{Nothing, Float64},
-    random_mode::Bool,
+    state::PerturbationControlState;
+    stop_simulation::Bool = true,
 )
-    # Stop simulation and draw gray preview of the perturbation.
+    # Update gray dashed preview curve.
+    #
+    # The preview is a full curve on the whole interval:
+    #
+    #     preview = current solution + perturbation increment.
+    #
+    # Outside the perturbation support, increment = 0, so the gray line
+    # coincides with the original curve.
 
-    stop_worker!(app; wait = true)
+    if stop_simulation
+        stop_worker!(app; wait = true)
+    end
+
+    success = false
 
     lock(app.simlock)
 
     try
+        variable = state.variable
+
         if variable > app.sim.model.nvars
-            return nothing
+            state.has_valid_preview = false
+            return false
         end
 
+        width = textbox_float_value(state.width_textbox; default = nothing)
+        height = textbox_float_value(state.height_textbox; default = nothing)
+
         if width === nothing || height === nothing || width <= 0
-            clear_preview_observable!(preview_obs, app.sim.N)
-            return nothing
+            N = app.sim.N
+            state.preview_obs[] = fill(NaN, N)
+            state.increment = zeros(Float64, N)
+            state.has_valid_preview = false
+            return false
         end
+
+        center = Float64(state.center_slider.value[])
+        random_mode = state.random_toggle.active[]
+        set_mode = state.set_toggle.active[]
 
         y = copy(app.sim.integrator_ref[].u)
         U = reshape(y, app.sim.N, app.sim.model.nvars)
 
         actual = copy(U[:, variable])
-        preview = fill(NaN, app.sim.N)
 
         mask = local_perturbation_mask(
             app.sim.x,
@@ -163,11 +164,35 @@ function update_local_perturbation_preview!(
             boundary_condition = app.sim.boundary_condition,
         )
 
-        preview_height = random_mode ? 0.5 * height : height
+        increment = zeros(Float64, app.sim.N)
 
-        preview[mask] .= actual[mask] .+ preview_height
+        for i in eachindex(mask)
+            if mask[i]
+                value = random_mode ? height * rand() : height
 
-        preview_obs[] = preview
+                if set_mode
+                    # Absolute mode:
+                    #
+                    #     preview[i] = value
+                    #
+                    # Since the runtime applies increments, we store
+                    #
+                    #     increment[i] = value - actual[i].
+                    increment[i] = value - actual[i]
+                else
+                    # Perturbation mode:
+                    #
+                    #     preview[i] = actual[i] + value
+                    increment[i] = value
+                end
+            end
+        end
+
+        preview = actual .+ increment
+
+        state.increment = increment
+        state.preview_obs[] = preview
+        state.has_valid_preview = true
 
         rescale_axis_from_actual_and_preview!(
             app.plot_panel.axes[variable],
@@ -175,8 +200,34 @@ function update_local_perturbation_preview!(
             preview,
         )
 
+        success = true
+
     finally
         unlock(app.simlock)
+    end
+
+    return success
+end
+
+
+function update_all_perturbation_previews!(
+    app::AppState;
+    stop_simulation::Bool = false,
+)
+    # Show gray dashed preview lines for all variables.
+    #
+    # This should be called after the simulation is stopped.
+
+    if stop_simulation
+        stop_worker!(app; wait = true)
+    end
+
+    for state in app.plot_panel.perturbation_controls
+        update_local_perturbation_preview!(
+            app,
+            state;
+            stop_simulation = false,
+        )
     end
 
     return nothing
@@ -189,8 +240,6 @@ function build_perturbation_controls!(
     preview_obs::Observable{Vector{Float64}};
     variable::Int,
 )
-    # Controls under one plot.
-
     ui_items = Any[]
 
     center_label = Label(
@@ -224,11 +273,23 @@ function build_perturbation_controls!(
         tellwidth = false,
     )
 
+    set_mode_label = Label(
+        grid[1, 4],
+        "perturb",
+        tellwidth = false,
+    )
+
+    set_toggle = Toggle(
+        grid[2, 4],
+        active = false,
+        tellwidth = false,
+    )
+
     width_grid = GridLayout()
     height_grid = GridLayout()
 
-    grid[1:2, 4] = width_grid
-    grid[1:2, 5] = height_grid
+    grid[1:2, 5] = width_grid
+    grid[1:2, 6] = height_grid
 
     width_spinner = build_float_spinner!(
         width_grid;
@@ -245,6 +306,18 @@ function build_perturbation_controls!(
         step = 0.1,
     )
 
+    state = PerturbationControlState(
+        variable,
+        center_slider,
+        random_toggle,
+        set_toggle,
+        width_spinner.textbox,
+        height_spinner.textbox,
+        preview_obs,
+        zeros(Float64, app.sim.N),
+        false,
+    )
+
     append!(
         ui_items,
         Any[
@@ -253,6 +326,8 @@ function build_perturbation_controls!(
             perturb_button,
             mode_label,
             random_toggle,
+            set_mode_label,
+            set_toggle,
             width_grid,
             height_grid,
             width_spinner.label_block,
@@ -267,19 +342,10 @@ function build_perturbation_controls!(
     )
 
     function update_preview()
-        center = Float64(center_slider.value[])
-        width = textbox_float_value(width_spinner.textbox; default = nothing)
-        height = textbox_float_value(height_spinner.textbox; default = nothing)
-        random_mode = random_toggle.active[]
-
         update_local_perturbation_preview!(
             app,
-            preview_obs,
-            variable,
-            center,
-            width,
-            height,
-            random_mode,
+            state;
+            stop_simulation = true,
         )
 
         return nothing
@@ -302,26 +368,31 @@ function build_perturbation_controls!(
         update_preview()
     end
 
-    on(perturb_button.clicks) do _
-        center = Float64(center_slider.value[])
-        width = textbox_float_value(width_spinner.textbox; default = nothing)
-        height = textbox_float_value(height_spinner.textbox; default = nothing)
-        random_mode = random_toggle.active[]
+    on(set_toggle.active) do is_set
+        set_mode_label.text[] = is_set ? "set" : "perturb"
+    update_preview()
+    end
 
-        if width === nothing || height === nothing || width <= 0
-            @warn "Invalid perturbation parameters."
-            return nothing
+    on(perturb_button.clicks) do _
+        if !state.has_valid_preview
+            ok = update_local_perturbation_preview!(
+                app,
+                state;
+                stop_simulation = true,
+            )
+
+            ok || return nothing
         end
 
-        apply_local_perturbation_app!(
+        apply_local_perturbation_increment_app!(
             app;
-            variable = variable,
-            center = center,
-            width = width,
-            height = height,
-            random_mode = random_mode,
+            variable = state.variable,
+            increment = copy(state.increment),
         )
     end
 
-    return ui_items
+    return (;
+        ui_items,
+        state,
+    )
 end

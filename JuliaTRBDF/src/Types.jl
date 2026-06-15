@@ -163,9 +163,9 @@ mutable struct PlotPanel
     axes::Vector{Axis}
     observables::Vector{Observable{Vector{Float64}}}
     preview_observables::Vector{Observable{Vector{Float64}}}
+    perturbation_controls::Vector{Any}
     ui_items::Vector{Any}
 end
-
 
 # ============================================================
 # Application state

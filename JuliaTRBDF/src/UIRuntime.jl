@@ -614,3 +614,51 @@ function apply_local_perturbation_app!(
 
     return nothing
 end
+
+function apply_local_perturbation_increment!(
+    sim::SimulationState;
+    variable::Int,
+    increment::AbstractVector{<:Real},
+)
+    variable >= 1 && variable <= sim.model.nvars ||
+        error("Invalid variable index: $(variable).")
+
+    length(increment) == sim.N ||
+        error("Perturbation increment has wrong length.")
+
+    ynew = copy(sim.integrator_ref[].u)
+    U = reshape(ynew, sim.N, sim.model.nvars)
+
+    U[:, variable] .+= Float64.(increment)
+
+    restart_after_manual_change!(sim, ynew)
+
+    sim.step_counter[] = 0
+
+    return nothing
+end
+
+
+function apply_local_perturbation_increment_app!(
+    app::AppState;
+    variable::Int,
+    increment::AbstractVector{<:Real},
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
+)
+    with_worker_paused!(
+        app,
+        () -> apply_local_perturbation_increment!(
+            app.sim;
+            variable = variable,
+            increment = increment,
+        );
+        restart_if_was_running = true,
+        steps_per_frame = steps_per_frame,
+        worker_sleep_time = worker_sleep_time,
+    )
+
+    clear_perturbation_preview!(app.plot_panel, variable)
+
+    return nothing
+end
