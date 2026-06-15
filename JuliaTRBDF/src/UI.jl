@@ -113,8 +113,8 @@ function run_app(;
     fig[2, 2] = control_grid
 
     rowsize!(fig.layout, 1, Fixed(50))
-    colsize!(fig.layout, 1, Relative(0.58))
-    colsize!(fig.layout, 2, Relative(0.42))
+    colsize!(fig.layout, 1, Relative(0.68))
+    colsize!(fig.layout, 2, Relative(0.32))
 
     # --------------------------------------------------------
     # Plot panel

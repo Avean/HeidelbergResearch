@@ -6,6 +6,7 @@ using SparseArrays
 using LinearAlgebra
 using Random
 using Printf
+using Statistics
 
 # ============================================================
 # Main module file

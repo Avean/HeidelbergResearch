@@ -8,8 +8,8 @@
 mutable struct PerturbationControlState
     variable::Int
     center_slider::Any
-    random_toggle::Any
-    set_toggle::Any
+    random_mode::Observable{Bool}
+    set_mode::Observable{Bool}
     width_textbox::Any
     height_textbox::Any
     preview_obs::Observable{Vector{Float64}}
@@ -48,65 +48,6 @@ function textbox_float_value(textbox; default = nothing)
 end
 
 
-function set_textbox_float!(textbox, value::Real; digits::Int = 4)
-    textbox.stored_string[] = string(round(Float64(value); digits = digits))
-    return nothing
-end
-
-
-function build_float_spinner!(
-    grid::GridLayout;
-    label::String,
-    default::Float64,
-    step::Float64,
-    min_value::Float64 = -Inf,
-    max_value::Float64 = Inf,
-)
-    label_block = Label(
-        grid[1, 1:3],
-        label,
-        tellwidth = false,
-    )
-
-    minus_button = Button(
-        grid[2, 1],
-        label = "-",
-        tellwidth = false,
-    )
-
-    textbox = Textbox(
-        grid[2, 2],
-        stored_string = string(default),
-        tellwidth = false,
-    )
-
-    plus_button = Button(
-        grid[2, 3],
-        label = "+",
-        tellwidth = false,
-    )
-
-    on(minus_button.clicks) do _
-        old_value = textbox_float_value(textbox; default = default)
-        new_value = clamp(old_value - step, min_value, max_value)
-        set_textbox_float!(textbox, new_value)
-    end
-
-    on(plus_button.clicks) do _
-        old_value = textbox_float_value(textbox; default = default)
-        new_value = clamp(old_value + step, min_value, max_value)
-        set_textbox_float!(textbox, new_value)
-    end
-
-    return (;
-        label_block,
-        minus_button,
-        textbox,
-        plus_button,
-    )
-end
-
-
 function update_local_perturbation_preview!(
     app::AppState,
     state::PerturbationControlState;
@@ -114,12 +55,12 @@ function update_local_perturbation_preview!(
 )
     # Update gray dashed preview curve.
     #
-    # The preview is a full curve on the whole interval:
+    # The preview is a full curve:
     #
     #     preview = current solution + perturbation increment.
     #
-    # Outside the perturbation support, increment = 0, so the gray line
-    # coincides with the original curve.
+    # Outside the perturbation support, increment = 0, so the gray dashed
+    # line coincides with the current solution.
 
     if stop_simulation
         stop_worker!(app; wait = true)
@@ -149,8 +90,8 @@ function update_local_perturbation_preview!(
         end
 
         center = Float64(state.center_slider.value[])
-        random_mode = state.random_toggle.active[]
-        set_mode = state.set_toggle.active[]
+        random_mode = state.random_mode[]
+        set_mode = state.set_mode[]
 
         y = copy(app.sim.integrator_ref[].u)
         U = reshape(y, app.sim.N, app.sim.model.nvars)
@@ -175,14 +116,14 @@ function update_local_perturbation_preview!(
                     #
                     #     preview[i] = value
                     #
-                    # Since the runtime applies increments, we store
+                    # Since the runtime applies increments, store
                     #
                     #     increment[i] = value - actual[i].
                     increment[i] = value - actual[i]
                 else
                     # Perturbation mode:
                     #
-                    #     preview[i] = actual[i] + value
+                    #     preview[i] = actual[i] + value.
                     increment[i] = value
                 end
             end
@@ -214,10 +155,6 @@ function update_all_perturbation_previews!(
     app::AppState;
     stop_simulation::Bool = false,
 )
-    # Show gray dashed preview lines for all variables.
-    #
-    # This should be called after the simulation is stopped.
-
     if stop_simulation
         stop_worker!(app; wait = true)
     end
@@ -242,77 +179,85 @@ function build_perturbation_controls!(
 )
     ui_items = Any[]
 
-    center_label = Label(
-        grid[1, 1],
-        "center",
-        tellwidth = false,
-    )
+    random_mode = Observable(false)
+    set_mode = Observable(false)
 
+    # Definujemy kolory dla stanów guzików dwustanowych
+    color_inactive = :lightgray
+    color_active = :skyblue    # Ładny, wyróżniający się kolor dla stanu "włączony"
+
+    # 1. Główny Slider na całą wolną przestrzeń
     center_slider = Slider(
-        grid[2, 1],
+        grid[1, 1],
         range = 0.0:0.01:1.0,
         startvalue = 0.5,
-        tellwidth = false,
     )
 
+    # 2. Podsiatka na skurczone kontrolki
+    ctrl_grid = grid[1, 2] = GridLayout()
+
+    # Kolumna 1: Przycisk akcji
     perturb_button = Button(
-        grid[2, 2],
+        ctrl_grid[1, 1],
         label = "Perturb",
-        tellwidth = false,
     )
 
-    mode_label = Label(
-        grid[1, 3],
-        "constant",
-        tellwidth = false,
+    # Kolumna 2: Guzik Constant / Random
+    random_button = Button(
+        ctrl_grid[1, 2],
+        label = "Constant",
+        buttoncolor = color_inactive,
     )
 
-    random_toggle = Toggle(
-        grid[2, 3],
-        active = false,
-        tellwidth = false,
+    # Kolumna 3: Guzik Relative / Absolute
+    set_button = Button(
+        ctrl_grid[1, 3],
+        label = "Relative",
+        buttoncolor = color_inactive,
     )
 
-    set_mode_label = Label(
-        grid[1, 4],
-        "perturb",
-        tellwidth = false,
+    # Kolumna 4 i 5: Pole Width
+    width_label = Label(
+        ctrl_grid[1, 4],
+        "Width",
+    )
+    width_textbox = Textbox(
+        ctrl_grid[1, 5],
+        stored_string = "0.05",
+        width = 50,
     )
 
-    set_toggle = Toggle(
-        grid[2, 4],
-        active = false,
-        tellwidth = false,
+    # Kolumna 6 i 7: Pole Height
+    height_label = Label(
+        ctrl_grid[1, 6],
+        "Height",
+    )
+    height_textbox = Textbox(
+        ctrl_grid[1, 7],
+        stored_string = "1.0",
+        width = 50,
     )
 
-    width_grid = GridLayout()
-    height_grid = GridLayout()
+    # 3. Precyzyjne zarządzanie odstępami (Gaps)
+    colgap!(ctrl_grid, 4)          # Standardowy, bardzo ciasny odstęp między elementami (4px)
+    
+    colgap!(ctrl_grid, 1, 20)      # Odstęp PO "Perturb" a PRZED "Constant/Random"
+    colgap!(ctrl_grid, 3, 20)      # Odstęp PO "Relative/Absolute" a PRZED "Width"
+    colgap!(ctrl_grid, 5, 20)      # Odstęp PO polu tekstowym width a PRZED "Height"
+    
+    colgap!(grid, 15)              # Odstęp między głównym sliderem a panelem kontrolek
 
-    grid[1:2, 5] = width_grid
-    grid[1:2, 6] = height_grid
-
-    width_spinner = build_float_spinner!(
-        width_grid;
-        label = "width",
-        default = 0.05,
-        step = 0.01,
-        min_value = 1e-6,
-    )
-
-    height_spinner = build_float_spinner!(
-        height_grid;
-        label = "height",
-        default = 1.0,
-        step = 0.1,
-    )
+    # Ograniczenia wielkości głównych kolumn
+    colsize!(grid, 1, Auto(true))
+    colsize!(grid, 2, Auto(false))
 
     state = PerturbationControlState(
         variable,
         center_slider,
-        random_toggle,
-        set_toggle,
-        width_spinner.textbox,
-        height_spinner.textbox,
+        random_mode,
+        set_mode,
+        width_textbox,
+        height_textbox,
         preview_obs,
         zeros(Float64, app.sim.N),
         false,
@@ -321,23 +266,14 @@ function build_perturbation_controls!(
     append!(
         ui_items,
         Any[
-            center_label,
             center_slider,
             perturb_button,
-            mode_label,
-            random_toggle,
-            set_mode_label,
-            set_toggle,
-            width_grid,
-            height_grid,
-            width_spinner.label_block,
-            width_spinner.minus_button,
-            width_spinner.textbox,
-            width_spinner.plus_button,
-            height_spinner.label_block,
-            height_spinner.minus_button,
-            height_spinner.textbox,
-            height_spinner.plus_button,
+            random_button,
+            set_button,
+            width_label,
+            width_textbox,
+            height_label,
+            height_textbox,
         ],
     )
 
@@ -355,22 +291,34 @@ function build_perturbation_controls!(
         update_preview()
     end
 
-    on(width_spinner.textbox.stored_string) do _
+    on(width_textbox.stored_string) do _
         update_preview()
     end
 
-    on(height_spinner.textbox.stored_string) do _
+    on(height_textbox.stored_string) do _
         update_preview()
     end
 
-    on(random_toggle.active) do is_random
-        mode_label.text[] = is_random ? "random" : "constant"
+    # Dynamiczny guzik: Constant / Random
+    on(random_button.clicks) do _
+        random_mode[] = !random_mode[]
+        
+        # Zmiana tekstu i koloru tła
+        random_button.label[] = random_mode[] ? "Random" : "Constant"
+        random_button.buttoncolor = random_mode[] ? color_active : color_inactive
+        
         update_preview()
     end
 
-    on(set_toggle.active) do is_set
-        set_mode_label.text[] = is_set ? "set" : "perturb"
-    update_preview()
+    # Dynamiczny guzik: Relative / Absolute
+    on(set_button.clicks) do _
+        set_mode[] = !set_mode[]
+        
+        # Zmiana tekstu i koloru tła
+        set_button.label[] = set_mode[] ? "Absolute" : "Relative"
+        set_button.buttoncolor = set_mode[] ? color_active : color_inactive
+        
+        update_preview()
     end
 
     on(perturb_button.clicks) do _
