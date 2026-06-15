@@ -14,62 +14,56 @@
 #     u_* = a + b
 #     v_* = b / (a + b)^2
 #
+# The diffusion terms are added automatically through:
+#
+#     diffusion = (
+#         u = :Du,
+#         v = :Dv,
+#     )
+#
+# Therefore the reaction function only defines:
+#
+#     F.u = a - u + u^2 v
+#     F.v = b - u^2 v
+#
 # ============================================================
 
-ModelSpec(
+RDModel(
     id = :schnakenberg,
 
     display_name = "Schnakenberg system",
 
-    nvars = 2,
+    variables = (:u, :v),
 
-    varnames = ["u", "v"],
-
-    default_params = Dict(
-        :Du => 1e-4,
-        :Dv => 1e-2,
-        :a  => 0.1,
-        :b  => 0.9,
+    parameters = (
+        Du = 1e-4,
+        Dv = 1e-2,
+        a  = 0.1,
+        b  = 0.9,
     ),
 
-    initialize! = function (U, x, p)
+    initial = function (U, x, p)
         Random.seed!(2)
+        
+        u0 = p.a + p.b
+        v0 = p.b / u0^2
 
-        N = length(x)
-
-        a = p[:a]
-        b = p[:b]
-
-        u0 = a + b
-        v0 = b / (a + b)^2
-
-        U[:, 1] .= u0
-        U[:, 2] .= v0
-
-        U[:, 1] .+= 0.01 .* randn(N)
-        U[:, 2] .+= 0.01 .* randn(N)
+        U.u .= u0 .+ 0.01 .* randn(length(x))
+        U.v .= v0 .+ 0.01 .* randn(length(x))
 
         return nothing
     end,
 
-    rhs! = function (dU, U, Lap, x, p, t)
-        u = @view U[:, 1]
-        v = @view U[:, 2]
-
-        du = @view dU[:, 1]
-        dv = @view dU[:, 2]
-
-        Du = p[:Du]
-        Dv = p[:Dv]
-        a  = p[:a]
-        b  = p[:b]
-
-        mul!(du, Lap, u)
-        mul!(dv, Lap, v)
-
-        @. du = Du * du + a - u + u^2 * v
-        @. dv = Dv * dv + b - u^2 * v
+    reaction = function (F, U, x, p, t)
+        
+        @. F.u = p.a - U.u + U.u^2 * U.v
+        @. F.v = p.b - U.u^2 * U.v
 
         return nothing
     end,
+
+    diffusion = (
+        u = :Du,
+        v = :Dv,
+    ),
 )

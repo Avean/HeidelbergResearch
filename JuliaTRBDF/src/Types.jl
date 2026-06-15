@@ -161,11 +161,9 @@ end
 
 mutable struct PlotPanel
     axes::Vector{Axis}
-    # One Makie axis for each model variable.
-
     observables::Vector{Observable{Vector{Float64}}}
-    # Plot data observables, one for each model variable.
-    # Updating these observables updates the displayed curves.
+    preview_observables::Vector{Observable{Vector{Float64}}}
+    ui_items::Vector{Any}
 end
 
 

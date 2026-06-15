@@ -8,42 +8,48 @@
 #
 #     u_t = D u_xx + u(1 - u)
 #
+# The diffusion part D u_xx is added automatically through:
+#
+#     diffusion = (
+#         u = :D,
+#     )
+#
+# Therefore the reaction function only defines:
+#
+#     F.u = u(1 - u)
+#
 # ============================================================
 
-ModelSpec(
+RDModel(
     id = :fisher_kpp,
 
     display_name = "Fisher-KPP",
 
-    nvars = 1,
+    variables = (:u,),
 
-    varnames = ["u"],
-
-    default_params = Dict(
-        :D => 0.01,
+    parameters = (
+        D = 0.01,
     ),
 
-    initialize! = function (U, x, p)
+    initial = function (U, x, p)
         Random.seed!(1)
 
-        N = length(x)
+        u = U.u
 
-        U[:, 1] .= @. 0.2 + 0.05 * cos(2π * x)
-        U[:, 1] .+= 0.02 .* randn(N)
+        @. u = 0.2 + 0.05 * cos(2π * x)
+        u .+= 0.02 .* randn(length(x))
+
+        return nothing
+    end,
+
+    reaction = function (F, U, x, p, t)
+        
+        @. F.u = U.u * (1.0 - U.u)
 
         return nothing
     end,
 
-    rhs! = function (dU, U, Lap, x, p, t)
-        u  = @view U[:, 1]
-        du = @view dU[:, 1]
-
-        D = p[:D]
-
-        mul!(du, Lap, u)
-
-        @. du = D * du + u * (1.0 - u)
-
-        return nothing
-    end,
+    diffusion = (
+        u = :D,
+    ),
 )
