@@ -74,6 +74,13 @@ mutable struct SimulationState
     Lap::SparseMatrixCSC{Float64, Int}
     # Sparse matrix representing the 1D Laplacian.
 
+    boundary_condition::Symbol
+    # Boundary condition used by the current simulation.
+    # Supported values are currently:
+    #
+    #     :neumann
+    #     :periodic
+
     params::Dict{Symbol, Float64}
     # Current parameter values used by the model.
 

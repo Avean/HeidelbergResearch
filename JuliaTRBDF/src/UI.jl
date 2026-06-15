@@ -463,6 +463,7 @@ function switch_model_app!(
     dtmax::Float64,
     reltol::Float64,
     abstol::Float64,
+    boundary_condition::Symbol,
     title_obs,
     model_name_obs::Observable{String},
 )
@@ -485,6 +486,7 @@ function switch_model_app!(
             dtmax = dtmax,
             reltol = reltol,
             abstol = abstol,
+            boundary_condition = boundary_condition,
         )
 
         model_name_obs[] = model.display_name
@@ -506,6 +508,61 @@ function switch_model_app!(
     return nothing
 end
 
+function switch_boundary_condition_app!(
+    app::AppState,
+    plot_grid::GridLayout,
+    boundary_condition::Symbol;
+    N::Int,
+    dtmax::Float64,
+    reltol::Float64,
+    abstol::Float64,
+    title_obs,
+    bc_name_obs::Observable{String},
+)
+    # Switch boundary condition for the currently selected model.
+    #
+    # This rebuilds the grid, the Laplacian, the initial condition,
+    # and the solver.
+
+    validate_boundary_condition(boundary_condition)
+
+    stop_worker!(app; wait = true)
+
+    lock(app.simlock)
+
+    try
+        app.generation[] = app.generation[] + 1
+        clear_snapshot_buffer!(app.snapshot_buffer)
+
+        current_model = app.sim.model
+
+        app.sim = create_simulation_state(
+            current_model;
+            N = N,
+            dtmax = dtmax,
+            reltol = reltol,
+            abstol = abstol,
+            boundary_condition = boundary_condition,
+        )
+
+        bc_name_obs[] = boundary_condition_label(boundary_condition)
+
+        clear_plot_panel!(app.plot_panel)
+
+        app.plot_panel = build_plot_panel!(
+            plot_grid,
+            app.sim;
+            title_obs = title_obs,
+        )
+
+        refresh_app_from_live_state!(app)
+
+    finally
+        unlock(app.simlock)
+    end
+
+    return nothing
+end
 
 # ============================================================
 # Main UI
@@ -513,6 +570,7 @@ end
 
 function run_app(;
     N::Int = 1000,
+    boundary_condition0::Symbol = :neumann,
     dtmax0::Float64 = 1e-2,
     reltol::Float64 = 1e-5,
     abstol::Float64 = 1e-7,
@@ -560,6 +618,7 @@ function run_app(;
         dtmax = dtmax0,
         reltol = reltol,
         abstol = abstol,
+        boundary_condition = boundary_condition0,
     )
 
     # --------------------------------------------------------
@@ -572,18 +631,20 @@ function run_app(;
     time_obs = Observable(current_display_time(sim))
     step_counter_obs = Observable(sim.step_counter[])
     model_name_obs = Observable(first_model.display_name)
+    bc_name_obs = Observable(boundary_condition_label(boundary_condition0))
 
     title_obs = lift(
         model_name_obs,
+        bc_name_obs,
         time_obs,
         dtmax_obs,
         dt_obs,
         running_obs,
         step_counter_obs,
-    ) do model_name, t, dtmax, dt, running, steps
+    ) do model_name, bc_name, t, dtmax, dt, running, steps
 
-        return "$(model_name) | TRBDF2 | running = $(running) | t = $(round(t; digits = 2)) | max dt = $(dtmax) | current dt = $(dt) | steps = $(steps)"
-    end
+    return "$(model_name) | BC = $(bc_name) | TRBDF2 | running = $(running) | t = $(round(t; digits = 2)) | max dt = $(dtmax) | current dt = $(dt) | steps = $(steps)"
+end
 
     # --------------------------------------------------------
     # Figure layout
@@ -592,10 +653,10 @@ function run_app(;
     fig = Figure(size = (1200, 760))
 
     plot_grid = GridLayout()
-    fig[1:18, 1] = plot_grid
+    fig[1:22, 1] = plot_grid
 
     control_grid = GridLayout()
-    fig[1:18, 2] = control_grid
+    fig[1:22, 2] = control_grid
 
     # --------------------------------------------------------
     # Initial plot panel
@@ -636,33 +697,61 @@ function run_app(;
         tellwidth = false,
     )
 
-    on(model_menu.selection) do selected_label
-        model = get_model(registry, selected_label)
+    Label(control_grid[4, 1], "Boundary condition", tellwidth = false)
 
-        switch_model_app!(
+    bc_labels = boundary_condition_labels()
+
+    boundary_menu = Menu(
+        control_grid[5, 1],
+        options = bc_labels,
+        default = boundary_condition_label(boundary_condition0),
+        tellwidth = false,
+    )
+
+    on(boundary_menu.selection) do selected_label
+        boundary_condition = boundary_condition_from_label(selected_label)
+
+        switch_boundary_condition_app!(
             app,
             plot_grid,
-            model;
+            boundary_condition;
             N = N,
             dtmax = current_dtmax(app.sim),
             reltol = reltol,
             abstol = abstol,
             title_obs = title_obs,
-            model_name_obs = model_name_obs,
+            bc_name_obs = bc_name_obs,
         )
+    end
+
+    on(model_menu.selection) do selected_label
+        model = get_model(registry, selected_label)
+
+    switch_model_app!(
+        app,
+        plot_grid,
+        model;
+        N = N,
+        dtmax = current_dtmax(app.sim),
+        reltol = reltol,
+        abstol = abstol,
+        boundary_condition = app.sim.boundary_condition,
+        title_obs = title_obs,
+        model_name_obs = model_name_obs,
+    )
     end
 
     # --------------------------------------------------------
     # Time-step controls
     # --------------------------------------------------------
 
-    Label(control_grid[4, 1], "Choose max dt", tellwidth = false)
+    Label(control_grid[7, 1], "Choose max dt", tellwidth = false)
 
     dt_choices = [1e-5, 1e-2, 1.0, 1e5]
 
     for (i, dtchoice) in enumerate(dt_choices)
         b = Button(
-            control_grid[4 + i, 1],
+            control_grid[7 + i, 1],
             label = "max dt = $(dtchoice)",
             tellwidth = false,
         )
@@ -672,10 +761,10 @@ function run_app(;
         end
     end
 
-    Label(control_grid[10, 1], "Custom max dt:", tellwidth = false)
+    Label(control_grid[13, 1], "Custom max dt:", tellwidth = false)
 
     dtbox = Textbox(
-        control_grid[11, 1],
+        control_grid[14, 1],
         placeholder = "for example 2e-3",
         stored_string = string(dtmax0),
         tellwidth = false,
@@ -694,19 +783,19 @@ function run_app(;
     # --------------------------------------------------------
 
     bstart = Button(
-        control_grid[13, 1],
+        control_grid[16, 1],
         label = "Start",
         tellwidth = false,
     )
 
     bstop = Button(
-        control_grid[14, 1],
+        control_grid[17, 1],
         label = "Stop",
         tellwidth = false,
     )
 
     bone = Button(
-        control_grid[15, 1],
+        control_grid[18, 1],
         label = "One step",
         tellwidth = false,
     )
@@ -732,19 +821,19 @@ function run_app(;
     # --------------------------------------------------------
 
     bkick = Button(
-        control_grid[17, 1],
+        control_grid[20, 1],
         label = "kick: first variable += 1",
         tellwidth = false,
     )
 
     bsinkick = Button(
-        control_grid[18, 1],
+        control_grid[21, 1],
         label = "sin kick",
         tellwidth = false,
     )
 
     bsinkickclip = Button(
-        control_grid[19, 1],
+        control_grid[22, 1],
         label = "sin kick clipped",
         tellwidth = false,
     )

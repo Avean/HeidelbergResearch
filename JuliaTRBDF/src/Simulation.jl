@@ -82,9 +82,10 @@ end
 
 function create_simulation_state(
     model::ModelSpec;
-    N::Int = 100,
+    N::Int = 1000,
     xmin::Float64 = 0.0,
     xmax::Float64 = 1.0,
+    boundary_condition::Symbol = :neumann,
     dtmax::Float64 = 1e-2,
     reltol::Float64 = 1e-5,
     abstol::Float64 = 1e-7,
@@ -92,9 +93,20 @@ function create_simulation_state(
     # Create a complete simulation state for the selected model.
 
     validate_model(model)
+    validate_boundary_condition(boundary_condition)
 
-    x, dx = make_grid_1d(N; xmin = xmin, xmax = xmax)
-    Lap = neumann_laplacian_1d(N, dx)
+    x, dx = make_grid_1d(
+        N;
+        xmin = xmin,
+        xmax = xmax,
+        boundary_condition = boundary_condition,
+    )
+
+    Lap = laplacian_1d(
+        N,
+        dx;
+        boundary_condition = boundary_condition,
+    )
 
     y0, params = make_initial_state(model, x)
 
@@ -117,6 +129,7 @@ function create_simulation_state(
         x,
         dx,
         Lap,
+        boundary_condition,
         params,
         prob,
         Ref{Any}(integrator),
