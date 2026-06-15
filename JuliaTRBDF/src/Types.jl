@@ -38,7 +38,8 @@ Base.@kwdef struct ModelSpec
     #
     # where U and dU have size N × nvars.
 
-    spatial_profiles::Vector{Tuple{String, Function}} = Tuple{String, Function}[]
+    spatial_profile_sets::Vector{Tuple{String, Vector{Tuple{String, Function}}}} =
+    Tuple{String, Vector{Tuple{String, Function}}}[]
     # Optional spatial profiles that can be displayed in the UI.
 end
 

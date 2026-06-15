@@ -10,7 +10,10 @@
 #     - worker thread control,
 #     - safe simulation mutations,
 #     - model switching,
-#     - boundary-condition switching.
+#     - boundary-condition switching,
+#     - reset and constant initial conditions,
+#     - local perturbation application,
+#     - active spatial profile switching.
 #
 # It should not create buttons, menus, or axes.
 #
@@ -131,6 +134,7 @@ function start_ui_snapshot_poller!(
                 end
             end
 
+            # If the worker stopped because of an error, reflect that in the UI.
             if app.running[] &&
                !app.worker_running[] &&
                app.worker_task_ref[] !== nothing &&
@@ -157,6 +161,9 @@ function start_worker!(
         app.running[] = true
         return nothing
     end
+
+    # When the simulation starts, hide perturbation previews.
+    clear_perturbation_previews!(app.plot_panel)
 
     app.worker_running[] = true
     app.running[] = true
@@ -201,11 +208,18 @@ end
 # ============================================================
 
 function make_locked_snapshot(app::AppState)
+    # The caller should already hold app.simlock.
+
     return make_snapshot(app.sim, app.generation[])
 end
 
 
 function step_once_app!(app::AppState)
+    # Advance the simulation by one solver step.
+    #
+    # This is currently not attached to a button, but keeping it is useful
+    # for debugging.
+
     if app.worker_running[]
         return nothing
     end
@@ -294,175 +308,9 @@ function with_worker_paused!(
 end
 
 
-function kick_all_app!(
-    app::AppState;
-    steps_per_frame::Int = 5,
-    worker_sleep_time::Float64 = 0.001,
-)
-    with_worker_paused!(
-        app,
-        () -> kick_all!(app.sim; amount = 1.0, variable = 1);
-        restart_if_was_running = true,
-        steps_per_frame = steps_per_frame,
-        worker_sleep_time = worker_sleep_time,
-    )
-
-    return nothing
-end
-
-
-function sinusoidal_kick_app!(
-    app::AppState;
-    steps_per_frame::Int = 5,
-    worker_sleep_time::Float64 = 0.001,
-)
-    with_worker_paused!(
-        app,
-        () -> sinusoidal_kick!(
-            app.sim;
-            amount = 1.0,
-            mode = 1,
-            variable = 1,
-            shift = 0.0,
-            clip_to_nonnegative = false,
-        );
-        restart_if_was_running = true,
-        steps_per_frame = steps_per_frame,
-        worker_sleep_time = worker_sleep_time,
-    )
-
-    return nothing
-end
-
-
-function sinusoidal_kick_clipped_app!(
-    app::AppState;
-    steps_per_frame::Int = 5,
-    worker_sleep_time::Float64 = 0.001,
-)
-    with_worker_paused!(
-        app,
-        () -> sinusoidal_kick!(
-            app.sim;
-            amount = 1.0,
-            mode = 1,
-            variable = 1,
-            shift = 1.5,
-            clip_to_nonnegative = true,
-        );
-        restart_if_was_running = true,
-        steps_per_frame = steps_per_frame,
-        worker_sleep_time = worker_sleep_time,
-    )
-
-    return nothing
-end
-
-
 # ============================================================
-# Model and boundary-condition switching
+# Reset and constant initial conditions
 # ============================================================
-
-function switch_model_app!(
-    app::AppState,
-    plot_grid::GridLayout,
-    model::ModelSpec;
-    N::Int,
-    dtmax::Float64,
-    reltol::Float64,
-    abstol::Float64,
-    boundary_condition::Symbol,
-    title_obs,
-    model_name_obs::Observable{String},
-)
-    stop_worker!(app; wait = true)
-
-    lock(app.simlock)
-
-    try
-        app.generation[] = app.generation[] + 1
-        clear_snapshot_buffer!(app.snapshot_buffer)
-
-        app.sim = create_simulation_state(
-            model;
-            N = N,
-            dtmax = dtmax,
-            reltol = reltol,
-            abstol = abstol,
-            boundary_condition = boundary_condition,
-        )
-
-        model_name_obs[] = model.display_name
-
-        clear_plot_panel!(app.plot_panel)
-
-        app.plot_panel = build_plot_panel!(
-            plot_grid,
-            app;
-            title_obs = title_obs,
-        )
-
-        refresh_app_from_live_state!(app)
-
-    finally
-        unlock(app.simlock)
-    end
-
-    return nothing
-end
-
-
-function switch_boundary_condition_app!(
-    app::AppState,
-    plot_grid::GridLayout,
-    boundary_condition::Symbol;
-    N::Int,
-    dtmax::Float64,
-    reltol::Float64,
-    abstol::Float64,
-    title_obs,
-    bc_name_obs::Observable{String},
-)
-    validate_boundary_condition(boundary_condition)
-
-    stop_worker!(app; wait = true)
-
-    lock(app.simlock)
-
-    try
-        app.generation[] = app.generation[] + 1
-        clear_snapshot_buffer!(app.snapshot_buffer)
-
-        current_model = app.sim.model
-
-        app.sim = create_simulation_state(
-            current_model;
-            N = N,
-            dtmax = dtmax,
-            reltol = reltol,
-            abstol = abstol,
-            boundary_condition = boundary_condition,
-        )
-
-        bc_name_obs[] = boundary_condition_label(boundary_condition)
-
-        clear_plot_panel!(app.plot_panel)
-
-        app.plot_panel = build_plot_panel!(
-            plot_grid,
-            app;
-            title_obs = title_obs,
-        )
-
-        refresh_app_from_live_state!(app)
-
-    finally
-        unlock(app.simlock)
-    end
-
-    return nothing
-end
-
 
 function reset_initial_condition!(sim::SimulationState)
     # Reset the solution to the model-defined initial condition.
@@ -543,6 +391,71 @@ function set_constant_initial_condition_app!(
     return nothing
 end
 
+
+# ============================================================
+# Active spatial profile switching
+# ============================================================
+
+function set_active_spatial_profile_set!(
+    sim::SimulationState,
+    index::Int,
+)
+    # Change the active spatial profile set used by the model RHS.
+    #
+    # The active profile set index is stored as a hidden parameter.
+    # The model reaction can then use active spatial profiles as p.ρ, p.source, etc.
+
+    nsets = length(sim.model.spatial_profile_sets)
+
+    nsets > 0 ||
+        return nothing
+
+    index >= 1 && index <= nsets ||
+        error("Invalid spatial profile set index: $(index).")
+
+    sim.params[ACTIVE_SPATIAL_PROFILE_SET_PARAM] = Float64(index)
+
+    # The RHS has changed, so restart the integrator with the current state.
+    ynew = copy(sim.integrator_ref[].u)
+
+    restart_after_manual_change!(sim, ynew)
+
+    return nothing
+end
+
+
+function set_active_spatial_profile_set_app!(
+    app::AppState,
+    index::Int;
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
+)
+    # UI-safe wrapper for changing the active spatial profile set.
+    #
+    # If the simulation is running, pause it, change the profile, restart the
+    # integrator, refresh the UI, and resume the worker.
+
+    with_worker_paused!(
+        app,
+        () -> set_active_spatial_profile_set!(
+            app.sim,
+            index,
+        );
+        restart_if_was_running = true,
+        steps_per_frame = steps_per_frame,
+        worker_sleep_time = worker_sleep_time,
+    )
+
+    return nothing
+end
+
+
+
+
+# ============================================================
+# Local perturbation application
+# ============================================================
+
 function apply_local_perturbation!(
     sim::SimulationState;
     variable::Int,
@@ -551,6 +464,11 @@ function apply_local_perturbation!(
     height::Float64,
     random_mode::Bool,
 )
+    # Older direct local perturbation function.
+    #
+    # The current UI mainly uses apply_local_perturbation_increment!,
+    # because it lets the preview and the applied random perturbation match.
+
     variable >= 1 && variable <= sim.model.nvars ||
         error("Invalid variable index: $(variable).")
 
@@ -615,11 +533,18 @@ function apply_local_perturbation_app!(
     return nothing
 end
 
+
 function apply_local_perturbation_increment!(
     sim::SimulationState;
     variable::Int,
     increment::AbstractVector{<:Real},
 )
+    # Apply a precomputed perturbation increment to one variable.
+    #
+    # This is used by the local perturbation preview system. In random mode,
+    # the random vector is generated at preview time and then exactly the same
+    # vector is applied here.
+
     variable >= 1 && variable <= sim.model.nvars ||
         error("Invalid variable index: $(variable).")
 
@@ -659,6 +584,118 @@ function apply_local_perturbation_increment_app!(
     )
 
     clear_perturbation_preview!(app.plot_panel, variable)
+
+    return nothing
+end
+
+
+# ============================================================
+# Plot panel rebuilding
+# ============================================================
+
+function switch_model_app!(
+    app::AppState,
+    plot_grid::GridLayout,
+    model::ModelSpec;
+    N::Int,
+    dtmax::Float64,
+    reltol::Float64,
+    abstol::Float64,
+    boundary_condition::Symbol,
+    title_obs,
+    model_name_obs::Observable{String},
+)
+    # Switch to another already-loaded model.
+
+    stop_worker!(app; wait = true)
+
+    lock(app.simlock)
+
+    try
+        app.generation[] = app.generation[] + 1
+        clear_snapshot_buffer!(app.snapshot_buffer)
+
+        app.sim = create_simulation_state(
+            model;
+            N = N,
+            dtmax = dtmax,
+            reltol = reltol,
+            abstol = abstol,
+            boundary_condition = boundary_condition,
+        )
+
+        model_name_obs[] = model.display_name
+
+        clear_plot_panel!(app.plot_panel)
+
+        app.plot_panel = build_plot_panel!(
+            plot_grid,
+            app;
+            title_obs = title_obs,
+        )
+
+        refresh_app_from_live_state!(app)
+
+    finally
+        unlock(app.simlock)
+    end
+
+    return nothing
+end
+
+
+function switch_boundary_condition_app!(
+    app::AppState,
+    plot_grid::GridLayout,
+    boundary_condition::Symbol;
+    N::Int,
+    dtmax::Float64,
+    reltol::Float64,
+    abstol::Float64,
+    title_obs,
+    bc_name_obs::Observable{String},
+)
+    # Switch boundary condition for the currently selected model.
+    #
+    # This rebuilds the grid, the Laplacian, the initial condition,
+    # and the solver.
+
+    validate_boundary_condition(boundary_condition)
+
+    stop_worker!(app; wait = true)
+
+    lock(app.simlock)
+
+    try
+        app.generation[] = app.generation[] + 1
+        clear_snapshot_buffer!(app.snapshot_buffer)
+
+        current_model = app.sim.model
+
+        app.sim = create_simulation_state(
+            current_model;
+            N = N,
+            dtmax = dtmax,
+            reltol = reltol,
+            abstol = abstol,
+            boundary_condition = boundary_condition,
+        )
+
+        bc_name_obs[] = boundary_condition_label(boundary_condition)
+
+        clear_plot_panel!(app.plot_panel)
+
+        app.plot_panel = build_plot_panel!(
+            plot_grid,
+            app;
+            title_obs = title_obs,
+        )
+
+        refresh_app_from_live_state!(app)
+
+    finally
+        unlock(app.simlock)
+    end
 
     return nothing
 end

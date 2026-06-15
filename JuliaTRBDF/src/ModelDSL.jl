@@ -6,38 +6,18 @@
 #
 # User-facing layer for defining reaction-diffusion models.
 #
-# A model file can end with:
+# Supports:
 #
-#     RDModel(
-#         id = :my_model,
-#         display_name = "My model",
-#         variables = (:u, :v),
-#         parameters = (...),
-#         initial = function (U, x, p)
-#             ...
-#         end,
-#         reaction = function (F, U, x, p, t)
-#             ...
-#         end,
-#         diffusion = (
-#             u = :Du,
-#             v = :Dv,
-#         ),
-#         spatial_profiles = (
-#             ρ = (x, p) -> @. p.ρ0 + p.ρ1 * x,
-#         ),
-#     )
-#
-# The user writes:
-#
-#     U.u, U.v       current variables
-#     F.u, F.v       reaction right-hand sides
-#     p.Du, p.a      parameters
-#     x              spatial grid
-#
-# Diffusion is added automatically by the DSL.
+#     - variables U.u, U.v, ...
+#     - reaction fields F.u, F.v, ...
+#     - parameters p.a, p.Du, ...
+#     - spatial profiles p.ρ, p.source, ...
+#     - active spatial profile sets switchable from the UI
 #
 # ============================================================
+
+
+const ACTIVE_SPATIAL_PROFILE_SET_PARAM = :__active_spatial_profile_set_index
 
 
 # ============================================================
@@ -99,6 +79,7 @@ function _make_named_parameters(
     param_names::Vector{Symbol},
 )
     values = map(name -> params[name], param_names)
+
     return NamedTuple{Tuple(param_names)}(Tuple(values))
 end
 
@@ -159,15 +140,9 @@ function _validate_diffusion(
                 error("Unknown diffusion parameter $(coeff) for variable $(var).")
 
         elseif coeff isa Real
-            # Constant numeric diffusion coefficient.
             nothing
 
         elseif coeff isa Function
-            # Function of parameters, e.g.
-            #
-            #     diffusion = (
-            #         u = p -> p.Du,
-            #     )
             nothing
 
         else
@@ -214,7 +189,7 @@ end
 
 
 # ============================================================
-# Spatial profiles
+# Spatial profile sets
 # ============================================================
 
 function _normalize_spatial_profiles(spatial_profiles)
@@ -225,14 +200,14 @@ function _normalize_spatial_profiles(spatial_profiles)
 end
 
 
-function _wrap_spatial_profiles(
-    spatial_profiles::NamedTuple,
+function _wrap_one_spatial_profile_set(
+    profile_set::NamedTuple,
     param_names::Vector{Symbol},
 )
-    wrapped_spatial_profiles = Tuple{String, Function}[]
+    wrapped_profiles = Tuple{String, Function}[]
 
-    for name in propertynames(spatial_profiles)
-        profile_fun = getproperty(spatial_profiles, name)
+    for name in propertynames(profile_set)
+        profile_fun = getproperty(profile_set, name)
 
         profile_fun isa Function ||
             error("Spatial profile $(name) must be a function.")
@@ -243,12 +218,197 @@ function _wrap_spatial_profiles(
         end
 
         push!(
-            wrapped_spatial_profiles,
+            wrapped_profiles,
             (string(name), wrapped_profile_fun),
         )
     end
 
-    return wrapped_spatial_profiles
+    return wrapped_profiles
+end
+
+
+function _is_flat_spatial_profile_tuple(spatial_profiles::NamedTuple)
+    names = propertynames(spatial_profiles)
+
+    isempty(names) &&
+        return false
+
+    return all(name -> getproperty(spatial_profiles, name) isa Function, names)
+end
+
+
+function _is_spatial_profile_set_tuple(spatial_profiles::NamedTuple)
+    names = propertynames(spatial_profiles)
+
+    isempty(names) &&
+        return false
+
+    return all(name -> getproperty(spatial_profiles, name) isa NamedTuple, names)
+end
+
+
+function _wrap_spatial_profile_sets(
+    spatial_profiles::NamedTuple,
+    param_names::Vector{Symbol},
+)
+    names = propertynames(spatial_profiles)
+
+    if isempty(names)
+        return Tuple{String, Vector{Tuple{String, Function}}}[]
+    end
+
+    # Backward-compatible flat syntax:
+    #
+    #     spatial_profiles = (
+    #         ρ = (x, p) -> ...,
+    #     )
+    #
+    # becomes one set named "default".
+    if _is_flat_spatial_profile_tuple(spatial_profiles)
+        wrapped_profiles = _wrap_one_spatial_profile_set(
+            spatial_profiles,
+            param_names,
+        )
+
+        return [
+            ("default", wrapped_profiles),
+        ]
+    end
+
+    # Grouped syntax:
+    #
+    #     spatial_profiles = (
+    #         linear = (
+    #             ρ = (x, p) -> ...,
+    #         ),
+    #
+    #         gaussian = (
+    #             ρ = (x, p) -> ...,
+    #         ),
+    #     )
+    if _is_spatial_profile_set_tuple(spatial_profiles)
+        wrapped_sets = Tuple{String, Vector{Tuple{String, Function}}}[]
+
+        for set_name in names
+            profile_set = getproperty(spatial_profiles, set_name)
+
+            wrapped_profiles = _wrap_one_spatial_profile_set(
+                profile_set,
+                param_names,
+            )
+
+            push!(
+                wrapped_sets,
+                (string(set_name), wrapped_profiles),
+            )
+        end
+
+        return wrapped_sets
+    end
+
+    error("""
+    Invalid spatial_profiles format.
+
+    Use either flat syntax:
+
+        spatial_profiles = (
+            ρ = (x, p) -> ...,
+        )
+
+    or grouped syntax:
+
+        spatial_profiles = (
+            linear = (
+                ρ = (x, p) -> ...,
+            ),
+            gaussian = (
+                ρ = (x, p) -> ...,
+            ),
+        )
+    """)
+end
+
+
+function _active_spatial_profile_set_index(
+    p_dict::Dict{Symbol, Float64},
+    spatial_profile_sets,
+)
+    isempty(spatial_profile_sets) &&
+        return 0
+
+    if !haskey(p_dict, ACTIVE_SPATIAL_PROFILE_SET_PARAM)
+        return 1
+    end
+
+    index = round(Int, p_dict[ACTIVE_SPATIAL_PROFILE_SET_PARAM])
+
+    return clamp(index, 1, length(spatial_profile_sets))
+end
+
+
+function _evaluate_spatial_profile_for_parameter(
+    x::AbstractVector,
+    p_dict::Dict{Symbol, Float64},
+    profile_name::String,
+    profile_fun::Function,
+)
+    raw = profile_fun(x, p_dict)
+
+    y = if raw isa Number
+        fill(Float64(raw), length(x))
+    else
+        Float64.(collect(raw))
+    end
+
+    length(y) == length(x) ||
+        error("Spatial profile $(profile_name) has wrong length.")
+
+    return y
+end
+
+
+function _make_named_parameters_with_active_spatial_profiles(
+    p_dict::Dict{Symbol, Float64},
+    param_names::Vector{Symbol},
+    spatial_profile_sets,
+    x::AbstractVector,
+)
+    p_base = _make_named_parameters(p_dict, param_names)
+
+    isempty(spatial_profile_sets) &&
+        return p_base
+
+    set_index = _active_spatial_profile_set_index(
+        p_dict,
+        spatial_profile_sets,
+    )
+
+    _, profiles = spatial_profile_sets[set_index]
+
+    profile_symbols = Symbol[]
+    profile_values = Any[]
+
+    for (profile_name, profile_fun) in profiles
+        profile_symbol = Symbol(profile_name)
+
+        profile_symbol in param_names &&
+            error("Spatial profile $(profile_name) conflicts with an existing parameter name.")
+
+        push!(profile_symbols, profile_symbol)
+
+        y = _evaluate_spatial_profile_for_parameter(
+            x,
+            p_dict,
+            profile_name,
+            profile_fun,
+        )
+
+        push!(profile_values, y)
+    end
+
+    p_profiles = NamedTuple{Tuple(profile_symbols)}(Tuple(profile_values))
+
+    return merge(p_base, p_profiles)
 end
 
 
@@ -280,10 +440,14 @@ function RDModel(;
 
     spatial_profiles = _normalize_spatial_profiles(spatial_profiles)
 
-    wrapped_spatial_profiles = _wrap_spatial_profiles(
+    wrapped_spatial_profile_sets = _wrap_spatial_profile_sets(
         spatial_profiles,
         param_names,
     )
+
+    if !isempty(wrapped_spatial_profile_sets)
+        default_params[ACTIVE_SPATIAL_PROFILE_SET_PARAM] = 1.0
+    end
 
     function initialize_wrapped!(
         Umat::AbstractMatrix,
@@ -294,7 +458,13 @@ function RDModel(;
             error("Initial condition matrix has wrong number of variables.")
 
         U = VariableViews(Umat, var_index)
-        p = _make_named_parameters(p_dict, param_names)
+
+        p = _make_named_parameters_with_active_spatial_profiles(
+            p_dict,
+            param_names,
+            wrapped_spatial_profile_sets,
+            x,
+        )
 
         initial(U, x, p)
 
@@ -317,7 +487,13 @@ function RDModel(;
 
         U = VariableViews(Umat, var_index)
         F = VariableViews(dUmat, var_index)
-        p = _make_named_parameters(p_dict, param_names)
+
+        p = _make_named_parameters_with_active_spatial_profiles(
+            p_dict,
+            param_names,
+            wrapped_spatial_profile_sets,
+            x,
+        )
 
         fill!(dUmat, zero(eltype(dUmat)))
 
@@ -350,6 +526,6 @@ function RDModel(;
         default_params = default_params,
         initialize! = initialize_wrapped!,
         rhs! = rhs_wrapped!,
-        spatial_profiles = wrapped_spatial_profiles,
+        spatial_profile_sets = wrapped_spatial_profile_sets,
     )
 end

@@ -9,11 +9,17 @@
 # Contains:
 #
 #     - one plot for every model variable,
-#     - one local perturbation control row below every plot,
-#     - gray preview curves for perturbations.
+#     - one local perturbation control row below every solution plot,
+#     - gray dashed preview curves for local perturbations,
+#     - optional spatial profile plots,
+#     - Previous/Next selector for active spatial profile sets.
 #
 # ============================================================
 
+
+# ============================================================
+# Empty panel
+# ============================================================
 
 function empty_plot_panel()
     return PlotPanel(
@@ -25,6 +31,10 @@ function empty_plot_panel()
     )
 end
 
+
+# ============================================================
+# Axis scaling
+# ============================================================
 
 function finite_values(v::AbstractVector)
     return collect(filter(isfinite, v))
@@ -41,8 +51,6 @@ function set_axis_y_limits_from_values!(
         return nothing
 
     ymin, ymax = extrema(finite)
-    ymin = 0.0
-    ymean = mean(finite)
 
     # Minimal allowed y-range.
     # This prevents degenerate or almost-degenerate axis limits.
@@ -60,7 +68,7 @@ function set_axis_y_limits_from_values!(
         ymax += pad
     end
 
-    ylims!(ax, ymin, max(ymax,2*ymean))
+    ylims!(ax, ymin, ymax)
 
     return nothing
 end
@@ -123,6 +131,243 @@ function rescale_solution_axes_from_snapshot!(
     return nothing
 end
 
+
+# ============================================================
+# Spatial profiles
+# ============================================================
+
+function evaluate_spatial_profile(
+    sim::SimulationState,
+    profile_name::String,
+    profile_fun::Function,
+)
+    raw = profile_fun(sim.x, sim.params)
+
+    y = if raw isa Number
+        fill(Float64(raw), sim.N)
+    else
+        Float64.(collect(raw))
+    end
+
+    length(y) == sim.N ||
+        error("Spatial profile $(profile_name) has wrong length.")
+
+    return y
+end
+
+
+function build_spatial_profile_panel!(
+    grid::GridLayout,
+    app::AppState,
+    axes::Vector{Axis},
+    ui_items::Vector{Any};
+    start_row::Int,
+)
+    sim = app.sim
+    profile_sets = sim.model.spatial_profile_sets
+
+    isempty(profile_sets) &&
+        return nothing
+
+    max_profiles = maximum(length(profile_set) for (_, profile_set) in profile_sets)
+
+    # --------------------------------------------------------
+    # Profile plots
+    # --------------------------------------------------------
+
+    profile_axes = Axis[]
+    profile_observables = Observable{Vector{Float64}}[]
+    profile_name_observables = Observable{String}[]
+
+    for k in 1:max_profiles
+        row = start_row + k - 1
+
+        profile_name_obs = Observable("")
+
+        ax = Axis(
+            grid[row, 1],
+            xlabel = k == max_profiles ? "x" : "",
+            ylabel = profile_name_obs,
+            title = profile_name_obs,
+        )
+
+        y_obs = Observable(fill(NaN, sim.N))
+
+        lines!(
+            ax,
+            sim.x,
+            y_obs,
+            linewidth = 4,
+            color = :red,
+            linestyle = :dash,
+        )
+
+        xlims!(ax, minimum(sim.x), maximum(sim.x))
+
+        push!(axes, ax)
+        push!(profile_axes, ax)
+        push!(profile_observables, y_obs)
+        push!(profile_name_observables, profile_name_obs)
+
+        rowsize!(grid, row, Fixed(120))
+    end
+
+    # --------------------------------------------------------
+    # Navigation row under the profile plots
+    # --------------------------------------------------------
+
+    nav_row = start_row + max_profiles
+
+    nav_grid = GridLayout(
+        tellwidth = false,
+        tellheight = true,
+    )
+
+    grid[nav_row, 1] = nav_grid
+
+    previous_button = Button(
+        nav_grid[1, 1],
+        label = "Previous",
+        tellwidth = false,
+    )
+
+    set_label_obs = Observable("spatial profile: ")
+
+    set_label = Label(
+        nav_grid[1, 2],
+        set_label_obs,
+        tellwidth = false,
+        halign = :center,
+    )
+
+    next_button = Button(
+        nav_grid[1, 3],
+        label = "Next",
+        tellwidth = false,
+    )
+
+    colsize!(nav_grid, 1, Fixed(80))
+    colsize!(nav_grid, 2, Fixed(190))
+    colsize!(nav_grid, 3, Fixed(80))
+    colgap!(nav_grid, 5)
+
+    try
+        nav_grid.halign = :center
+    catch
+    end
+
+    rowsize!(grid, nav_row, Fixed(34))
+
+    push!(ui_items, nav_grid)
+    push!(ui_items, previous_button)
+    push!(ui_items, set_label)
+    push!(ui_items, next_button)
+
+    # --------------------------------------------------------
+    # Current profile set
+    # --------------------------------------------------------
+
+    current_set_index = Ref(
+        _active_spatial_profile_set_index(
+            sim.params,
+            profile_sets,
+        ),
+    )
+
+    function update_profile_set!()
+        current_sim = app.sim
+        current_profile_sets = current_sim.model.spatial_profile_sets
+
+        isempty(current_profile_sets) &&
+            return nothing
+
+        current_set_index[] = clamp(
+            current_set_index[],
+            1,
+            length(current_profile_sets),
+        )
+
+        set_name, profiles = current_profile_sets[current_set_index[]]
+
+        set_label_obs[] = "spatial profile: $(set_name)"
+
+        for k in 1:max_profiles
+            row = start_row + k - 1
+
+            if k <= length(profiles)
+                profile_name, profile_fun = profiles[k]
+
+                y = evaluate_spatial_profile(
+                    current_sim,
+                    profile_name,
+                    profile_fun,
+                )
+
+                profile_name_observables[k][] = profile_name
+                profile_observables[k][] = y
+
+                rowsize!(grid, row, Fixed(120))
+
+                set_axis_y_limits_from_values!(
+                    profile_axes[k],
+                    y,
+                )
+            else
+                profile_name_observables[k][] = ""
+                profile_observables[k][] = fill(NaN, current_sim.N)
+
+                rowsize!(grid, row, Fixed(0))
+            end
+        end
+
+        return nothing
+    end
+
+    function switch_profile_set!(new_index::Int)
+        current_set_index[] = new_index
+
+        set_active_spatial_profile_set_app!(
+            app,
+            new_index,
+        )
+
+        update_profile_set!()
+
+        return nothing
+    end
+
+    on(previous_button.clicks) do _
+        nsets = length(app.sim.model.spatial_profile_sets)
+
+        nsets == 0 &&
+            return nothing
+
+        new_index =
+            current_set_index[] == 1 ? nsets : current_set_index[] - 1
+
+        switch_profile_set!(new_index)
+    end
+
+    on(next_button.clicks) do _
+        nsets = length(app.sim.model.spatial_profile_sets)
+
+        nsets == 0 &&
+            return nothing
+
+        new_index =
+            current_set_index[] == nsets ? 1 : current_set_index[] + 1
+
+        switch_profile_set!(new_index)
+    end
+
+    update_profile_set!()
+
+    return nothing
+end
+
+# ============================================================
+# Build plot panel
+# ============================================================
 
 function build_plot_panel!(
     grid::GridLayout,
@@ -193,40 +438,18 @@ function build_plot_panel!(
         push!(observables, y_obs)
         push!(preview_observables, preview_obs)
 
-        rowsize!(grid, control_row, Fixed(70))
+        rowsize!(grid, control_row, Fixed(36))
     end
 
-    profile_row0 = 2 * model.nvars + 1
+    profile_start_row = 2 * model.nvars + 1
 
-    for (k, (profile_name, profile_fun)) in enumerate(model.spatial_profiles)
-        row = profile_row0 + k - 1
-
-        y = Float64.(profile_fun(sim.x, sim.params))
-
-        length(y) == sim.N ||
-            error("Spatial profile $(profile_name) has wrong length.")
-
-        ax = Axis(
-            grid[row, 1],
-            xlabel = k == length(model.spatial_profiles) ? "x" : "",
-            ylabel = profile_name,
-            title = profile_name,
-        )
-
-        lines!(
-            ax,
-            sim.x,
-            y,
-            linewidth = 4,
-            color = :red,
-            linestyle = :dash,
-        )
-
-        set_axis_y_limits_from_values!(ax, y)
-
-        push!(axes, ax)
-    end
-
+    build_spatial_profile_panel!(
+        grid,
+        app,
+        axes,
+        ui_items;
+        start_row = profile_start_row,
+    )
 
     panel = PlotPanel(
         axes,
@@ -241,6 +464,10 @@ function build_plot_panel!(
     return panel
 end
 
+
+# ============================================================
+# Refresh
+# ============================================================
 
 function solution_matrix_from_snapshot(snapshot::SimulationSnapshot)
     return reshape(snapshot.y, snapshot.N, snapshot.nvars)
@@ -285,6 +512,10 @@ function refresh_plot_panel_from_snapshot!(
 end
 
 
+# ============================================================
+# Perturbation previews
+# ============================================================
+
 function clear_perturbation_preview!(
     panel::PlotPanel,
     variable::Int,
@@ -313,6 +544,10 @@ function clear_perturbation_previews!(panel::PlotPanel)
 end
 
 
+# ============================================================
+# Clearing / rebuilding
+# ============================================================
+
 function delete_plot_panel_item!(item)
     try
         delete!(item)
@@ -339,8 +574,8 @@ function clear_plot_panel!(panel::PlotPanel)
     empty!(panel.axes)
     empty!(panel.observables)
     empty!(panel.preview_observables)
-    empty!(panel.ui_items)
     empty!(panel.perturbation_controls)
+    empty!(panel.ui_items)
 
     return nothing
 end
