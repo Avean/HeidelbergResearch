@@ -196,6 +196,38 @@ function build_plot_panel!(
         rowsize!(grid, control_row, Fixed(70))
     end
 
+    profile_row0 = 2 * model.nvars + 1
+
+    for (k, (profile_name, profile_fun)) in enumerate(model.spatial_profiles)
+        row = profile_row0 + k - 1
+
+        y = Float64.(profile_fun(sim.x, sim.params))
+
+        length(y) == sim.N ||
+            error("Spatial profile $(profile_name) has wrong length.")
+
+        ax = Axis(
+            grid[row, 1],
+            xlabel = k == length(model.spatial_profiles) ? "x" : "",
+            ylabel = profile_name,
+            title = profile_name,
+        )
+
+        lines!(
+            ax,
+            sim.x,
+            y,
+            linewidth = 4,
+            color = :red,
+            linestyle = :dash,
+        )
+
+        set_axis_y_limits_from_values!(ax, y)
+
+        push!(axes, ax)
+    end
+
+
     panel = PlotPanel(
         axes,
         observables,
