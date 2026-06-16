@@ -64,9 +64,11 @@ RDModel(
         H = div(length(x), 2)
 
         # profile = :FootHead
-        profile = :HeadFoot
+        # profile = :HeadFoot
         # profile = :FootHeadReverse
         # profile = :HeadFootReverse
+        profile = :ZigZag
+
 
         if profile == :FootHead
             U.sd .= sd_base
@@ -79,7 +81,26 @@ RDModel(
 
         elseif profile == :HeadFootReverse
             U.sd .= [reverse(sd_base[1:H]); sd_base[(H + 1):end]]
+        
+        elseif profile == :ZigZag
+            x1 = 0.2
+            x2 = 0.7
+
+            s = p.ρ1
+
+            U.sd .= @. ifelse(
+                x < x1,
+                p.ρ0 + s * x,
+                ifelse(
+                    x < x2,
+                    p.ρ0 + s * (x - x1),
+                    p.ρ0 + s * (x - x2),
+                )
+            )
+
         end
+
+        
 
         return nothing
     end,
