@@ -73,8 +73,9 @@ RDModel(
     ),
 
     latex_equations = (
-    raw"\partial_t u = D_u \partial_{xx} u + a \frac{u^2}{v + 1} - \mu_u u + p_u",
-    raw"\partial_t v = D_v \partial_{xx} v + b u^2 - \mu_v v + p_v",
+    raw"\partial_t u = D_u \partial_{xx} u + a \cdot s \frac{u^2}{v + 1} - \mu_u u ",
+    raw"\partial_t v = D_v \partial_{xx} v + b u^2 - \mu_v v",
+    raw"\partial_t s = D_{s} \partial_{xx} s + \frac{1}{\tau}(u - s)",
     ),
 
 )

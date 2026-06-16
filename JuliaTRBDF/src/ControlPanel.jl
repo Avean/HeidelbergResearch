@@ -126,12 +126,12 @@ function rebuild_latex_equation_panel!(
         grid[1, 2],
         "Equations",
         tellwidth = false,
-        halign = :center,
+        halign = :left,
     )
 
     push!(item_ref[], title)
 
-    colsize!(grid, 1, Fixed(85))
+    colsize!(grid, 1, Fixed(115))
     colsize!(grid, 2, Relative(1.0))
     colgap!(grid, 1)
 
@@ -154,7 +154,7 @@ function rebuild_latex_equation_panel!(
             latexstring(equation),
             tellwidth = false,
             halign = :left,
-            fontsize = 25,
+            fontsize = 22,
         )
 
         push!(item_ref[], equation_label)
