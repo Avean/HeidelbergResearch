@@ -416,6 +416,21 @@ end
 # Main model constructor
 # ============================================================
 
+function _make_latex_equations(latex_equations)
+    if latex_equations === nothing
+        return String[]
+
+    elseif latex_equations isa AbstractString
+        return String[latex_equations]
+
+    elseif latex_equations isa Tuple || latex_equations isa AbstractVector
+        return [String(eq) for eq in latex_equations]
+
+    else
+        error("latex_equations must be a string, tuple of strings, or vector of strings.")
+    end
+end
+
 function RDModel(;
     id::Symbol,
     display_name::String,
@@ -425,6 +440,7 @@ function RDModel(;
     reaction::Function,
     diffusion = NamedTuple(),
     spatial_profiles = NamedTuple(),
+    latex_equations = String[],    
 )
     vars = _normalize_variables(variables)
     var_index = _make_variable_index(vars)
@@ -527,5 +543,6 @@ function RDModel(;
         initialize! = initialize_wrapped!,
         rhs! = rhs_wrapped!,
         spatial_profile_sets = wrapped_spatial_profile_sets,
+        latex_equations = _make_latex_equations(latex_equations),
     )
 end

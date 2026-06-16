@@ -113,6 +113,56 @@ function rebuild_constant_initial_condition_panel!(
 end
 
 
+function rebuild_latex_equation_panel!(
+    grid::GridLayout,
+    app::AppState,
+    item_ref,
+)
+    delete_control_items!(item_ref[])
+
+    equations = app.sim.model.latex_equations
+
+    title = Label(
+        grid[1, 2],
+        "Equations",
+        tellwidth = false,
+        halign = :center,
+    )
+
+    push!(item_ref[], title)
+
+    colsize!(grid, 1, Fixed(55))
+    colsize!(grid, 2, Relative(1.0))
+    colgap!(grid, 1)
+
+    if isempty(equations)
+        empty_label = Label(
+            grid[2, 2],
+            "No LaTeX equations specified for this model.",
+            tellwidth = false,
+            halign = :left,
+        )
+
+        push!(item_ref[], empty_label)
+
+        return nothing
+    end
+
+    for (k, equation) in enumerate(equations)
+        equation_label = Label(
+            grid[k + 1, 2],
+            latexstring(equation),
+            tellwidth = false,
+            halign = :left,
+            fontsize = 18,
+        )
+
+        push!(item_ref[], equation_label)
+    end
+
+    return nothing
+end
+
 function build_control_panel!(
     grid::GridLayout,
     app::AppState;
@@ -125,8 +175,14 @@ function build_control_panel!(
     # Time-step controls
     # --------------------------------------------------------
 
+    top_grid = GridLayout(
+    tellheight = false,
+    )
+
+    grid[1, 1:2] = top_grid
+
     dt_info_label = Label(
-        grid[1, 1:2],
+        top_grid[1, 1],
         lift(app.dtmax_obs, app.dt_obs) do dtmax, dt
             return "max dt = $(@sprintf("%.1e", dtmax)) | current dt = $(@sprintf("%.1e", dt))"
         end,
@@ -136,7 +192,7 @@ function build_control_panel!(
     dt_exponent0 = -2
 
     dt_slider = Slider(
-        grid[2, 1:2],
+        top_grid[2, 1],
         range = -5:1:5,
         startvalue = dt_exponent0,
         tellwidth = false,
@@ -151,11 +207,8 @@ function build_control_panel!(
     # Main control row
     # --------------------------------------------------------
 
-    action_grid = GridLayout()
-    constant_ic_grid = GridLayout()
 
-    grid[4, 1] = action_grid
-    grid[4, 2] = constant_ic_grid
+
 
     colsize!(grid, 1, Relative(0.45))
     colsize!(grid, 2, Relative(0.55))
@@ -163,6 +216,18 @@ function build_control_panel!(
     # --------------------------------------------------------
     # Simulation buttons
     # --------------------------------------------------------
+
+    label_simulation_control = Label(
+        top_grid[3, 1],
+        "Simulation controls",
+        tellwidth = false,
+    )
+    
+    action_grid = GridLayout(
+        tellheight = false,
+    )
+
+    top_grid[4, 1] = action_grid
 
     bstart = Button(
         action_grid[1, 1],
@@ -210,8 +275,32 @@ function build_control_panel!(
     end
 
     # --------------------------------------------------------
+    # Latex Equation panel
+    # --------------------------------------------------------
+
+    equation_grid = GridLayout(
+        tellheight = false,
+    )
+
+    grid[2, 1:2] = equation_grid
+
+    equation_items = Ref(Any[])
+
+    rebuild_latex_equation_panel!(
+        equation_grid,
+        app,
+        equation_items,
+    )
+
+    # --------------------------------------------------------
     # Constant initial condition section
     # --------------------------------------------------------
+
+    constant_ic_grid = GridLayout(
+        tellheight = false,
+    )
+
+    grid[4, 1:2] = constant_ic_grid
 
     constant_ic_items = Ref(Any[])
     constant_ic_textboxes = Ref(Any[])
@@ -234,18 +323,27 @@ function build_control_panel!(
             steps_per_frame = steps_per_frame,
             worker_sleep_time = worker_sleep_time,
         )
+        
+        rebuild_latex_equation_panel!(
+        equation_grid,
+        app,
+        equation_items,
+        )
     end
 
 
     return (;
         dt_info_label,
+        label_simulation_control,
         dt_slider,
         action_grid,
+        equation_grid,
         constant_ic_grid,
         bstart,
         bstop,
         breset,
         constant_ic_items,
         constant_ic_textboxes,
+        equation_items,
     )
 end

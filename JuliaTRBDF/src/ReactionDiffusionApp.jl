@@ -6,6 +6,7 @@ using SparseArrays
 using LinearAlgebra
 using Random
 using Printf
+using LaTeXStrings
 using Statistics
 
 # ============================================================

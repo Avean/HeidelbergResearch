@@ -45,8 +45,8 @@ RDModel(
     initial = function (U, x, p)
         Random.seed!(6)
 
-        u0 = (p.a + 1.0) / p.b
-        v0 = u0^2
+        u0 = 1.0
+        v0 = 2.0
 
         U.u .= u0 .+ 0.01 .* randn(length(x))
         U.v .= v0 .+ 0.01 .* randn(length(x))
@@ -75,5 +75,10 @@ RDModel(
             ρ = (x, p) -> (@. ifelse(x< 0.5, p.ρ0 - p.ρ1/2 + p.ρ1 * (x+0.5), p.ρ0 - p.ρ1/2 + p.ρ1 * (x-0.5))),
         ),
 
+    ),
+
+    latex_equations = (
+    raw"\partial_t u = D_u \partial_{xx} u + a \frac{u^2}{v + 1} - \mu_u u + p_u",
+    raw"\partial_t v = D_v \partial_{xx} v + b u^2 - \mu_v v + p_v",
     ),
 )

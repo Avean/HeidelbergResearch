@@ -41,6 +41,9 @@ Base.@kwdef struct ModelSpec
     spatial_profile_sets::Vector{Tuple{String, Vector{Tuple{String, Function}}}} =
     Tuple{String, Vector{Tuple{String, Function}}}[]
     # Optional spatial profiles that can be displayed in the UI.
+
+    latex_equations::Vector{String} = String[]
+    # Optional LaTeX strings describing the equations, for display in the UI.
 end
 
 

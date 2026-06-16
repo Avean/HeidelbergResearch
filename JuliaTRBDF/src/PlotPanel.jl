@@ -51,6 +51,8 @@ function set_axis_y_limits_from_values!(
         return nothing
 
     ymin, ymax = extrema(finite)
+    ymin = 0.0
+    ymean = mean(finite)
 
     # Minimal allowed y-range.
     # This prevents degenerate or almost-degenerate axis limits.
@@ -68,7 +70,7 @@ function set_axis_y_limits_from_values!(
         ymax += pad
     end
 
-    ylims!(ax, ymin, ymax)
+    ylims!(ax, ymin, max(ymax, 2*ymean))
 
     return nothing
 end
