@@ -102,7 +102,7 @@ RDModel(
                 H = div(length(x), 2)
                 ρx = @. p.ρ0 - p.ρ1 / 2 + p.ρ1 * x
 
-                return [ρx[(1):H]; reverse(ρx[(H+1):end])]
+                return [reverse(ρx[(1):H]); (ρx[(H+1):end])]
             end,
         ),
     ),
