@@ -624,8 +624,6 @@ function switch_model_app!(
             boundary_condition = boundary_condition,
         )
 
-        model_name_obs[] = model.display_name
-
         clear_plot_panel!(app.plot_panel)
 
         app.plot_panel = build_plot_panel!(
@@ -636,13 +634,22 @@ function switch_model_app!(
 
         refresh_app_from_live_state!(app)
 
+        # Important:
+        #
+        # Update model_name_obs only after app.sim and app.plot_panel
+        # are already consistent.
+        #
+        # This observable triggers callbacks in ControlPanel.jl, including
+        # diffusion rescaling. If it is triggered too early, the new model
+        # may have 3 variables while the old plot panel still has 2 axes.
+        model_name_obs[] = model.display_name
+
     finally
         unlock(app.simlock)
     end
 
     return nothing
 end
-
 
 function switch_boundary_condition_app!(
     app::AppState,

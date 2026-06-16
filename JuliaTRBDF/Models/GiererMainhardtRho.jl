@@ -28,8 +28,8 @@ RDModel(
     variables = (:u, :v),
 
     parameters = (
-        Du = 1e-4,
-        Dv = 1e-1,
+        Du = 1e-2,
+        Dv = 1e1,
 
         a = 1.5,
         b = 2.0,
@@ -45,7 +45,6 @@ RDModel(
     ),
 
     initial = function (U, x, p)
-        Random.seed!(6)
 
         u0 = 1.0
         v0 = 2.0
@@ -55,6 +54,9 @@ RDModel(
 
         return nothing
     end,
+
+    
+
 
     reaction = function (F, U, x, p, t)
         @. F.u = p.a * p.ρ * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu
