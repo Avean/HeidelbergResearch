@@ -292,6 +292,59 @@ function build_control_panel!(
         equation_items,
     )
 
+
+    # --------------------------------------------------------
+    # Diffusion rescaling
+    # --------------------------------------------------------
+
+    diffusion_scale_obs = Observable(1.0)
+
+    diffusion_scale_grid = GridLayout(
+        tellheight = false,
+    )
+
+    grid[3, 1:2] = diffusion_scale_grid
+
+    diffusion_scale_label_obs = Observable(
+        diffusion_scale_label_string(app.sim, diffusion_scale_obs[])
+    )
+
+    diffusion_scale_label = Label(
+        diffusion_scale_grid[1, 1],
+        diffusion_scale_label_obs,
+        tellwidth = false,
+        halign = :center,
+    )
+
+    diffusion_scale_slider = Slider(
+        diffusion_scale_grid[2, 1],
+        range = 0.0:0.2:3.0,
+        startvalue = 0.0,
+        tellwidth = false,
+    )
+
+    function update_diffusion_scale_label!()
+        diffusion_scale_label_obs[] =
+            diffusion_scale_label_string(app.sim, diffusion_scale_obs[])
+
+        return nothing
+    end
+
+    on(diffusion_scale_slider.value) do exponent
+        scale = 10.0^Float64(exponent)
+
+        diffusion_scale_obs[] = scale
+
+        set_diffusion_scale_app!(
+            app,
+            scale;
+            steps_per_frame = steps_per_frame,
+            worker_sleep_time = worker_sleep_time,
+        )
+
+        update_diffusion_scale_label!()
+    end
+
     # --------------------------------------------------------
     # Constant initial condition section
     # --------------------------------------------------------
@@ -329,6 +382,15 @@ function build_control_panel!(
         app,
         equation_items,
         )
+
+        set_diffusion_scale_app!(
+        app,
+        diffusion_scale_obs[];
+        steps_per_frame = steps_per_frame,
+        worker_sleep_time = worker_sleep_time,
+        )
+
+        update_diffusion_scale_label!()
     end
 
 
@@ -338,6 +400,10 @@ function build_control_panel!(
         dt_slider,
         action_grid,
         equation_grid,
+        diffusion_scale_grid,
+        diffusion_scale_slider,
+        diffusion_scale_label,
+        diffusion_scale_obs,
         constant_ic_grid,
         bstart,
         bstop,

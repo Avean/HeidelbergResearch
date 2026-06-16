@@ -199,5 +199,43 @@ function run_app(;
         sleep_time = worker_sleep_time,
     )
 
+    # --------------------------------------------------------
+    # Windows closed
+    # --------------------------------------------------------
+
+
+    on(events(fig.scene).window_open) do is_open
+        if !is_open
+            task_before = app.worker_task_ref[]
+
+            worker_was_active =
+                app.worker_running[] ||
+                (task_before !== nothing && !istaskdone(task_before))
+
+            if worker_was_active
+                @info "Window closed. Stopping simulation worker."
+            else
+                @info "Window closed. No active simulation worker."
+            end
+
+            stop_worker!(app; wait = true)
+
+            task_after = app.worker_task_ref[]
+
+            worker_stopped =
+                !app.worker_running[] &&
+                (task_after === nothing || istaskdone(task_after))
+
+            if worker_stopped
+                @info "Simulation worker stopped successfully."
+            else
+                @warn "Simulation worker may still be running."
+            end
+        end
+    end
+
     return app
 end
+
+
+

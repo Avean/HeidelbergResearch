@@ -26,8 +26,8 @@ RDModel(
     variables = (:u, :v),
 
     parameters = (
-        Du = 1e-4,
-        Dv = 1e-1,
+        Du = 1e-2,
+        Dv = 1e1,
 
         a = 1.5,
         b = 2.0,

@@ -18,6 +18,8 @@
 #
 # ============================================================
 
+
+
 RDModel(
     id = :gierer_meinhardt,
 
@@ -66,15 +68,43 @@ RDModel(
         v = :Dv,
     ),
 
+
+
+
     spatial_profiles = (
         FootHead = (
-            ρ = (x, p) -> (@. p.ρ0 - p.ρ1/2 + p.ρ1 * x),
+            ρ = (x, p) -> begin
+                ρx = @. p.ρ0 - p.ρ1 / 2 + p.ρ1 * x
+                return ρx
+            end,
         ),
 
         HeadFoot = (
-            ρ = (x, p) -> (@. ifelse(x< 0.5, p.ρ0 - p.ρ1/2 + p.ρ1 * (x+0.5), p.ρ0 - p.ρ1/2 + p.ρ1 * (x-0.5))),
+            ρ = (x, p) -> begin
+                H = div(length(x), 2)
+                ρx = @. p.ρ0 - p.ρ1 / 2 + p.ρ1 * x
+
+                return [ρx[(H + 1):end]; ρx[1:H]]
+            end,
         ),
 
+        FootHeadReverse = (
+            ρ = (x, p) -> begin
+                H = div(length(x), 2)
+                ρx = @. p.ρ0 - p.ρ1 / 2 + p.ρ1 * x
+
+                return [ρx[1:H]; reverse(ρx[(H + 1):end])]
+            end,
+        ),
+
+        HeadFootReverse = (
+            ρ = (x, p) -> begin
+                H = div(length(x), 2)
+                ρx = @. p.ρ0 - p.ρ1 / 2 + p.ρ1 * x
+
+                return [ρx[(1):H]; reverse(ρx[(H+1):end])]
+            end,
+        ),
     ),
 
     latex_equations = (

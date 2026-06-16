@@ -699,3 +699,97 @@ function switch_boundary_condition_app!(
 
     return nothing
 end
+
+    # ============================================================
+    # Diffusion rescaling
+    # ============================================================
+
+    function diffusion_parameter_names(model::ModelSpec)
+        names = Symbol[]
+
+        # Preferred convention:
+        #
+        #     variable u -> Du
+        #     variable v -> Dv
+        #     variable w -> Dw
+        #
+        for varname in model.varnames
+            key = Symbol("D", varname)
+
+            if haskey(model.default_params, key)
+                push!(names, key)
+            end
+        end
+
+        # Fallback: all parameters whose name starts with D.
+        if isempty(names)
+            for key in keys(model.default_params)
+                if startswith(String(key), "D")
+                    push!(names, key)
+                end
+            end
+        end
+
+        return sort(unique(names); by = String)
+    end
+
+
+    function diffusion_scale_label_string(sim::SimulationState, scale::Float64)
+        names = diffusion_parameter_names(sim.model)
+
+        if isempty(names)
+            return "diffusion scale = $(@sprintf("%.2g", scale)) | no diffusion parameters found"
+        end
+
+        parts = String[]
+
+        for name in names
+            value = sim.params[name]
+            push!(parts, "$(name) = $(@sprintf("%.2e", value))")
+        end
+
+        return "Length rescaled: $(@sprintf("%.2g", sqrt(scale))) "
+    end
+
+
+    function set_diffusion_scale!(sim::SimulationState, scale::Real)
+        scale_float = Float64(scale)
+
+        isfinite(scale_float) || error("Diffusion scale must be finite.")
+        scale_float > 0.0 || error("Diffusion scale must be positive.")
+
+        names = diffusion_parameter_names(sim.model)
+
+        for name in names
+            base_value = sim.model.default_params[name]
+            sim.params[name] = base_value / scale_float
+        end
+
+        # Restart the integrator from the current solution, with changed parameters.
+        ynew = copy(sim.integrator_ref[].u)
+
+        restart_after_manual_change!(
+            sim,
+            ynew,
+        )
+
+        return nothing
+    end
+
+
+    function set_diffusion_scale_app!(
+        app::AppState,
+        scale::Real;
+        steps_per_frame::Int,
+        worker_sleep_time::Float64,
+    )
+        with_worker_paused!(
+            app,
+            () -> set_diffusion_scale!(app.sim, scale);
+            restart_if_was_running = true,
+            steps_per_frame = steps_per_frame,
+            worker_sleep_time = worker_sleep_time,
+        )
+
+        return nothing
+    end
