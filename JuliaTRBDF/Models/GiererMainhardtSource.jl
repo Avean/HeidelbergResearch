@@ -18,7 +18,7 @@
 #
 # ============================================================
 
-τ0 = 1e8
+τ0 = 1e9
 
 RDModel(
     id = :gierer_meinhardt,
@@ -45,7 +45,8 @@ RDModel(
         pv = 0.0,
 
         ρ0 = 1.0,
-        ρ1 = 0.5,
+        ρ1 = 1.5,
+        # ρ1 = 0.5,
     ),
 
     initial = function (U, x, p)
@@ -83,8 +84,8 @@ RDModel(
             U.sd .= [reverse(sd_base[1:H]); sd_base[(H + 1):end]]
         
         elseif profile == :ZigZag
-            x1 = 0.2
-            x2 = 0.7
+            x1 = 0.3
+            x2 = 0.9
 
             s = p.ρ1
 
@@ -108,7 +109,7 @@ RDModel(
     
 
     reaction = function (F, U, x, p, t)
-        @. F.u = p.a * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu
+        @. F.u = p.a * U.sd * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu
         @. F.v = p.b * U.u^2 - p.μv * U.v + p.pv
         @. F.sd = (U.u - U.sd) / p.τ
 
@@ -124,7 +125,7 @@ RDModel(
     latex_equations = (
     raw"\partial_t u = D_u \partial_{xx} u + a \cdot s \frac{u^2}{v + 1} - \mu_u u ",
     raw"\partial_t v = D_v \partial_{xx} v + b u^2 - \mu_v v",
-    raw"\partial_t s = D_{s} \partial_{xx} s + \frac{1}{\tau}(u - s)",
+    raw"\partial_t s = \frac{1}{\tau}(D_{s} \partial_{xx} s + u - s)",
     ),
 
 )

@@ -41,7 +41,8 @@ RDModel(
         pv = 0.0,
 
         ρ0 = 1.0,
-        ρ1 = 0.5,
+        ρ1 = 1.5,
+        # ρ1 = 0.5,
     ),
 
     initial = function (U, x, p)
@@ -105,6 +106,25 @@ RDModel(
                 ρx = @. p.ρ0 - p.ρ1 / 2 + p.ρ1 * x
 
                 return [reverse(ρx[(1):H]); (ρx[(H+1):end])]
+            end,
+        ),
+
+        ZigZag = (
+            ρ = (x, p) -> begin
+                x1 = 0.3
+                x2 = 0.9
+
+                ρx = @. ifelse(
+                    x < x1,
+                    p.ρ0 + p.ρ1 * x,
+                    ifelse(
+                        x < x2,
+                        p.ρ0 + p.ρ1 * (x - x1),
+                        p.ρ0 + p.ρ1 * (x - x2),
+                    )
+                )
+
+                return ρx
             end,
         ),
     ),

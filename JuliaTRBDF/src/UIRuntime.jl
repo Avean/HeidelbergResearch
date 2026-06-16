@@ -392,6 +392,50 @@ function set_constant_initial_condition_app!(
 end
 
 
+function set_single_constant_initial_condition!(
+    sim::SimulationState;
+    variable::Int,
+    value::Real,
+)
+    variable >= 1 && variable <= sim.model.nvars ||
+        error("Invalid variable index: $(variable).")
+
+    ynew = copy(sim.integrator_ref[].u)
+    U = reshape(ynew, sim.N, sim.model.nvars)
+
+    U[:, variable] .= Float64(value)
+
+    restart_after_manual_change!(sim, ynew)
+
+    sim.step_counter[] = 0
+
+    return nothing
+end
+
+
+function set_single_constant_initial_condition_app!(
+    app::AppState;
+    variable::Int,
+    value::Real,
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
+)
+    with_worker_paused!(
+        app,
+        () -> set_single_constant_initial_condition!(
+            app.sim;
+            variable = variable,
+            value = value,
+        );
+        restart_if_was_running = true,
+        steps_per_frame = steps_per_frame,
+        worker_sleep_time = worker_sleep_time,
+    )
+
+    return nothing
+end
+
+
 # ============================================================
 # Active spatial profile switching
 # ============================================================

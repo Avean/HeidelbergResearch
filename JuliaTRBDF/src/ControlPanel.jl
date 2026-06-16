@@ -79,35 +79,38 @@ function rebuild_constant_initial_condition_panel!(
         push!(textbox_ref[], textbox)
     end
 
-    apply_button = Button(
-        grid[4, 1:nvars],
-        label = "Apply constants",
-        tellwidth = false,
-    )
+    for j in 1:nvars
+        variable_index = j
+        variable_name = varnames[j]
+        variable_textbox = textbox_ref[][j]
 
-    push!(item_ref[], apply_button)
+        apply_button = Button(
+            grid[4, j],
+            label = "Apply $(variable_name)",
+            tellwidth = false,
+        )
 
-    on(apply_button.clicks) do _
-        values = Float64[]
+        push!(item_ref[], apply_button)
 
-        for textbox in textbox_ref[]
-            value = tryparse(Float64, textbox.stored_string[])
+        on(apply_button.clicks) do _
+            value = tryparse(Float64, variable_textbox.stored_string[])
 
             if value === nothing
-                @warn "Invalid constant initial condition value." textbox.stored_string[]
+                @warn "Invalid constant initial condition value." variable_textbox.stored_string[]
                 return nothing
             end
 
-            push!(values, value)
+            set_single_constant_initial_condition_app!(
+                app;
+                variable = variable_index,
+                value = value,
+                steps_per_frame = steps_per_frame,
+                worker_sleep_time = worker_sleep_time,
+            )
         end
-
-        set_constant_initial_condition_app!(
-            app,
-            values;
-            steps_per_frame = steps_per_frame,
-            worker_sleep_time = worker_sleep_time,
-        )
     end
+
+
 
     return nothing
 end
