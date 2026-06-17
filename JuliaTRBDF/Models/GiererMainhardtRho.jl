@@ -29,7 +29,7 @@ RDModel(
 
     parameters = (
         Du = 1e-2,
-        Dv = 1e1,
+        Dv = 1e0,
 
         a = 1.5,
         b = 2.0,
@@ -61,7 +61,7 @@ RDModel(
 
     reaction = function (F, U, x, p, t)
         @. F.u = p.a * p.ρ * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu
-        @. F.v = p.b * U.u^2 - p.μv * U.v + p.pv
+        @. F.v = p.b * p.ρ * U.u^2 - p.μv * U.v + p.pv
 
         return nothing
     end,
@@ -111,7 +111,7 @@ RDModel(
 
         ZigZag = (
             ρ = (x, p) -> begin
-                x1 = 0.3
+                x1 = 0.2
                 x2 = 0.9
 
                 ρx = @. ifelse(
@@ -130,7 +130,7 @@ RDModel(
     ),
 
     latex_equations = (
-    raw"\partial_t u = D_u \partial_{xx} u + a\rho(x) \frac{u^2}{v + 1} - \mu_u u",
-    raw"\partial_t v = D_v \partial_{xx} v + b u^2 - \mu_v v",
+    raw"\partial_t u = D_u \partial_{xx} u + a\cdot \rho(x) \frac{u^2}{v + 1} - \mu_u u",
+    raw"\partial_t v = D_v \partial_{xx} v + b\cdot \rho(x) u^2 - \mu_v v",
     ),
 )

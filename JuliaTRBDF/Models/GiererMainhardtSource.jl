@@ -18,7 +18,7 @@
 #
 # ============================================================
 
-τ0 = 1e9
+τ0 = 1e2
 
 RDModel(
     id = :gierer_meinhardt,
@@ -32,8 +32,8 @@ RDModel(
         τ = τ0,
         
         Du = 1e-2,
-        Dv = 1e1,
-        Dsd = 1e1/τ0,
+        Dv = 1e0,
+        Dsd = 1e0/τ0,
 
         a = 1.5,
         b = 2.0,
@@ -58,12 +58,13 @@ RDModel(
 
         U.u .= u0 .+ 0.01 .* randn(length(x))
         U.v .= v0 .+ 0.01 .* randn(length(x))
-        U.sd .= sd0 .+ 0.01 .* randn(length(x))
+        
 
 
         sd_base = @. p.ρ0 - p.ρ1 / 2 + p.ρ1 * x
         H = div(length(x), 2)
 
+        # profile = :Constant
         # profile = :FootHead
         # profile = :HeadFoot
         # profile = :FootHeadReverse
@@ -84,7 +85,7 @@ RDModel(
             U.sd .= [reverse(sd_base[1:H]); sd_base[(H + 1):end]]
         
         elseif profile == :ZigZag
-            x1 = 0.3
+            x1 = 0.2
             x2 = 0.9
 
             s = p.ρ1
@@ -98,7 +99,8 @@ RDModel(
                     p.ρ0 + s * (x - x2),
                 )
             )
-
+        elseif profile == :Constant
+            U.sd .= sd0 .+ 0.01 .* randn(length(x))
         end
 
         
@@ -110,7 +112,7 @@ RDModel(
 
     reaction = function (F, U, x, p, t)
         @. F.u = p.a * U.sd * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu
-        @. F.v = p.b * U.u^2 - p.μv * U.v + p.pv
+        @. F.v = p.b * U.sd * U.u^2 - p.μv * U.v + p.pv
         @. F.sd = (U.u - U.sd) / p.τ
 
         return nothing
@@ -124,7 +126,7 @@ RDModel(
 
     latex_equations = (
     raw"\partial_t u = D_u \partial_{xx} u + a \cdot s \frac{u^2}{v + 1} - \mu_u u ",
-    raw"\partial_t v = D_v \partial_{xx} v + b u^2 - \mu_v v",
+    raw"\partial_t v = D_v \partial_{xx} v + b \cdot s u^2 - \mu_v v",
     raw"\partial_t s = \frac{1}{\tau}(D_{s} \partial_{xx} s + u - s)",
     ),
 

@@ -27,7 +27,7 @@ RDModel(
 
     parameters = (
         Du = 1e-2,
-        Dv = 1e1,
+        Dv = 1e0,
 
         a = 1.5,
         b = 2.0,
