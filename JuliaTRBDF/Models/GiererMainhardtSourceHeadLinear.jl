@@ -116,8 +116,8 @@ RDModel(
     reaction = function (F, U, x, p, t)
         @. F.u = p.a * U.sd * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu
         @. F.v = p.b * U.sd * U.u^2 - p.μv * U.v + p.pv
-        @. F.h = 0.01 .* (U.u - 14.0 * U.h *(U.h^2.0 .* 4.0 - 5.4 * U.h + 2.0))
-        # @. F.h = 0.1 .*(U.u - U.h)
+        # @. F.h = 0.01 .* (U.u - 14.0 * U.h *(U.h^2.0 .* 4.0 - 5.2 * U.h + 2.0))
+        @. F.h = 0.01 .*(U.u - U.h)
         @. F.sd = (1.0 + 5*U.h  - U.sd) / p.τ
 
         return nothing
@@ -133,7 +133,7 @@ RDModel(
     latex_equations = (
     raw"\partial_t u = D_u \partial_{xx} u + a \cdot s \frac{u^2}{v + 1} - \mu_u u ",
     raw"\partial_t v = D_v \partial_{xx} v + b \cdot s u^2 - \mu_v v",
-    raw"\gamma\partial_t h = D_h \partial_{xx} h + u - p_3 h^3 + p_2 h^2 - p_1 h",
+    raw"\gamma\partial_t h = D_h \partial_{xx} h + u - h",
     raw"\tau\partial_t s = D_{s} \partial_{xx} s + 1 + c \cdot h - s",
     ),
 
