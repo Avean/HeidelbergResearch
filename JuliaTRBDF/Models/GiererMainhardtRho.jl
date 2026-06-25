@@ -130,7 +130,7 @@ RDModel(
     ),
 
     latex_equations = (
-    raw"\partial_t u = D_u \partial_{xx} u + a\cdot \rho(x) \frac{u^2}{v + 1} - \mu_u u",
+    raw"\partial_t u = D_u \partial_{xx} u + a\cdot\rho(x) \frac{u^2}{v + 1} - \mu_u u",
     raw"\partial_t v = D_v \partial_{xx} v + b\cdot \rho(x) u^2 - \mu_v v",
     ),
 )

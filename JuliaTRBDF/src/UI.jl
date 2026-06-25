@@ -21,7 +21,7 @@
 
 
 function run_app(;
-    N::Int = 1000,
+    N::Int = 200,
     boundary_condition0::Symbol = :neumann,
     dtmax0::Float64 = 1e-2,
     reltol::Float64 = 1e-5,
