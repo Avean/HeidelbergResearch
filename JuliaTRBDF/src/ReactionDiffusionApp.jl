@@ -26,6 +26,7 @@ const MODEL_DIR = normpath(joinpath(@__DIR__, "..", "models"))
 const MODEL_REGISTRY = load_model_registry(MODEL_DIR)
 
 include("Simulation.jl")
+include("DomainPartition.jl")
 
 include("PerturbationPanel.jl")
 include("PlotPanel.jl")
@@ -33,6 +34,7 @@ include("PlotPanel.jl")
 include("UIRuntime.jl")
 include("TopMenu.jl")
 include("ControlPanel.jl")
+include("PartitionControlPanel.jl")
 include("UI.jl")
 
 

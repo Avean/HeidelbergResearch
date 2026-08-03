@@ -13,6 +13,7 @@ mutable struct PerturbationControlState
     width_value::Float64
     updating_width_textbox::Bool
     relative_axis_scaled::Bool
+    active_segment::Int
     active_variable::Int
     center::Float64
     mouse_height::Float64
@@ -79,13 +80,20 @@ end
 
 
 function simulation_domain_position(
-    sim::SimulationState,
+    app::AppState,
+    segment::Int,
     displayed_position::Real,
-    domain_length_scale::Float64,
 )
+    sim = app.simulations[segment]
+    displayed_length =
+        segment_base_length(app, segment) *
+        app.plot_panel.domain_length_scale
+    fraction = displayed_length > 0 ?
+        clamp(Float64(displayed_position) / displayed_length, 0.0, 1.0) :
+        0.0
     xmin = first(sim.x)
 
-    return xmin + (displayed_position - xmin) / domain_length_scale
+    return xmin + fraction * simulation_domain_length(sim)
 end
 
 
@@ -155,12 +163,16 @@ end
 
 function clear_other_perturbation_previews!(
     panel::PlotPanel,
+    active_segment::Int,
     active_variable::Int,
 )
-    for variable in eachindex(panel.preview_observables)
-        if variable != active_variable
-            N = length(panel.preview_observables[variable][])
-            panel.preview_observables[variable][] = fill(NaN, N)
+    for segment in eachindex(panel.segment_preview_observables)
+        for variable in eachindex(panel.segment_preview_observables[segment])
+            if segment != active_segment || variable != active_variable
+                preview = panel.segment_preview_observables[segment][variable]
+                N = length(preview[])
+                preview[] = fill(NaN, N)
+            end
         end
     end
 
@@ -171,6 +183,7 @@ end
 function update_mouse_perturbation_preview!(
     app::AppState,
     state::PerturbationControlState;
+    segment::Int,
     variable::Int,
     center::Float64,
     mouse_height::Float64,
@@ -209,43 +222,45 @@ function update_mouse_perturbation_preview!(
 
     try
         if !simulation_is_stopped(app) ||
+           segment < 1 ||
+           segment > length(app.simulations) ||
            variable < 1 ||
            variable > app.sim.model.nvars
             clear_perturbation_previews!(app.plot_panel)
             return false
         end
 
-        y = copy(app.sim.integrator_ref[].u)
-        U = reshape(y, app.sim.N, app.sim.model.nvars)
+        sim = app.simulations[segment]
+        y = copy(sim.integrator_ref[].u)
+        U = reshape(y, sim.N, sim.model.nvars)
         actual = copy(U[:, variable])
 
         simulation_center = simulation_domain_position(
-            app.sim,
+            app,
+            segment,
             center,
-            app.plot_panel.domain_length_scale,
         )
 
         simulation_width = simulation_domain_width(
             width,
-            app.sim,
+            sim,
         )
 
         mask = local_perturbation_mask(
-            app.sim.x,
+            sim.x,
             simulation_center,
             simulation_width;
-            boundary_condition = app.sim.boundary_condition,
+            boundary_condition = sim.boundary_condition,
         )
 
         if !any(mask)
-            clear_perturbation_previews!(app.plot_panel)
-            return false
+            mask[nearest_grid_index(sim.x, simulation_center)] = true
         end
 
         increment = make_mouse_perturbation_increment(
             actual,
             mask,
-            app.sim.x,
+            sim.x,
             simulation_center,
             mouse_height,
             absolute_height,
@@ -257,20 +272,22 @@ function update_mouse_perturbation_preview!(
 
         clear_other_perturbation_previews!(
             app.plot_panel,
+            segment,
             variable,
         )
 
+        state.active_segment = segment
         state.active_variable = variable
         state.center = center
         state.mouse_height = mouse_height
         state.increment = increment
         state.has_valid_preview = true
 
-        app.plot_panel.preview_observables[variable][] = preview
+        app.plot_panel.segment_preview_observables[segment][variable][] = preview
 
         if state.absolute_mode[]
             rescale_axis_from_actual_and_preview!(
-                app.plot_panel.axes[variable],
+                app.plot_panel.segment_axes[segment][variable],
                 actual,
                 preview,
             )
@@ -289,6 +306,7 @@ end
 function change_perturbation_width_from_scroll!(
     app::AppState,
     state::PerturbationControlState,
+    segment::Int,
     scroll_delta::Real,
 )
     delta = clamp(Float64(scroll_delta), -10.0, 10.0)
@@ -297,7 +315,8 @@ function change_perturbation_width_from_scroll!(
         return false
 
     current_width = state.width_value
-    simulation_length = simulation_domain_length(app.sim)
+    sim = app.simulations[segment]
+    simulation_length = simulation_domain_length(sim)
 
     if !isfinite(current_width) || current_width <= 0
         current_width = 0.05
@@ -305,7 +324,7 @@ function change_perturbation_width_from_scroll!(
 
     minimum_width = min(
         1.0,
-        max(app.sim.dx / simulation_length, eps(1.0)),
+        max(sim.dx / simulation_length, eps(1.0)),
     )
 
     new_width = clamp(
@@ -370,9 +389,11 @@ function amplify_relative_perturbation_from_scroll!(
     iszero(direction) &&
         return false
 
+    segment = state.active_segment
     variable = state.active_variable
 
-    if variable < 1 || variable > app.sim.model.nvars
+    if segment < 1 || segment > length(app.simulations) ||
+       variable < 1 || variable > app.sim.model.nvars
         return false
     end
 
@@ -384,8 +405,9 @@ function amplify_relative_perturbation_from_scroll!(
         simulation_is_stopped(app) ||
             return false
 
-        y = copy(app.sim.integrator_ref[].u)
-        U = reshape(y, app.sim.N, app.sim.model.nvars)
+        sim = app.simulations[segment]
+        y = copy(sim.integrator_ref[].u)
+        U = reshape(y, sim.N, sim.model.nvars)
         actual = copy(U[:, variable])
 
         increment = state.increment .* scale_factor
@@ -393,10 +415,10 @@ function amplify_relative_perturbation_from_scroll!(
 
         state.increment = increment
         state.relative_axis_scaled = true
-        app.plot_panel.preview_observables[variable][] = preview
+        app.plot_panel.segment_preview_observables[segment][variable][] = preview
 
         rescale_axis_from_actual_and_preview!(
-            app.plot_panel.axes[variable],
+            app.plot_panel.segment_axes[segment][variable],
             actual,
             preview,
         )
@@ -417,11 +439,13 @@ function restore_relative_axis_from_solution!(
     (force || state.relative_axis_scaled) ||
         return false
 
-    for variable in eachindex(app.plot_panel.observables)
-        set_axis_y_limits_from_values!(
-            app.plot_panel.axes[variable],
-            app.plot_panel.observables[variable][],
-        )
+    for segment in eachindex(app.plot_panel.segment_observables)
+        for variable in eachindex(app.plot_panel.segment_observables[segment])
+            set_axis_y_limits_from_values!(
+                app.plot_panel.segment_axes[segment][variable],
+                app.plot_panel.segment_observables[segment][variable][],
+            )
+        end
     end
 
     state.relative_axis_scaled = false
@@ -432,11 +456,12 @@ end
 
 function register_perturbation_scroll_handlers!(
     app::AppState,
-    axes::Vector{Axis},
+    segment_axes::Vector{Vector{Axis}},
     state::PerturbationControlState,
 )
-    for axis in axes
-        on(events(axis.scene).scroll, priority = 20) do scroll
+    for (segment, axes) in enumerate(segment_axes)
+        for axis in axes
+            on(events(axis.scene).scroll, priority = 20) do scroll
             if !is_mouseinside(axis.scene)
                 return Consume(false)
             end
@@ -464,16 +489,18 @@ function register_perturbation_scroll_handlers!(
                 change_perturbation_width_from_scroll!(
                     app,
                     state,
+                    segment,
                     scroll_delta,
                 )
             end
 
             return Consume(true)
+            end
         end
     end
 
-    if !isempty(axes)
-        keyboard_scene = first(axes).scene
+    if !isempty(segment_axes) && !isempty(first(segment_axes))
+        keyboard_scene = first(first(segment_axes)).scene
 
         on(events(keyboard_scene).keyboardbutton, priority = 20) do event
             is_control_release =
@@ -517,19 +544,22 @@ function update_perturbation_preview_from_mouse!(
         return false
     end
 
-    for variable in eachindex(app.plot_panel.observables)
-        axis = app.plot_panel.axes[variable]
+    for segment in eachindex(app.plot_panel.segment_axes)
+        for variable in eachindex(app.plot_panel.segment_axes[segment])
+            axis = app.plot_panel.segment_axes[segment][variable]
 
-        if is_mouseinside(axis.scene)
-            position = mouseposition(axis.scene)
+            if is_mouseinside(axis.scene)
+                position = mouseposition(axis.scene)
 
-            return update_mouse_perturbation_preview!(
-                app,
-                state;
-                variable = variable,
-                center = Float64(position[1]),
-                mouse_height = Float64(position[2]),
-            )
+                return update_mouse_perturbation_preview!(
+                    app,
+                    state;
+                    segment = segment,
+                    variable = variable,
+                    center = Float64(position[1]),
+                    mouse_height = Float64(position[2]),
+                )
+            end
         end
     end
 
@@ -563,10 +593,11 @@ end
 
 function register_mouse_perturbation_handlers!(
     app::AppState,
-    axes::Vector{Axis},
+    segment_axes::Vector{Vector{Axis}},
     state::PerturbationControlState,
 )
-    for (variable, axis) in enumerate(axes)
+    for (segment, axes) in enumerate(segment_axes)
+        for (variable, axis) in enumerate(axes)
         on(events(axis.scene).mouseposition, priority = 10) do _
             if is_mouseinside(axis.scene)
                 position = mouseposition(axis.scene)
@@ -574,12 +605,14 @@ function register_mouse_perturbation_handlers!(
                 update_mouse_perturbation_preview!(
                     app,
                     state;
+                    segment = segment,
                     variable = variable,
                     center = Float64(position[1]),
                     mouse_height = Float64(position[2]),
                 )
 
-            elseif state.active_variable == variable
+            elseif state.active_segment == segment &&
+                   state.active_variable == variable
                 clear_perturbation_previews!(app.plot_panel)
             end
 
@@ -603,6 +636,7 @@ function register_mouse_perturbation_handlers!(
                 update_mouse_perturbation_preview!(
                     app,
                     state;
+                    segment = segment,
                     variable = variable,
                     center = Float64(position[1]),
                     mouse_height = Float64(position[2]),
@@ -611,23 +645,27 @@ function register_mouse_perturbation_handlers!(
                 return Consume(true)
             end
 
-            if state.active_variable != variable ||
+            if state.active_segment != segment ||
+               state.active_variable != variable ||
                !state.has_valid_preview
                 position = mouseposition(axis.scene)
 
                 update_mouse_perturbation_preview!(
                     app,
                     state;
+                    segment = segment,
                     variable = variable,
                     center = Float64(position[1]),
                     mouse_height = Float64(position[2]),
                 )
             end
 
-            if state.active_variable == variable &&
+            if state.active_segment == segment &&
+               state.active_variable == variable &&
                state.has_valid_preview
                 apply_local_perturbation_increment_app!(
                     app;
+                    segment = segment,
                     variable = variable,
                     increment = copy(state.increment),
                 )
@@ -636,6 +674,7 @@ function register_mouse_perturbation_handlers!(
             end
 
             return Consume(false)
+            end
         end
     end
 
@@ -646,7 +685,7 @@ end
 function build_perturbation_controls!(
     grid::GridLayout,
     app::AppState;
-    axes::Vector{Axis},
+    segment_axes::Vector{Vector{Axis}},
 )
     random_mode = Observable(true)
     absolute_mode = Observable(false)
@@ -703,6 +742,7 @@ function build_perturbation_controls!(
         initial_width,
         false,
         false,
+        0,
         0,
         NaN,
         NaN,
@@ -779,7 +819,7 @@ function build_perturbation_controls!(
 
     register_mouse_perturbation_handlers!(
         app,
-        axes,
+        segment_axes,
         state,
     )
 

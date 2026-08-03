@@ -26,18 +26,23 @@
 
 function snapshot_matches_current_app(
     app::AppState,
-    snapshot::SimulationSnapshot,
+    snapshot::PartitionSnapshot,
 )
-    return snapshot.generation == app.generation[] &&
-           snapshot.model_id == app.sim.model.id &&
-           snapshot.N == app.sim.N &&
-           snapshot.nvars == app.sim.model.nvars
+    snapshot.generation == app.generation[] || return false
+    length(snapshot.segments) == length(app.simulations) || return false
+
+    return all(
+        segment_snapshot.model_id == app.sim.model.id &&
+        segment_snapshot.N == app.simulations[segment].N &&
+        segment_snapshot.nvars == app.sim.model.nvars
+        for (segment, segment_snapshot) in enumerate(snapshot.segments)
+    )
 end
 
 
 function refresh_app_observables_from_snapshot!(
     app::AppState,
-    snapshot::SimulationSnapshot,
+    snapshot::PartitionSnapshot,
 )
     app.time_obs[] = snapshot.t
     app.dt_obs[] = snapshot.dt
@@ -50,12 +55,12 @@ end
 
 function refresh_app_from_snapshot!(
     app::AppState,
-    snapshot::SimulationSnapshot,
+    snapshot::PartitionSnapshot,
 )
     snapshot_matches_current_app(app, snapshot) ||
         return nothing
 
-    refresh_plot_panel_from_snapshot!(app.plot_panel, snapshot)
+    refresh_plot_panel_from_snapshots!(app.plot_panel, snapshot.segments)
     refresh_app_observables_from_snapshot!(app, snapshot)
 
     return nothing
@@ -73,7 +78,7 @@ end
 
 
 function refresh_app_from_live_state!(app::AppState)
-    refresh_plot_panel!(app.plot_panel, app.sim)
+    refresh_plot_panel!(app.plot_panel, app.simulations)
     refresh_app_observables_from_live_state!(app)
 
     return nothing
@@ -175,10 +180,13 @@ function start_worker!(
             lock(app.simlock)
 
             try
-                step_simulation!(app.sim, steps_per_frame)
+                step_partition_synchronized!(
+                    app.simulations,
+                    steps_per_frame,
+                )
 
-                snapshot = make_snapshot(
-                    app.sim,
+                snapshot = make_partition_snapshot(
+                    app.simulations,
                     app.generation[],
                 )
 
@@ -210,7 +218,7 @@ end
 function make_locked_snapshot(app::AppState)
     # The caller should already hold app.simlock.
 
-    return make_snapshot(app.sim, app.generation[])
+    return make_partition_snapshot(app.simulations, app.generation[])
 end
 
 
@@ -229,7 +237,7 @@ function step_once_app!(app::AppState)
     lock(app.simlock)
 
     try
-        step_simulation!(app.sim)
+        step_partition_synchronized!(app.simulations, 1)
         snapshot = make_locked_snapshot(app)
 
     finally
@@ -250,7 +258,9 @@ function set_dtmax_app!(app::AppState, new_dtmax::Float64)
     lock(app.simlock)
 
     try
-        set_dtmax!(app.sim, new_dtmax)
+        for sim in app.simulations
+            set_dtmax!(sim, new_dtmax)
+        end
         snapshot = make_locked_snapshot(app)
 
     finally
@@ -336,16 +346,49 @@ end
 
 function reset_initial_condition_app!(
     app::AppState;
+    plot_grid::GridLayout,
+    title_obs,
     steps_per_frame::Int = 5,
     worker_sleep_time::Float64 = 0.001,
 )
-    with_worker_paused!(
-        app,
-        () -> reset_initial_condition!(app.sim);
-        restart_if_was_running = true,
-        steps_per_frame = steps_per_frame,
-        worker_sleep_time = worker_sleep_time,
-    )
+    was_running = app.worker_running[]
+    stop_worker!(app; wait = true)
+    domain_length_scale = app.plot_panel.domain_length_scale
+
+    lock(app.simlock)
+
+    try
+        app.generation[] += 1
+        clear_snapshot_buffer!(app.snapshot_buffer)
+
+        app.sim = create_simulation_state(
+            app.sim.model;
+            N = app.initial_N,
+            boundary_condition = app.initial_boundary_condition,
+            dtmax = current_dtmax(app.sim),
+        )
+        app.simulations = SimulationState[app.sim]
+
+        rebuild_plot_panel_for_partition!(
+            app,
+            plot_grid;
+            title_obs = title_obs,
+            domain_length_scale = domain_length_scale,
+        )
+
+        app.time_obs[] = 0.0
+        app.step_counter_obs[] = 0
+    finally
+        unlock(app.simlock)
+    end
+
+    if was_running
+        start_worker!(
+            app;
+            steps_per_frame = steps_per_frame,
+            sleep_time = worker_sleep_time,
+        )
+    end
 
     return nothing
 end
@@ -383,7 +426,11 @@ function set_constant_initial_condition_app!(
 )
     with_worker_paused!(
         app,
-        () -> set_constant_initial_condition!(app.sim, values);
+        () -> begin
+            for sim in app.simulations
+                set_constant_initial_condition!(sim, values)
+            end
+        end;
         restart_if_was_running = true,
         steps_per_frame = steps_per_frame,
         worker_sleep_time = worker_sleep_time,
@@ -423,11 +470,15 @@ function set_single_constant_initial_condition_app!(
 )
     with_worker_paused!(
         app,
-        () -> set_single_constant_initial_condition!(
-            app.sim;
-            variable = variable,
-            value = value,
-        );
+        () -> begin
+            for sim in app.simulations
+                set_single_constant_initial_condition!(
+                    sim;
+                    variable = variable,
+                    value = value,
+                )
+            end
+        end;
         restart_if_was_running = true,
         steps_per_frame = steps_per_frame,
         worker_sleep_time = worker_sleep_time,
@@ -482,10 +533,23 @@ function set_active_spatial_profile_set_app!(
 
     with_worker_paused!(
         app,
-        () -> set_active_spatial_profile_set!(
-            app.sim,
-            index,
-        );
+        () -> begin
+            for sim in app.simulations
+                nsets = length(sim.model.spatial_profile_sets)
+                1 <= index <= nsets ||
+                    error("Invalid spatial profile set index: $(index).")
+                sim.params[ACTIVE_SPATIAL_PROFILE_SET_PARAM] = Float64(index)
+            end
+
+            refresh_partition_spatial_profile_overrides!(app.simulations)
+
+            for sim in app.simulations
+                restart_after_manual_change!(
+                    sim,
+                    copy(sim.integrator_ref[].u),
+                )
+            end
+        end;
         restart_if_was_running = true,
         steps_per_frame = steps_per_frame,
         worker_sleep_time = worker_sleep_time,
@@ -573,7 +637,7 @@ function apply_local_perturbation_app!(
         worker_sleep_time = worker_sleep_time,
     )
 
-    clear_perturbation_preview!(app.plot_panel, variable)
+    clear_perturbation_preview!(app.plot_panel, 1, variable)
 
     return nothing
 end
@@ -611,6 +675,7 @@ end
 
 function apply_local_perturbation_increment_app!(
     app::AppState;
+    segment::Int,
     variable::Int,
     increment::AbstractVector{<:Real},
     steps_per_frame::Int = 5,
@@ -619,7 +684,7 @@ function apply_local_perturbation_increment_app!(
     with_worker_paused!(
         app,
         () -> apply_local_perturbation_increment!(
-            app.sim;
+            app.simulations[segment];
             variable = variable,
             increment = increment,
         );
@@ -628,7 +693,7 @@ function apply_local_perturbation_increment_app!(
         worker_sleep_time = worker_sleep_time,
     )
 
-    clear_perturbation_preview!(app.plot_panel, variable)
+    clear_perturbation_preview!(app.plot_panel, segment, variable)
 
     return nothing
 end
@@ -668,6 +733,9 @@ function switch_model_app!(
             abstol = abstol,
             boundary_condition = boundary_condition,
         )
+        app.simulations = SimulationState[app.sim]
+        app.initial_N = N
+        app.initial_boundary_condition = boundary_condition
 
         clear_plot_panel!(app.plot_panel)
 
@@ -732,6 +800,9 @@ function switch_boundary_condition_app!(
             abstol = abstol,
             boundary_condition = boundary_condition,
         )
+        app.simulations = SimulationState[app.sim]
+        app.initial_N = N
+        app.initial_boundary_condition = boundary_condition
 
         bc_name_obs[] = boundary_condition_label(boundary_condition)
 
@@ -838,8 +909,10 @@ end
         with_worker_paused!(
             app,
             () -> begin
-                set_diffusion_scale!(app.sim, scale)
-                set_plot_domain_scale!(app.plot_panel, app.sim, scale)
+                for sim in app.simulations
+                    set_diffusion_scale!(sim, scale)
+                end
+                set_plot_domain_scale!(app.plot_panel, app, scale)
             end;
             restart_if_was_running = true,
             steps_per_frame = steps_per_frame,

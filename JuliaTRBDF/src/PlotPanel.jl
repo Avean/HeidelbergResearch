@@ -30,6 +30,13 @@ function empty_plot_panel()
         Observable{Vector{Float64}}[],
         Any[],
         Any[],
+        Vector{Axis}[],
+        Observable{Vector{Float64}}[],
+        Vector{Observable{Vector{Float64}}}[],
+        Vector{Observable{Vector{Float64}}}[],
+        Vector{Axis}[],
+        Vector{Observable{Vector{Float64}}}[],
+        Observable{Vector{Float64}}[],
     )
 end
 
@@ -54,7 +61,7 @@ end
 
 function set_plot_domain_scale!(
     panel::PlotPanel,
-    sim::SimulationState,
+    app::AppState,
     diffusion_scale::Real,
 )
     scale = Float64(diffusion_scale)
@@ -63,19 +70,24 @@ function set_plot_domain_scale!(
         error("Domain scale must be positive and finite.")
 
     domain_length_scale = sqrt(scale)
-    displayed_x = displayed_domain_coordinates(
-        sim,
-        domain_length_scale,
-    )
-
     panel.domain_length_scale = domain_length_scale
-    panel.x_observable[] = displayed_x
 
-    xmin = first(sim.x)
-    xmax = xmin + domain_length_scale * simulation_domain_length(sim)
+    for segment in eachindex(app.simulations)
+        displayed_x = segment_display_coordinates(
+            app,
+            segment,
+            domain_length_scale,
+        )
+        panel.segment_x_observables[segment][] = displayed_x
+        xmax = segment_base_length(app, segment) * domain_length_scale
 
-    for axis in panel.axes
-        xlims!(axis, xmin, xmax)
+        for axis in panel.segment_axes[segment]
+            xlims!(axis, 0.0, xmax)
+        end
+
+        for axis in panel.segment_profile_axes[segment]
+            xlims!(axis, 0.0, xmax)
+        end
     end
 
     clear_perturbation_previews!(panel)
@@ -117,21 +129,21 @@ function automatic_x_ticks_with_right_endpoint(
         ticks[endpoint_index] = right
     end
 
-    use_integer_labels = all(
-        tick -> isapprox(
-            tick,
-            round(tick);
-            atol = tolerance,
-            rtol = 0.0,
+    precision_index = findfirst(
+        digits -> all(
+            tick -> isapprox(
+                tick,
+                round(tick; digits = digits);
+                atol = tolerance,
+                rtol = 0.0,
+            ),
+            ticks,
         ),
-        ticks,
+        0:2,
     )
-
-    labels = if use_integer_labels
-        [@sprintf("%.0f", tick) for tick in ticks]
-    else
-        [@sprintf("%.1f", tick) for tick in ticks]
-    end
+    decimal_places = precision_index === nothing ? 2 : precision_index - 1
+    tick_format = Printf.Format("%.$(decimal_places)f")
+    labels = [Printf.format(tick_format, tick) for tick in ticks]
 
     return ticks, labels
 end
@@ -474,119 +486,309 @@ end
 # Build plot panel
 # ============================================================
 
+function build_partition_spatial_profile_panel!(
+    grid::GridLayout,
+    app::AppState,
+    segment_x_observables::Vector{Observable{Vector{Float64}}},
+    split_marker_observables::Vector{Observable{Vector{Float64}}},
+    all_axes::Vector{Axis},
+    ui_items::Vector{Any};
+    start_row::Int,
+)
+    profile_sets = app.sim.model.spatial_profile_sets
+    nsegments = length(app.simulations)
+
+    if isempty(profile_sets)
+        return (
+            axes = [Axis[] for _ in 1:nsegments],
+            observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments],
+        )
+    end
+
+    max_profiles = maximum(length(profile_set) for (_, profile_set) in profile_sets)
+    profile_axes = [Axis[] for _ in 1:nsegments]
+    profile_observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments]
+    profile_name_observables = [Observable("") for _ in 1:max_profiles]
+
+    for k in 1:max_profiles
+        row = start_row + k - 1
+
+        for segment in 1:nsegments
+            sim = app.simulations[segment]
+            ax = Axis(
+                grid[row, segment],
+                xlabel = k == max_profiles ? "x" : "",
+                ylabel = segment == 1 ? profile_name_observables[k] : "",
+                title = profile_name_observables[k],
+                xticks = automatic_x_ticks_with_right_endpoint,
+            )
+            deactivate_interaction!(ax, :scrollzoom)
+
+            y_obs = Observable(fill(NaN, sim.N))
+            lines!(
+                ax,
+                segment_x_observables[segment],
+                y_obs;
+                linewidth = 4,
+                color = :red,
+                linestyle = :dash,
+            )
+            vlines!(
+                ax,
+                split_marker_observables[segment];
+                color = :red,
+                linewidth = 2,
+            )
+
+            push!(profile_axes[segment], ax)
+            push!(profile_observables[segment], y_obs)
+            push!(all_axes, ax)
+        end
+
+        rowsize!(grid, row, Fixed(120))
+    end
+
+    nav_row = start_row + max_profiles
+    nav_grid = GridLayout(tellwidth = false, tellheight = true)
+    grid[nav_row, 1:nsegments] = nav_grid
+
+    previous_button = Button(nav_grid[1, 1], label = "Previous", tellwidth = false)
+    set_label_obs = Observable("spatial profile: ")
+    set_label = Label(
+        nav_grid[1, 2],
+        set_label_obs;
+        tellwidth = false,
+        halign = :center,
+    )
+    next_button = Button(nav_grid[1, 3], label = "Next", tellwidth = false)
+
+    colsize!(nav_grid, 1, Fixed(80))
+    colsize!(nav_grid, 2, Fixed(190))
+    colsize!(nav_grid, 3, Fixed(80))
+    colgap!(nav_grid, 5)
+    rowsize!(grid, nav_row, Fixed(34))
+
+    append!(ui_items, Any[nav_grid, previous_button, set_label, next_button])
+
+    current_set_index = Ref(
+        _active_spatial_profile_set_index(app.sim.params, profile_sets),
+    )
+
+    function update_profile_set!()
+        current_profile_sets = app.sim.model.spatial_profile_sets
+        isempty(current_profile_sets) && return nothing
+
+        current_set_index[] = clamp(current_set_index[], 1, length(current_profile_sets))
+        set_name, profiles = current_profile_sets[current_set_index[]]
+        set_label_obs[] = "spatial profile: $(set_name)"
+        refresh_partition_spatial_profile_overrides!(app.simulations)
+
+        for k in 1:max_profiles
+            row = start_row + k - 1
+
+            if k <= length(profiles)
+                profile_name, _ = profiles[k]
+                profile_name_observables[k][] = profile_name
+                override_key = spatial_profile_override_key(profile_name)
+
+                for segment in 1:nsegments
+                    y = copy(app.simulations[segment].params[override_key])
+                    profile_observables[segment][k][] = y
+                    set_axis_y_limits_from_values!(profile_axes[segment][k], y)
+                end
+
+                rowsize!(grid, row, Fixed(120))
+            else
+                profile_name_observables[k][] = ""
+
+                for segment in 1:nsegments
+                    N = app.simulations[segment].N
+                    profile_observables[segment][k][] = fill(NaN, N)
+                end
+
+                rowsize!(grid, row, Fixed(0))
+            end
+        end
+
+        return nothing
+    end
+
+    function switch_profile_set!(new_index::Int)
+        current_set_index[] = new_index
+        set_active_spatial_profile_set_app!(app, new_index)
+        update_profile_set!()
+        return nothing
+    end
+
+    on(previous_button.clicks) do _
+        nsets = length(app.sim.model.spatial_profile_sets)
+        nsets == 0 && return nothing
+        new_index = current_set_index[] == 1 ? nsets : current_set_index[] - 1
+        switch_profile_set!(new_index)
+    end
+
+    on(next_button.clicks) do _
+        nsets = length(app.sim.model.spatial_profile_sets)
+        nsets == 0 && return nothing
+        new_index = current_set_index[] == nsets ? 1 : current_set_index[] + 1
+        switch_profile_set!(new_index)
+    end
+
+    update_profile_set!()
+
+    return (axes = profile_axes, observables = profile_observables)
+end
+
+
+function rescale_solution_axes!(
+    panel::PlotPanel,
+    simulations::Vector{SimulationState},
+)
+    length(panel.segment_axes) == length(simulations) ||
+        error("Plot panel does not match the number of domain segments.")
+
+    for segment in eachindex(simulations)
+        sim = simulations[segment]
+        U = solution_matrix(sim)
+
+        for variable in 1:sim.model.nvars
+            rescale_axis_from_actual_and_preview!(
+                panel.segment_axes[segment][variable],
+                U[:, variable],
+                panel.segment_preview_observables[segment][variable][],
+            )
+        end
+    end
+
+    return nothing
+end
+
+
 function build_plot_panel!(
     grid::GridLayout,
     app::AppState;
     title_obs = nothing,
 )
-    sim = app.sim
-    model = sim.model
-    U = solution_matrix(sim)
-    x_observable = Observable(copy(sim.x))
+    model = app.sim.model
+    nsegments = length(app.simulations)
+    total_points = total_partition_points(app)
 
-    axes = Axis[]
-    observables = Observable{Vector{Float64}}[]
-    preview_observables = Observable{Vector{Float64}}[]
+    all_axes = Axis[]
+    segment_axes = [Axis[] for _ in 1:nsegments]
+    segment_x_observables = Observable{Vector{Float64}}[]
+    segment_observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments]
+    segment_preview_observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments]
+    split_marker_observables = [Observable([NaN]) for _ in 1:nsegments]
     perturbation_controls = Any[]
     ui_items = Any[]
 
-    # Keep the plots stretched to the full width of the main window.
-    # The shared perturbation toolbar has fixed-width controls and must not
-    # determine the width of the plot column.
-    colsize!(grid, 1, Relative(1.0))
     rowgap!(grid, 0)
 
-    for j in 1:model.nvars
-        plot_row = j
+    for segment in 1:nsegments
+        sim = app.simulations[segment]
+        U = solution_matrix(sim)
+        x_observable = Observable(segment_display_coordinates(app, segment, 1.0))
+        push!(segment_x_observables, x_observable)
 
-        axis_title = if j == 1 && title_obs !== nothing
-            title_obs
-        else
-            model.varnames[j]
+        for variable in 1:model.nvars
+            axis_title = if variable == 1 && segment == 1 && title_obs !== nothing
+                title_obs
+            else
+                model.varnames[variable]
+            end
+
+            ax = Axis(
+                grid[variable, segment],
+                xlabel = variable == model.nvars ? "x" : "",
+                ylabel = segment == 1 ? model.varnames[variable] : "",
+                title = axis_title,
+                xticks = automatic_x_ticks_with_right_endpoint,
+            )
+            deactivate_interaction!(ax, :scrollzoom)
+
+            y_obs = Observable(copy(U[:, variable]))
+            preview_obs = Observable(fill(NaN, sim.N))
+
+            lines!(ax, x_observable, y_obs; linewidth = 2)
+            lines!(
+                ax,
+                x_observable,
+                preview_obs;
+                color = (:gray, 0.45),
+                linewidth = 2,
+                linestyle = :dash,
+            )
+            vlines!(
+                ax,
+                split_marker_observables[segment];
+                color = :red,
+                linewidth = 2,
+            )
+
+            push!(segment_axes[segment], ax)
+            push!(segment_observables[segment], y_obs)
+            push!(segment_preview_observables[segment], preview_obs)
+            push!(all_axes, ax)
+            rowsize!(grid, variable, Auto(false, 1.0))
         end
 
-        ax = Axis(
-            grid[plot_row, 1],
-            xlabel = j == model.nvars ? "x" : "",
-            ylabel = model.varnames[j],
-            title = axis_title,
-            xticks = automatic_x_ticks_with_right_endpoint,
-        )
-
-        deactivate_interaction!(ax, :scrollzoom)
-
-        y_obs = Observable(copy(U[:, j]))
-
-        lines!(
-            ax,
-            x_observable,
-            y_obs,
-            linewidth = 2,
-        )
-
-        preview_obs = Observable(fill(NaN, sim.N))
-
-        lines!(
-            ax,
-            x_observable,
-            preview_obs;
-            color = (:gray, 0.45),
-            linewidth = 2,
-            linestyle = :dash,
-        )
-
-        push!(axes, ax)
-        push!(observables, y_obs)
-        push!(preview_observables, preview_obs)
-
-        rowsize!(grid, plot_row, Auto(false, 1.0))
+        colsize!(grid, segment, Relative(sim.N / total_points))
     end
 
     perturbation_row = model.nvars + 1
     perturbation_grid = GridLayout()
-    grid[perturbation_row, 1] = perturbation_grid
+    grid[perturbation_row, 1:nsegments] = perturbation_grid
 
+    flat_solution_axes = reduce(vcat, segment_axes)
     perturbation_panel = build_perturbation_controls!(
         perturbation_grid,
         app;
-        axes = axes,
+        segment_axes = segment_axes,
     )
-
-    push!(ui_items, perturbation_grid)
+    append!(ui_items, Any[perturbation_grid])
     append!(ui_items, perturbation_panel.ui_items)
     push!(perturbation_controls, perturbation_panel.state)
-
     rowsize!(grid, perturbation_row, Fixed(42))
 
-    profile_start_row = perturbation_row + 1
-
-    build_spatial_profile_panel!(
+    profile_panel = build_partition_spatial_profile_panel!(
         grid,
         app,
-        axes,
-        x_observable,
+        segment_x_observables,
+        split_marker_observables,
+        all_axes,
         ui_items;
-        start_row = profile_start_row,
+        start_row = perturbation_row + 1,
     )
 
     register_perturbation_scroll_handlers!(
         app,
-        axes,
+        segment_axes,
         perturbation_panel.state,
     )
 
+    first_x = first(segment_x_observables)
+    first_observables = first(segment_observables)
+    first_previews = first(segment_preview_observables)
+
     panel = PlotPanel(
-        axes,
-        x_observable,
+        all_axes,
+        first_x,
         1.0,
-        observables,
-        preview_observables,
+        first_observables,
+        first_previews,
         perturbation_controls,
         ui_items,
+        segment_axes,
+        segment_x_observables,
+        segment_observables,
+        segment_preview_observables,
+        profile_panel.axes,
+        profile_panel.observables,
+        split_marker_observables,
     )
 
-    set_plot_domain_scale!(panel, sim, 1.0)
-    rescale_solution_axes!(panel, sim)
+    set_plot_domain_scale!(panel, app, 1.0)
+    rescale_solution_axes!(panel, app.simulations)
 
     return panel
 end
@@ -645,20 +847,25 @@ end
 
 function clear_perturbation_preview!(
     panel::PlotPanel,
+    segment::Int,
     variable::Int,
 )
-    if variable >= 1 && variable <= length(panel.preview_observables)
-        N = length(panel.preview_observables[variable][])
-        panel.preview_observables[variable][] = fill(NaN, N)
+    if segment >= 1 && segment <= length(panel.segment_preview_observables) &&
+       variable >= 1 && variable <= length(panel.segment_preview_observables[segment])
+        preview = panel.segment_preview_observables[segment][variable]
+        N = length(preview[])
+        preview[] = fill(NaN, N)
 
         if !isempty(panel.perturbation_controls)
             state = first(panel.perturbation_controls)
 
-            if state.active_variable != variable
+            if state.active_segment != segment ||
+               state.active_variable != variable
                 return nothing
             end
 
             state.active_variable = 0
+            state.active_segment = 0
             state.center = NaN
             state.mouse_height = NaN
             state.increment = zeros(Float64, N)
@@ -671,16 +878,21 @@ end
 
 
 function clear_perturbation_previews!(panel::PlotPanel)
-    for preview_obs in panel.preview_observables
-        N = length(preview_obs[])
-        preview_obs[] = fill(NaN, N)
+    for segment_previews in panel.segment_preview_observables
+        for preview_obs in segment_previews
+            N = length(preview_obs[])
+            preview_obs[] = fill(NaN, N)
+        end
     end
 
     if !isempty(panel.perturbation_controls)
         state = first(panel.perturbation_controls)
-        N = isempty(panel.preview_observables) ? 0 : length(first(panel.preview_observables)[])
+        N = isempty(panel.segment_preview_observables) ?
+            0 :
+            length(first(first(panel.segment_preview_observables))[])
 
         state.active_variable = 0
+        state.active_segment = 0
         state.center = NaN
         state.mouse_height = NaN
         state.increment = zeros(Float64, N)
@@ -725,6 +937,63 @@ function clear_plot_panel!(panel::PlotPanel)
     empty!(panel.preview_observables)
     empty!(panel.perturbation_controls)
     empty!(panel.ui_items)
+    empty!(panel.segment_axes)
+    empty!(panel.segment_x_observables)
+    empty!(panel.segment_observables)
+    empty!(panel.segment_preview_observables)
+    empty!(panel.segment_profile_axes)
+    empty!(panel.segment_profile_observables)
+    empty!(panel.split_marker_observables)
+
+    return nothing
+end
+
+
+function refresh_plot_panel_from_snapshots!(
+    panel::PlotPanel,
+    snapshots::Vector{SimulationSnapshot},
+)
+    length(panel.segment_observables) == length(snapshots) ||
+        error("Plot panel does not match the number of snapshot segments.")
+
+    for segment in eachindex(snapshots)
+        snapshot = snapshots[segment]
+        U = solution_matrix_from_snapshot(snapshot)
+
+        for variable in 1:snapshot.nvars
+            panel.segment_observables[segment][variable][] =
+                copy(U[:, variable])
+
+            rescale_axis_from_actual_and_preview!(
+                panel.segment_axes[segment][variable],
+                U[:, variable],
+                panel.segment_preview_observables[segment][variable][],
+            )
+        end
+    end
+
+    return nothing
+end
+
+
+function refresh_plot_panel!(
+    panel::PlotPanel,
+    simulations::Vector{SimulationState},
+)
+    length(panel.segment_observables) == length(simulations) ||
+        error("Plot panel does not match the number of domain segments.")
+
+    for segment in eachindex(simulations)
+        sim = simulations[segment]
+        U = solution_matrix(sim)
+
+        for variable in 1:sim.model.nvars
+            panel.segment_observables[segment][variable][] =
+                copy(U[:, variable])
+        end
+    end
+
+    rescale_solution_axes!(panel, simulations)
 
     return nothing
 end

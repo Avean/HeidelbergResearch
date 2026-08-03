@@ -18,6 +18,12 @@
 
 
 const ACTIVE_SPATIAL_PROFILE_SET_PARAM = :__active_spatial_profile_set_index
+const SPATIAL_PROFILE_OVERRIDE_PREFIX = "__spatial_profile_override__"
+
+
+function spatial_profile_override_key(profile_name::AbstractString)
+    return Symbol(SPATIAL_PROFILE_OVERRIDE_PREFIX, profile_name)
+end
 
 
 # ============================================================
@@ -75,7 +81,7 @@ end
 
 
 function _make_named_parameters(
-    params::Dict{Symbol, Float64},
+    params::AbstractDict{Symbol},
     param_names::Vector{Symbol},
 )
     values = map(name -> params[name], param_names)
@@ -330,7 +336,7 @@ end
 
 
 function _active_spatial_profile_set_index(
-    p_dict::Dict{Symbol, Float64},
+    p_dict::AbstractDict{Symbol},
     spatial_profile_sets,
 )
     isempty(spatial_profile_sets) &&
@@ -348,7 +354,7 @@ end
 
 function _evaluate_spatial_profile_for_parameter(
     x::AbstractVector,
-    p_dict::Dict{Symbol, Float64},
+    p_dict::AbstractDict{Symbol},
     profile_name::String,
     profile_fun::Function,
 )
@@ -368,7 +374,7 @@ end
 
 
 function _make_named_parameters_with_active_spatial_profiles(
-    p_dict::Dict{Symbol, Float64},
+    p_dict::AbstractDict{Symbol},
     param_names::Vector{Symbol},
     spatial_profile_sets,
     x::AbstractVector,
@@ -396,12 +402,23 @@ function _make_named_parameters_with_active_spatial_profiles(
 
         push!(profile_symbols, profile_symbol)
 
-        y = _evaluate_spatial_profile_for_parameter(
-            x,
-            p_dict,
-            profile_name,
-            profile_fun,
-        )
+        override_key = spatial_profile_override_key(profile_name)
+
+        y = if haskey(p_dict, override_key)
+            override = Float64.(collect(p_dict[override_key]))
+
+            length(override) == length(x) ||
+                error("Spatial profile override $(profile_name) has wrong length.")
+
+            override
+        else
+            _evaluate_spatial_profile_for_parameter(
+                x,
+                p_dict,
+                profile_name,
+                profile_fun,
+            )
+        end
 
         push!(profile_values, y)
     end
@@ -468,7 +485,7 @@ function RDModel(;
     function initialize_wrapped!(
         Umat::AbstractMatrix,
         x::AbstractVector,
-        p_dict::Dict{Symbol, Float64},
+        p_dict::AbstractDict{Symbol},
     )
         size(Umat, 2) == length(vars) ||
             error("Initial condition matrix has wrong number of variables.")
@@ -492,7 +509,7 @@ function RDModel(;
         Umat::AbstractMatrix,
         Lap,
         x::AbstractVector,
-        p_dict::Dict{Symbol, Float64},
+        p_dict::AbstractDict{Symbol},
         t,
     )
         size(Umat, 2) == length(vars) ||

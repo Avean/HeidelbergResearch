@@ -133,6 +133,9 @@ function run_app(;
 
     app = AppState(
         sim,
+        SimulationState[sim],
+        N,
+        boundary_condition0,
         plot_panel,
         running_obs,
         dtmax_obs,
@@ -179,6 +182,8 @@ function run_app(;
     build_control_panel!(
         control_grid,
         app;
+        plot_grid = plot_grid,
+        title_obs = title_obs,
         dtmax0 = dtmax0,
         steps_per_frame = steps_per_frame,
         worker_sleep_time = worker_sleep_time,

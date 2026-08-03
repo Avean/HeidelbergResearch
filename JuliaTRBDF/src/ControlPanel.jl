@@ -169,6 +169,8 @@ end
 function build_control_panel!(
     grid::GridLayout,
     app::AppState;
+    plot_grid::GridLayout,
+    title_obs,
     dtmax0::Float64,
     steps_per_frame::Int,
     worker_sleep_time::Float64,
@@ -215,6 +217,7 @@ function build_control_panel!(
 
     colsize!(grid, 1, Relative(0.45))
     colsize!(grid, 2, Relative(0.55))
+    rowgap!(grid, 4)
 
     # --------------------------------------------------------
     # Simulation buttons
@@ -272,8 +275,18 @@ function build_control_panel!(
     on(breset.clicks) do _
         reset_initial_condition_app!(
             app;
+            plot_grid = plot_grid,
+            title_obs = title_obs,
             steps_per_frame = steps_per_frame,
             worker_sleep_time = worker_sleep_time,
+        )
+
+        rebuild_partition_control_panel!(
+            partition_grid,
+            app,
+            partition_items,
+            plot_grid;
+            title_obs = title_obs,
         )
     end
 
@@ -370,6 +383,28 @@ function build_control_panel!(
         worker_sleep_time = worker_sleep_time,
     )
 
+    # --------------------------------------------------------
+    # Domain partition controls
+    # --------------------------------------------------------
+
+    partition_grid = GridLayout(tellheight = false)
+    grid[5, 1:2] = partition_grid
+    rowsize!(grid, 5, Fixed(220))
+    partition_items = Ref(Any[])
+
+    rowsize!(grid, 1, Fixed(180))
+    rowsize!(grid, 2, Auto(false, 1.0))
+    rowsize!(grid, 3, Fixed(75))
+    rowsize!(grid, 4, Fixed(150))
+
+    rebuild_partition_control_panel!(
+        partition_grid,
+        app,
+        partition_items,
+        plot_grid;
+        title_obs = title_obs,
+    )
+
     on(model_name_obs) do _
         rebuild_constant_initial_condition_panel!(
             constant_ic_grid,
@@ -394,6 +429,14 @@ function build_control_panel!(
         )
 
         update_diffusion_scale_label!()
+
+        rebuild_partition_control_panel!(
+            partition_grid,
+            app,
+            partition_items,
+            plot_grid;
+            title_obs = title_obs,
+        )
     end
 
 
@@ -414,5 +457,7 @@ function build_control_panel!(
         constant_ic_items,
         constant_ic_textboxes,
         equation_items,
+        partition_grid,
+        partition_items,
     )
 end

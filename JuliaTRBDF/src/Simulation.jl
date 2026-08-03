@@ -43,7 +43,7 @@ function make_initial_state(model::ModelSpec, x::Vector{Float64})
 
     N = length(x)
 
-    params = copy(model.default_params)
+    params = Dict{Symbol, Any}(model.default_params)
     U0 = zeros(Float64, N, model.nvars)
 
     model.initialize!(U0, x, params)
@@ -57,7 +57,7 @@ function make_problem(
     y0::Vector{Float64},
     Lap::SparseMatrixCSC{Float64, Int},
     x::Vector{Float64},
-    params::Dict{Symbol, Float64},
+    params::Dict{Symbol, Any},
 )
     # Build an ODEProblem from a ModelSpec.
     #
@@ -366,7 +366,7 @@ end
 
 function put_latest_snapshot!(
     buffer::SnapshotBuffer,
-    snapshot::SimulationSnapshot,
+    snapshot::PartitionSnapshot,
 )
     # Store the newest snapshot.
     #
@@ -415,4 +415,72 @@ function clear_snapshot_buffer!(buffer::SnapshotBuffer)
     end
 
     return nothing
+end
+
+
+function create_simulation_state_from_data(
+    model::ModelSpec,
+    x::AbstractVector{<:Real},
+    dx::Real,
+    y0::AbstractVector{<:Real},
+    params::AbstractDict{Symbol};
+    boundary_condition::Symbol = :neumann,
+    displayed_time::Float64 = 0.0,
+    dtmax::Float64 = 1e-2,
+    reltol::Float64 = 1e-5,
+    abstol::Float64 = 1e-7,
+)
+    validate_model(model)
+    validate_boundary_condition(boundary_condition)
+
+    x_values = Float64.(collect(x))
+    N = length(x_values)
+
+    N >= 2 || error("A domain segment must contain at least two points.")
+    length(y0) == N * model.nvars ||
+        error("Segment state has wrong length.")
+
+    dx_value = Float64(dx)
+    isfinite(dx_value) && dx_value > 0 ||
+        error("Segment grid spacing must be positive and finite.")
+
+    segment_params = Dict{Symbol, Any}(params)
+    Lap = laplacian_1d(
+        N,
+        dx_value;
+        boundary_condition = boundary_condition,
+    )
+
+    prob = make_problem(
+        model,
+        Float64.(collect(y0)),
+        Lap,
+        x_values,
+        segment_params,
+    )
+
+    integrator = init(
+        prob,
+        TRBDF2();
+        adaptive = true,
+        dt = min(1e-4, dtmax),
+        dtmax = dtmax,
+        reltol = reltol,
+        abstol = abstol,
+        save_everystep = false,
+    )
+
+    return SimulationState(
+        model,
+        N,
+        x_values,
+        dx_value,
+        Lap,
+        boundary_condition,
+        segment_params,
+        prob,
+        Ref{Any}(integrator),
+        Ref(displayed_time),
+        Ref(0),
+    )
 end

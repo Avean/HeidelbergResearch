@@ -88,7 +88,7 @@ mutable struct SimulationState
     #     :neumann
     #     :periodic
 
-    params::Dict{Symbol, Float64}
+    params::Dict{Symbol, Any}
     # Current parameter values used by the model.
 
     prob::ODEProblem
@@ -145,8 +145,18 @@ mutable struct SimulationSnapshot
 end
 
 
+mutable struct PartitionSnapshot
+    segments::Vector{SimulationSnapshot}
+    generation::Int
+    t::Float64
+    dt::Float64
+    dtmax::Float64
+    steps::Int
+end
+
+
 mutable struct SnapshotBuffer
-    latest::Base.RefValue{Union{Nothing, SimulationSnapshot}}
+    latest::Base.RefValue{Union{Nothing, PartitionSnapshot}}
     # The newest snapshot produced by the worker thread.
 
     lock::ReentrantLock
@@ -156,7 +166,7 @@ end
 
 function empty_snapshot_buffer()
     return SnapshotBuffer(
-        Ref{Union{Nothing, SimulationSnapshot}}(nothing),
+        Ref{Union{Nothing, PartitionSnapshot}}(nothing),
         ReentrantLock(),
     )
 end
@@ -174,6 +184,14 @@ mutable struct PlotPanel
     preview_observables::Vector{Observable{Vector{Float64}}}
     perturbation_controls::Vector{Any}
     ui_items::Vector{Any}
+
+    segment_axes::Vector{Vector{Axis}}
+    segment_x_observables::Vector{Observable{Vector{Float64}}}
+    segment_observables::Vector{Vector{Observable{Vector{Float64}}}}
+    segment_preview_observables::Vector{Vector{Observable{Vector{Float64}}}}
+    segment_profile_axes::Vector{Vector{Axis}}
+    segment_profile_observables::Vector{Vector{Observable{Vector{Float64}}}}
+    split_marker_observables::Vector{Observable{Vector{Float64}}}
 end
 
 # ============================================================
@@ -183,6 +201,16 @@ end
 mutable struct AppState
     sim::SimulationState
     # Current simulation state.
+
+    simulations::Vector{SimulationState}
+    # Ordered independent domain segments. app.sim always points to the
+    # first segment for shared model and parameter metadata.
+
+    initial_N::Int
+    # Number of grid points in the original, unsplit domain.
+
+    initial_boundary_condition::Symbol
+    # Boundary condition restored by Reset on the unsplit domain.
 
     plot_panel::PlotPanel
     # Current collection of plots displaying the solution.
