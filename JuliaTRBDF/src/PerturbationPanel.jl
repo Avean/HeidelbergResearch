@@ -12,6 +12,7 @@ mutable struct PerturbationControlState
     height_textbox::Any
     width_value::Float64
     updating_width_textbox::Bool
+    relative_axis_scaled::Bool
     active_variable::Int
     center::Float64
     mouse_height::Float64
@@ -267,11 +268,13 @@ function update_mouse_perturbation_preview!(
 
         app.plot_panel.preview_observables[variable][] = preview
 
-        rescale_axis_from_actual_and_preview!(
-            app.plot_panel.axes[variable],
-            actual,
-            preview,
-        )
+        if state.absolute_mode[]
+            rescale_axis_from_actual_and_preview!(
+                app.plot_panel.axes[variable],
+                actual,
+                preview,
+            )
+        end
 
         success = true
 
@@ -348,6 +351,85 @@ function change_perturbation_height_from_scroll!(
 end
 
 
+function amplify_relative_perturbation_from_scroll!(
+    app::AppState,
+    state::PerturbationControlState,
+    scroll_delta::Real,
+)
+    state.absolute_mode[] &&
+        return false
+
+    simulation_is_stopped(app) ||
+        return false
+
+    state.has_valid_preview ||
+        return false
+
+    direction = sign(Float64(scroll_delta))
+
+    iszero(direction) &&
+        return false
+
+    variable = state.active_variable
+
+    if variable < 1 || variable > app.sim.model.nvars
+        return false
+    end
+
+    scale_factor = 1.5^direction
+
+    lock(app.simlock)
+
+    try
+        simulation_is_stopped(app) ||
+            return false
+
+        y = copy(app.sim.integrator_ref[].u)
+        U = reshape(y, app.sim.N, app.sim.model.nvars)
+        actual = copy(U[:, variable])
+
+        increment = state.increment .* scale_factor
+        preview = actual .+ increment
+
+        state.increment = increment
+        state.relative_axis_scaled = true
+        app.plot_panel.preview_observables[variable][] = preview
+
+        rescale_axis_from_actual_and_preview!(
+            app.plot_panel.axes[variable],
+            actual,
+            preview,
+        )
+    finally
+        unlock(app.simlock)
+    end
+
+    return true
+end
+
+
+function restore_relative_axis_from_solution!(
+    app::AppState,
+    state::PerturbationControlState,
+    ;
+    force::Bool = false,
+)
+    (force || state.relative_axis_scaled) ||
+        return false
+
+    for variable in eachindex(app.plot_panel.observables)
+        set_axis_y_limits_from_values!(
+            app.plot_panel.axes[variable],
+            app.plot_panel.observables[variable][],
+        )
+    end
+
+    state.relative_axis_scaled = false
+
+    return true
+end
+
+
 function register_perturbation_scroll_handlers!(
     app::AppState,
     axes::Vector{Axis},
@@ -365,11 +447,19 @@ function register_perturbation_scroll_handlers!(
                 Keyboard.left_control | Keyboard.right_control,
             )
 
-            if control_pressed && state.absolute_mode[]
-                change_perturbation_height_from_scroll!(
-                    state,
-                    scroll_delta,
-                )
+            if control_pressed
+                if state.absolute_mode[]
+                    change_perturbation_height_from_scroll!(
+                        state,
+                        scroll_delta,
+                    )
+                else
+                    amplify_relative_perturbation_from_scroll!(
+                        app,
+                        state,
+                        scroll_delta,
+                    )
+                end
             else
                 change_perturbation_width_from_scroll!(
                     app,
@@ -379,6 +469,38 @@ function register_perturbation_scroll_handlers!(
             end
 
             return Consume(true)
+        end
+    end
+
+    if !isempty(axes)
+        keyboard_scene = first(axes).scene
+
+        on(events(keyboard_scene).keyboardbutton, priority = 20) do event
+            is_control_release =
+                event.action == Keyboard.release &&
+                event.key in (
+                    Keyboard.left_control,
+                    Keyboard.right_control,
+                )
+
+            control_still_pressed = ispressed(
+                keyboard_scene,
+                Keyboard.left_control | Keyboard.right_control,
+            )
+
+            if is_control_release &&
+               !control_still_pressed &&
+               !state.absolute_mode[] &&
+               restore_relative_axis_from_solution!(app, state)
+                if !state.absolute_mode[]
+                    update_perturbation_preview_from_mouse!(
+                        app,
+                        state,
+                    )
+                end
+            end
+
+            return Consume(false)
         end
     end
 
@@ -580,6 +702,7 @@ function build_perturbation_controls!(
         height_textbox,
         initial_width,
         false,
+        false,
         0,
         NaN,
         NaN,
@@ -624,6 +747,12 @@ function build_perturbation_controls!(
         absolute_mode[] = !absolute_mode[]
         mode_button.label[] = absolute_mode[] ? "Absolute" : "Relative"
         mode_button.buttoncolor[] = absolute_mode[] ? color_active : color_inactive
+
+        restore_relative_axis_from_solution!(
+            app,
+            state;
+            force = !absolute_mode[],
+        )
 
         update_height_visibility!()
         update_preview_from_current_mouse!()

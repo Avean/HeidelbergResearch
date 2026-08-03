@@ -88,6 +88,55 @@ end
 # Axis scaling
 # ============================================================
 
+function automatic_x_ticks_with_right_endpoint(
+    xmin::Real,
+    xmax::Real,
+)
+    left = Float64(xmin)
+    right = Float64(xmax)
+    ticks = collect(
+        GLMakie.Makie.get_tickvalues(
+            WilkinsonTicks(5; k_min = 3),
+            left,
+            right,
+        ),
+    )
+
+    tolerance = max(abs(left), abs(right), 1.0) * 1e-9
+    filter!(tick -> left - tolerance <= tick <= right + tolerance, ticks)
+
+    endpoint_index = findfirst(
+        tick -> isapprox(tick, right; atol = tolerance, rtol = 0.0),
+        ticks,
+    )
+
+    if endpoint_index === nothing
+        push!(ticks, right)
+        sort!(ticks)
+    else
+        ticks[endpoint_index] = right
+    end
+
+    use_integer_labels = all(
+        tick -> isapprox(
+            tick,
+            round(tick);
+            atol = tolerance,
+            rtol = 0.0,
+        ),
+        ticks,
+    )
+
+    labels = if use_integer_labels
+        [@sprintf("%.0f", tick) for tick in ticks]
+    else
+        [@sprintf("%.1f", tick) for tick in ticks]
+    end
+
+    return ticks, labels
+end
+
+
 function finite_values(v::AbstractVector)
     return collect(filter(isfinite, v))
 end
@@ -244,6 +293,7 @@ function build_spatial_profile_panel!(
             xlabel = k == max_profiles ? "x" : "",
             ylabel = profile_name_obs,
             title = profile_name_obs,
+            xticks = automatic_x_ticks_with_right_endpoint,
         )
 
         deactivate_interaction!(ax, :scrollzoom)
@@ -460,6 +510,7 @@ function build_plot_panel!(
             xlabel = j == model.nvars ? "x" : "",
             ylabel = model.varnames[j],
             title = axis_title,
+            xticks = automatic_x_ticks_with_right_endpoint,
         )
 
         deactivate_interaction!(ax, :scrollzoom)
