@@ -327,6 +327,7 @@ function reset_initial_condition!(sim::SimulationState)
 
     restart_after_manual_change!(sim, ynew)
 
+    sim.time_offset[] = 0.0
     sim.step_counter[] = 0
 
     return nothing
@@ -836,7 +837,10 @@ end
     )
         with_worker_paused!(
             app,
-            () -> set_diffusion_scale!(app.sim, scale);
+            () -> begin
+                set_diffusion_scale!(app.sim, scale)
+                set_plot_domain_scale!(app.plot_panel, app.sim, scale)
+            end;
             restart_if_was_running = true,
             steps_per_frame = steps_per_frame,
             worker_sleep_time = worker_sleep_time,

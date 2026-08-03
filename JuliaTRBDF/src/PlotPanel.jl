@@ -9,7 +9,7 @@
 # Contains:
 #
 #     - one plot for every model variable,
-#     - one local perturbation control row below every solution plot,
+#     - one shared perturbation control row below the solution plots,
 #     - gray dashed preview curves for local perturbations,
 #     - optional spatial profile plots,
 #     - Previous/Next selector for active spatial profile sets.
@@ -24,11 +24,63 @@
 function empty_plot_panel()
     return PlotPanel(
         Axis[],
+        Observable(Float64[]),
+        1.0,
         Observable{Vector{Float64}}[],
         Observable{Vector{Float64}}[],
         Any[],
         Any[],
     )
+end
+
+
+function displayed_domain_coordinates(
+    sim::SimulationState,
+    domain_length_scale::Float64,
+)
+    xmin = first(sim.x)
+
+    return @. xmin + domain_length_scale * (sim.x - xmin)
+end
+
+
+function simulation_domain_length(sim::SimulationState)
+    interval_count =
+        sim.boundary_condition == :periodic ? sim.N : sim.N - 1
+
+    return interval_count * sim.dx
+end
+
+
+function set_plot_domain_scale!(
+    panel::PlotPanel,
+    sim::SimulationState,
+    diffusion_scale::Real,
+)
+    scale = Float64(diffusion_scale)
+
+    isfinite(scale) && scale > 0 ||
+        error("Domain scale must be positive and finite.")
+
+    domain_length_scale = sqrt(scale)
+    displayed_x = displayed_domain_coordinates(
+        sim,
+        domain_length_scale,
+    )
+
+    panel.domain_length_scale = domain_length_scale
+    panel.x_observable[] = displayed_x
+
+    xmin = first(sim.x)
+    xmax = xmin + domain_length_scale * simulation_domain_length(sim)
+
+    for axis in panel.axes
+        xlims!(axis, xmin, xmax)
+    end
+
+    clear_perturbation_previews!(panel)
+
+    return nothing
 end
 
 
@@ -162,6 +214,7 @@ function build_spatial_profile_panel!(
     grid::GridLayout,
     app::AppState,
     axes::Vector{Axis},
+    x_observable::Observable{Vector{Float64}},
     ui_items::Vector{Any};
     start_row::Int,
 )
@@ -193,18 +246,18 @@ function build_spatial_profile_panel!(
             title = profile_name_obs,
         )
 
+        deactivate_interaction!(ax, :scrollzoom)
+
         y_obs = Observable(fill(NaN, sim.N))
 
         lines!(
             ax,
-            sim.x,
+            x_observable,
             y_obs,
             linewidth = 4,
             color = :red,
             linestyle = :dash,
         )
-
-        xlims!(ax, minimum(sim.x), maximum(sim.x))
 
         push!(axes, ax)
         push!(profile_axes, ax)
@@ -379,6 +432,7 @@ function build_plot_panel!(
     sim = app.sim
     model = sim.model
     U = solution_matrix(sim)
+    x_observable = Observable(copy(sim.x))
 
     axes = Axis[]
     observables = Observable{Vector{Float64}}[]
@@ -386,9 +440,14 @@ function build_plot_panel!(
     perturbation_controls = Any[]
     ui_items = Any[]
 
+    # Keep the plots stretched to the full width of the main window.
+    # The shared perturbation toolbar has fixed-width controls and must not
+    # determine the width of the plot column.
+    colsize!(grid, 1, Relative(1.0))
+    rowgap!(grid, 0)
+
     for j in 1:model.nvars
-        plot_row = 2j - 1
-        control_row = 2j
+        plot_row = j
 
         axis_title = if j == 1 && title_obs !== nothing
             title_obs
@@ -403,11 +462,13 @@ function build_plot_panel!(
             title = axis_title,
         )
 
+        deactivate_interaction!(ax, :scrollzoom)
+
         y_obs = Observable(copy(U[:, j]))
 
         lines!(
             ax,
-            sim.x,
+            x_observable,
             y_obs,
             linewidth = 2,
         )
@@ -416,51 +477,64 @@ function build_plot_panel!(
 
         lines!(
             ax,
-            sim.x,
+            x_observable,
             preview_obs;
             color = (:gray, 0.45),
             linewidth = 2,
             linestyle = :dash,
         )
 
-        perturbation_grid = GridLayout()
-        grid[control_row, 1] = perturbation_grid
-
-        perturbation_panel = build_perturbation_controls!(
-            perturbation_grid,
-            app,
-            preview_obs;
-            variable = j,
-        )
-
-        append!(ui_items, perturbation_panel.ui_items)
-        push!(perturbation_controls, perturbation_panel.state)
-
         push!(axes, ax)
         push!(observables, y_obs)
         push!(preview_observables, preview_obs)
 
-        rowsize!(grid, control_row, Fixed(36))
+        rowsize!(grid, plot_row, Auto(false, 1.0))
     end
 
-    profile_start_row = 2 * model.nvars + 1
+    perturbation_row = model.nvars + 1
+    perturbation_grid = GridLayout()
+    grid[perturbation_row, 1] = perturbation_grid
+
+    perturbation_panel = build_perturbation_controls!(
+        perturbation_grid,
+        app;
+        axes = axes,
+    )
+
+    push!(ui_items, perturbation_grid)
+    append!(ui_items, perturbation_panel.ui_items)
+    push!(perturbation_controls, perturbation_panel.state)
+
+    rowsize!(grid, perturbation_row, Fixed(42))
+
+    profile_start_row = perturbation_row + 1
 
     build_spatial_profile_panel!(
         grid,
         app,
         axes,
+        x_observable,
         ui_items;
         start_row = profile_start_row,
     )
 
+    register_perturbation_scroll_handlers!(
+        app,
+        axes,
+        perturbation_panel.state,
+    )
+
     panel = PlotPanel(
         axes,
+        x_observable,
+        1.0,
         observables,
         preview_observables,
         perturbation_controls,
         ui_items,
     )
 
+    set_plot_domain_scale!(panel, sim, 1.0)
     rescale_solution_axes!(panel, sim)
 
     return panel
@@ -526,8 +600,16 @@ function clear_perturbation_preview!(
         N = length(panel.preview_observables[variable][])
         panel.preview_observables[variable][] = fill(NaN, N)
 
-        if variable <= length(panel.perturbation_controls)
-            state = panel.perturbation_controls[variable]
+        if !isempty(panel.perturbation_controls)
+            state = first(panel.perturbation_controls)
+
+            if state.active_variable != variable
+                return nothing
+            end
+
+            state.active_variable = 0
+            state.center = NaN
+            state.mouse_height = NaN
             state.increment = zeros(Float64, N)
             state.has_valid_preview = false
         end
@@ -538,8 +620,20 @@ end
 
 
 function clear_perturbation_previews!(panel::PlotPanel)
-    for j in eachindex(panel.preview_observables)
-        clear_perturbation_preview!(panel, j)
+    for preview_obs in panel.preview_observables
+        N = length(preview_obs[])
+        preview_obs[] = fill(NaN, N)
+    end
+
+    if !isempty(panel.perturbation_controls)
+        state = first(panel.perturbation_controls)
+        N = isempty(panel.preview_observables) ? 0 : length(first(panel.preview_observables)[])
+
+        state.active_variable = 0
+        state.center = NaN
+        state.mouse_height = NaN
+        state.increment = zeros(Float64, N)
+        state.has_valid_preview = false
     end
 
     return nothing
@@ -574,6 +668,8 @@ function clear_plot_panel!(panel::PlotPanel)
     end
 
     empty!(panel.axes)
+    panel.x_observable[] = Float64[]
+    panel.domain_length_scale = 1.0
     empty!(panel.observables)
     empty!(panel.preview_observables)
     empty!(panel.perturbation_controls)

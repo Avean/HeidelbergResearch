@@ -168,6 +168,8 @@ end
 
 mutable struct PlotPanel
     axes::Vector{Axis}
+    x_observable::Observable{Vector{Float64}}
+    domain_length_scale::Float64
     observables::Vector{Observable{Vector{Float64}}}
     preview_observables::Vector{Observable{Vector{Float64}}}
     perturbation_controls::Vector{Any}

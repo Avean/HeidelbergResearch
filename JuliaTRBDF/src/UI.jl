@@ -4,11 +4,10 @@
 # Main UI composition
 # ============================================================
 #
-# The window is composed of three visual areas:
+# The application is composed of two windows:
 #
-#     1. Top menu
-#     2. Plot panel
-#     3. Control panel
+#     1. Main window: top menu and plot panel
+#     2. Control window: simulation and model controls
 #
 # The actual logic is split into:
 #
@@ -21,7 +20,7 @@
 
 
 function run_app(;
-    N::Int = 200,
+    N::Int = 500,
     boundary_condition0::Symbol = :neumann,
     dtmax0::Float64 = 1e-2,
     reltol::Float64 = 1e-5,
@@ -99,22 +98,28 @@ function run_app(;
     end
 
     # --------------------------------------------------------
-    # Main window layout
+    # Window layouts
     # --------------------------------------------------------
 
-    fig = Figure(size = (1300, 820))
+    main_fig = Figure(size = (1300, 820))
+    control_fig = Figure(size = (620, 820))
 
     top_menu_grid = GridLayout()
-    plot_grid = GridLayout()
+    plot_grid = GridLayout(
+        tellwidth = false,
+        tellheight = false,
+    )
     control_grid = GridLayout()
 
-    fig[1, 1:2] = top_menu_grid
-    fig[2, 1] = plot_grid
-    fig[2, 2] = control_grid
+    main_fig[1, 1] = top_menu_grid
+    main_fig[2, 1] = plot_grid
+    control_fig[1, 1] = control_grid
 
-    rowsize!(fig.layout, 1, Fixed(50))
-    colsize!(fig.layout, 1, Relative(0.68))
-    colsize!(fig.layout, 2, Relative(0.32))
+    rowsize!(main_fig.layout, 1, Fixed(50))
+    rowsize!(main_fig.layout, 2, Auto(false, 1.0))
+    rowgap!(main_fig.layout, 0)
+    colsize!(main_fig.layout, 1, Relative(1.0))
+    colsize!(control_fig.layout, 1, Relative(1.0))
 
     # --------------------------------------------------------
     # Plot panel
@@ -186,7 +191,15 @@ function run_app(;
 
     refresh_app_from_live_state!(app)
 
-    display(fig)
+    main_screen = display(
+        GLMakie.Screen(title = "Reaction-Diffusion: plots"),
+        main_fig,
+    )
+
+    control_screen = display(
+        GLMakie.Screen(title = "Reaction-Diffusion: controls"),
+        control_fig,
+    )
 
     start_ui_snapshot_poller!(
         app;
@@ -204,8 +217,12 @@ function run_app(;
     # --------------------------------------------------------
 
 
-    on(events(fig.scene).window_open) do is_open
+    on(events(main_fig.scene).window_open) do is_open
         if !is_open
+            if isopen(control_screen)
+                close(control_screen)
+            end
+
             task_before = app.worker_task_ref[]
 
             worker_was_active =
