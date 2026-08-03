@@ -6,7 +6,7 @@
 #
 # Model:
 #
-#     u_t = Du u_xx + a - b u + u^2 / (v+1)
+#     u_t = Du u_xx  - b u + u^2 / (v+1)
 #     v_t = Dv v_xx + u^2 - v
 #
 # Here:
