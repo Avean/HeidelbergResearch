@@ -464,7 +464,6 @@ function reset_initial_condition_app!(
     steps_per_frame::Int = 5,
     worker_sleep_time::Float64 = 0.001,
 )
-    was_running = app.worker_running[]
     stop_worker!(app; wait = true)
     domain_length_scale = app.plot_panel.domain_length_scale
 
@@ -480,6 +479,7 @@ function reset_initial_condition_app!(
             boundary_condition = app.initial_boundary_condition,
             dtmax = current_dtmax(app.sim),
         )
+        set_diffusion_scale!(app.sim, domain_length_scale^2)
         app.simulations = SimulationState[app.sim]
         app.segment_runtimes = SegmentRuntime[empty_segment_runtime()]
 
@@ -494,14 +494,6 @@ function reset_initial_condition_app!(
         app.step_counter_obs[] = 0
     finally
         unlock(app.simlock)
-    end
-
-    if was_running
-        start_worker!(
-            app;
-            steps_per_frame = steps_per_frame,
-            sleep_time = worker_sleep_time,
-        )
     end
 
     return nothing

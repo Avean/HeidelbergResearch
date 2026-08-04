@@ -218,6 +218,22 @@ function automatic_x_ticks_with_right_endpoint(
         ticks[endpoint_index] = right
     end
 
+    # The forced endpoint can land very close to the last automatically chosen
+    # tick. In that case keep the endpoint label and remove its neighbour so the
+    # two labels do not overlap, especially in narrow partition columns.
+    endpoint_index = findfirst(==(right), ticks)
+    if endpoint_index !== nothing && endpoint_index >= 3
+        previous_tick_index = endpoint_index - 1
+        previous_spacing = ticks[previous_tick_index] - ticks[previous_tick_index - 1]
+        endpoint_spacing = right - ticks[previous_tick_index]
+
+        if previous_spacing > tolerance &&
+           endpoint_spacing > tolerance &&
+           endpoint_spacing < 0.3 * previous_spacing
+            deleteat!(ticks, previous_tick_index)
+        end
+    end
+
     precision_index = findfirst(
         digits -> all(
             tick -> isapprox(

@@ -1,10 +1,10 @@
 # src/TopMenu.jl
 
 # ============================================================
-# Top menu
+# Model and boundary-condition controls
 # ============================================================
 #
-# Top application area.
+# Selection area displayed at the top of the control window.
 #
 # Contains:
 #

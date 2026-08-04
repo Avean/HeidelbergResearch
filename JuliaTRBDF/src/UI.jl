@@ -6,8 +6,8 @@
 #
 # The application is composed of two windows:
 #
-#     1. Main window: top menu and plot panel
-#     2. Control window: simulation and model controls
+#     1. Main window: plot panel
+#     2. Control window: model, boundary-condition, and simulation controls
 #
 # The actual logic is split into:
 #
@@ -104,20 +104,22 @@ function run_app(;
     main_fig = Figure(size = (1300, 820))
     control_fig = Figure(size = (620, 820))
 
-    top_menu_grid = GridLayout()
+    model_control_grid = GridLayout(tellheight = false)
     plot_grid = GridLayout(
         tellwidth = false,
         tellheight = false,
     )
     control_grid = GridLayout()
 
-    main_fig[1, 1] = top_menu_grid
-    main_fig[2, 1] = plot_grid
-    control_fig[1, 1] = control_grid
+    main_fig[1, 1] = plot_grid
+    control_fig[1, 1] = model_control_grid
+    control_fig[2, 1] = control_grid
 
-    rowsize!(main_fig.layout, 1, Fixed(50))
-    rowsize!(main_fig.layout, 2, Auto(false, 1.0))
+    rowsize!(main_fig.layout, 1, Auto(false, 1.0))
+    rowsize!(control_fig.layout, 1, Fixed(50))
+    rowsize!(control_fig.layout, 2, Auto(false, 1.0))
     rowgap!(main_fig.layout, 0)
+    rowgap!(control_fig.layout, 0)
     colsize!(main_fig.layout, 1, Relative(1.0))
     colsize!(control_fig.layout, 1, Relative(1.0))
 
@@ -161,11 +163,11 @@ function run_app(;
     )
 
     # --------------------------------------------------------
-    # Top menu
+    # Model and boundary-condition controls
     # --------------------------------------------------------
 
     build_top_menu!(
-        top_menu_grid,
+        model_control_grid,
         app,
         plot_grid;
         registry = registry,
@@ -213,12 +215,6 @@ function run_app(;
     start_ui_snapshot_poller!(
         app;
         refresh_interval = ui_refresh_interval,
-    )
-
-    start_worker!(
-        app;
-        steps_per_frame = steps_per_frame,
-        sleep_time = worker_sleep_time,
     )
 
     # --------------------------------------------------------
