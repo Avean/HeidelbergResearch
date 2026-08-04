@@ -154,6 +154,7 @@ function run_app(;
         Threads.Atomic{Bool}(false),
         Ref{Union{Nothing, Task}}(nothing),
         Observable("Synchronized"),
+        true,
     )
 
     app.plot_panel = build_plot_panel!(

@@ -279,4 +279,8 @@ mutable struct AppState
     synchronization_running::Threads.Atomic{Bool}
     synchronization_task_ref::Base.RefValue{Union{Nothing, Task}}
     synchronization_status::Observable{String}
+
+    show_embedded_perturbation_controls::Bool
+    # The legacy GLMakie interface keeps its controls inside the plot layout.
+    # The QML interface renders the same state in its own bottom drawer.
 end

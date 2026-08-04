@@ -30,12 +30,18 @@ function snapshot_matches_current_app(
 )
     snapshot.generation == app.generation[] || return false
     length(snapshot.segments) == length(app.simulations) || return false
+    length(app.plot_panel.segment_observables) == length(app.simulations) ||
+        return false
+    length(app.plot_panel.segment_status_observables) == length(app.simulations) ||
+        return false
 
     return all(
         segment_snapshot.generation == app.generation[] &&
         segment_snapshot.model_id == app.sim.model.id &&
         segment_snapshot.N == app.simulations[segment].N &&
-        segment_snapshot.nvars == app.sim.model.nvars
+        segment_snapshot.nvars == app.sim.model.nvars &&
+        length(app.plot_panel.segment_observables[segment]) ==
+            segment_snapshot.nvars
         for (segment, segment_snapshot) in enumerate(snapshot.segments)
     )
 end
@@ -134,6 +140,51 @@ function stop_worker!(app::AppState; wait::Bool = false)
 end
 
 
+function refresh_ui_from_latest_snapshots!(app::AppState)
+    snapshots = SimulationSnapshot[]
+
+    for runtime in app.segment_runtimes
+        lock(runtime.snapshot_lock)
+
+        try
+            runtime.latest_snapshot[] === nothing ||
+                push!(snapshots, runtime.latest_snapshot[])
+        finally
+            unlock(runtime.snapshot_lock)
+        end
+    end
+
+    if length(snapshots) == length(app.simulations) && !isempty(snapshots)
+        try
+            snapshot = partition_snapshot_from_segments(
+                snapshots,
+                app.generation[],
+            )
+            refresh_app_from_snapshot!(app, snapshot)
+        catch err
+            @error "Error while refreshing UI from snapshot." exception = (err, catch_backtrace())
+        end
+    end
+
+    workers_active = any(runtime.running[] for runtime in app.segment_runtimes)
+    app.worker_running[] = workers_active
+    app.running[] = workers_active
+
+    if !app.synchronization_running[] && length(snapshots) > 1
+        times = [snapshot.t for snapshot in snapshots]
+        tolerance = max(maximum(abs, times), 1.0) * 1e-10
+        app.synchronization_status[] =
+            maximum(times) - minimum(times) <= tolerance ?
+            "Synchronized" :
+            "Synchronize"
+    elseif length(snapshots) <= 1 && !app.synchronization_running[]
+        app.synchronization_status[] = "Synchronized"
+    end
+
+    return nothing
+end
+
+
 function start_ui_snapshot_poller!(
     app::AppState;
     refresh_interval::Float64 = 1 / 30,
@@ -144,46 +195,7 @@ function start_ui_snapshot_poller!(
 
     app.ui_task_ref[] = @async begin
         while true
-            snapshots = SimulationSnapshot[]
-
-            for runtime in app.segment_runtimes
-                lock(runtime.snapshot_lock)
-
-                try
-                    runtime.latest_snapshot[] === nothing ||
-                        push!(snapshots, runtime.latest_snapshot[])
-                finally
-                    unlock(runtime.snapshot_lock)
-                end
-            end
-
-            if length(snapshots) == length(app.simulations) && !isempty(snapshots)
-                try
-                    snapshot = partition_snapshot_from_segments(
-                        snapshots,
-                        app.generation[],
-                    )
-                    refresh_app_from_snapshot!(app, snapshot)
-                catch err
-                    @error "Error while refreshing UI from snapshot." exception = (err, catch_backtrace())
-                end
-            end
-
-            workers_active = any(runtime.running[] for runtime in app.segment_runtimes)
-            app.worker_running[] = workers_active
-            app.running[] = workers_active
-
-            if !app.synchronization_running[] && length(snapshots) > 1
-                times = [snapshot.t for snapshot in snapshots]
-                tolerance = max(maximum(abs, times), 1.0) * 1e-10
-                app.synchronization_status[] =
-                    maximum(times) - minimum(times) <= tolerance ?
-                    "Synchronized" :
-                    "Synchronize"
-            elseif length(snapshots) <= 1 && !app.synchronization_running[]
-                app.synchronization_status[] = "Synchronized"
-            end
-
+            refresh_ui_from_latest_snapshots!(app)
             yield()
             sleep(refresh_interval)
         end

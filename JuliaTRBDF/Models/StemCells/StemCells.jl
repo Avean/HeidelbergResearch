@@ -1,4 +1,4 @@
-# models/StemCells.jl
+# models/StemCells/StemCells.jl
 
 # ============================================================
 # Stem-cell reaction-diffusion system

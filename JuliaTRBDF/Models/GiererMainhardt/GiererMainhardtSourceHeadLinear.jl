@@ -1,4 +1,4 @@
-# models/GiererMeinhardt.jl
+# models/GiererMainhardt/GiererMainhardtSourceHeadLinear.jl
 
 # ============================================================
 # Classical Gierer-Meinhardt reaction-diffusion system
@@ -18,14 +18,14 @@
 #
 # ============================================================
 
-τ0 = 1e2
+τ0 = 1e0
 
 RDModel(
     id = :gierer_meinhardt,
 
     display_name = "Gierer-Meinhardt system",
 
-    variables = (:u, :v, :sd),
+    variables = (:u, :v, :h, :sd),
 
     parameters = (
         
@@ -33,6 +33,7 @@ RDModel(
         
         Du = 1e-2,
         Dv = 1e0,
+        Dh = 0.0,
         Dsd = 1e0/τ0,
 
         a = 1.5,
@@ -55,9 +56,11 @@ RDModel(
         u0 = 1.0
         v0 = 2.0
         sd0 = 1.0
+        h0 = 0.0
 
         U.u .= u0 .+ 0.01 .* randn(length(x))
         U.v .= v0 .+ 0.01 .* randn(length(x))
+        U.h .= h0 
         
 
 
@@ -113,7 +116,9 @@ RDModel(
     reaction = function (F, U, x, p, t)
         @. F.u = p.a * U.sd * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu
         @. F.v = p.b * U.sd * U.u^2 - p.μv * U.v + p.pv
-        @. F.sd = (U.u - U.sd) / p.τ
+        # @. F.h = 0.01 .* (U.u - 14.0 * U.h *(U.h^2.0 .* 4.0 - 5.2 * U.h + 2.0))
+        @. F.h = 0.01 .*(U.u - U.h)
+        @. F.sd = (1.0 + 5*U.h  - U.sd) / p.τ
 
         return nothing
     end,
@@ -121,13 +126,15 @@ RDModel(
     diffusion = (
         u = :Du,
         v = :Dv,
+        h = :Dh,
         sd = :Dsd,
     ),
 
     latex_equations = (
     raw"\partial_t u = D_u \partial_{xx} u + a \cdot s \frac{u^2}{v + 1} - \mu_u u ",
     raw"\partial_t v = D_v \partial_{xx} v + b \cdot s u^2 - \mu_v v",
-    raw"\partial_t s = \frac{1}{\tau}(D_{s} \partial_{xx} s + u - s)",
+    raw"\gamma\partial_t h =  u - h",
+    raw"\tau\partial_t s = D_{s} \partial_{xx} s + 1 + c \cdot h - s",
     ),
 
 )

@@ -6,7 +6,8 @@
 #
 # Model files are loaded once when the application module is loaded.
 #
-# Each file in models/ must evaluate to a ModelSpec object.
+# Each Julia file anywhere below models/ must evaluate to a ModelSpec object.
+# First-level folders are used as model families in hierarchical UI menus.
 #
 # Example:
 #
@@ -21,15 +22,29 @@
 
 
 function model_files(model_dir::AbstractString)
-    # Return all Julia model files from the given directory.
+    # Return all Julia model files recursively from the model directory.
 
     isdir(model_dir) ||
         error("Model directory does not exist: $model_dir")
 
-    files = readdir(model_dir; join = true)
-    files = filter(path -> endswith(path, ".jl"), files)
+    files = String[]
+
+    for (root, _, names) in walkdir(model_dir)
+        for name in names
+            endswith(lowercase(name), ".jl") || continue
+            push!(files, joinpath(root, name))
+        end
+    end
 
     return sort(files)
+end
+
+
+function model_registry_key(
+    model_dir::AbstractString,
+    path::AbstractString,
+)
+    return replace(relpath(path, model_dir), '\\' => '/')
 end
 
 
@@ -38,7 +53,7 @@ function model_file_labels(model_dir::AbstractString)
 
     files = model_files(model_dir)
 
-    return basename.(files)
+    return [model_registry_key(model_dir, path) for path in files]
 end
 
 
@@ -77,13 +92,13 @@ function load_model_registry(model_dir::AbstractString)
     #
     # Returns:
     #
-    #     Dict(filename => ModelSpec)
+    #     Dict(relative/path/filename => ModelSpec)
 
     registry = Dict{String, ModelSpec}()
 
     for path in model_files(model_dir)
-        label = basename(path)
-        registry[label] = load_model_from_file_at_startup(path)
+        key = model_registry_key(model_dir, path)
+        registry[key] = load_model_from_file_at_startup(path)
     end
 
     isempty(registry) &&
@@ -94,17 +109,97 @@ end
 
 
 function model_labels(registry::Dict{String, ModelSpec})
-    # Return sorted model labels.
+    # Preserve the old flat selector by showing filenames when they are unique.
 
-    return sort(collect(keys(registry)))
+    labels = basename.(collect(keys(registry)))
+
+    if length(unique(labels)) != length(labels)
+        return sort(collect(keys(registry)))
+    end
+
+    return sort(labels)
 end
 
 
 function get_model(registry::Dict{String, ModelSpec}, label::String)
-    # Get model by file label.
+    # Accept either the full registry key or an unambiguous filename.
 
-    haskey(registry, label) ||
-        error("Unknown model label: $label")
+    if haskey(registry, label)
+        return registry[label]
+    end
 
-    return registry[label]
+    matching_keys = filter(key -> basename(key) == label, keys(registry))
+
+    isempty(matching_keys) && error("Unknown model label: $label")
+    length(matching_keys) == 1 ||
+        error("Ambiguous model filename; use its folder-qualified key: $label")
+
+    return registry[only(matching_keys)]
+end
+
+
+function model_registry_key_for_label(
+    registry::Dict{String, ModelSpec},
+    label::String,
+)
+    haskey(registry, label) && return label
+
+    matching_keys = filter(key -> basename(key) == label, keys(registry))
+    length(matching_keys) == 1 ||
+        error("Unknown or ambiguous model label: $label")
+
+    return only(matching_keys)
+end
+
+
+function words_from_identifier(value::AbstractString)
+    words = replace(String(value), '_' => ' ', '-' => ' ')
+    words = replace(words, r"(?<=[a-z0-9])(?=[A-Z])" => " ")
+
+    return strip(words)
+end
+
+
+function model_family_name(key::AbstractString)
+    directory = dirname(String(key))
+    directory == "." && return "Other"
+
+    return words_from_identifier(first(split(replace(directory, '\\' => '/'), '/')))
+end
+
+
+function model_variant_name(key::AbstractString)
+    stem = splitext(basename(String(key)))[1]
+    directory_stem = basename(dirname(String(key)))
+
+    if directory_stem != "." && startswith(stem, directory_stem)
+        remainder = stem[(length(directory_stem) + 1):end]
+        isempty(remainder) && return "Basic"
+
+        return words_from_identifier(remainder)
+    end
+
+    return words_from_identifier(stem)
+end
+
+
+function model_menu_catalog(registry::Dict{String, ModelSpec})
+    families = Dict{String, Vector{NamedTuple}}()
+
+    for key in sort(collect(keys(registry)))
+        family = model_family_name(key)
+        entry = (
+            key = key,
+            label = model_variant_name(key),
+        )
+        push!(get!(families, family, NamedTuple[]), entry)
+    end
+
+    return [
+        (
+            family = family,
+            models = sort(families[family]; by = entry -> entry.label),
+        )
+        for family in sort(collect(keys(families)))
+    ]
 end

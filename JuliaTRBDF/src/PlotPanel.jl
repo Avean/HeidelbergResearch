@@ -928,7 +928,22 @@ function build_plot_panel!(
     append!(ui_items, Any[perturbation_grid])
     append!(ui_items, perturbation_panel.ui_items)
     push!(perturbation_controls, perturbation_panel.state)
-    rowsize!(grid, perturbation_row, Fixed(42))
+
+    if app.show_embedded_perturbation_controls
+        rowsize!(grid, perturbation_row, Fixed(42))
+    else
+        rowsize!(grid, perturbation_row, Fixed(0))
+
+        for item in perturbation_panel.ui_items
+            if hasproperty(item, :blockscene)
+                item.blockscene.visible[] = false
+            end
+
+            if hasproperty(item, :scene) && isdefined(item, :scene)
+                item.scene.visible[] = false
+            end
+        end
+    end
 
     profile_panel = build_partition_spatial_profile_panel!(
         grid,

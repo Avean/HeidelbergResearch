@@ -6,9 +6,14 @@ using Pkg
 # Julia standard-library modules such as SparseArrays, LinearAlgebra,
 # Random, Printf, Statistics, and Pkg do not need to be installed.
 const REQUIRED_PACKAGES = [
+    "CxxWrap",
+    "CairoMakie",
     "GLMakie",
     "DifferentialEquations",
+    "OrdinaryDiffEqSDIRK",
     "LaTeXStrings",
+    "QML",
+    "QMLMakie",
 ]
 
 
@@ -46,6 +51,9 @@ function install_dependencies()
     println()
     println("Dependency installation completed successfully.")
     println("Start the application with:")
+    println("    julia --threads=auto --project=. main_qml.jl")
+    println()
+    println("The previous GLMakie interface remains available with:")
     println("    julia --threads=auto --project=. main.jl")
 
     return nothing

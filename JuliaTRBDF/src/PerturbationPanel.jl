@@ -22,6 +22,48 @@ mutable struct PerturbationControlState
 end
 
 
+function active_perturbation_state(app::AppState)
+    isempty(app.plot_panel.perturbation_controls) && return nothing
+
+    state = first(app.plot_panel.perturbation_controls)
+    return state isa PerturbationControlState ? state : nothing
+end
+
+
+function set_perturbation_random_mode!(app::AppState, random_mode::Bool)
+    state = active_perturbation_state(app)
+    state === nothing && return false
+    state.random_mode[] = random_mode
+
+    return true
+end
+
+
+function set_perturbation_absolute_mode!(app::AppState, absolute_mode::Bool)
+    state = active_perturbation_state(app)
+    state === nothing && return false
+    state.absolute_mode[] = absolute_mode
+
+    return true
+end
+
+
+function toggle_perturbation_random_mode!(app::AppState)
+    state = active_perturbation_state(app)
+    state === nothing && return false
+
+    return set_perturbation_random_mode!(app, !state.random_mode[])
+end
+
+
+function toggle_perturbation_absolute_mode!(app::AppState)
+    state = active_perturbation_state(app)
+    state === nothing && return false
+
+    return set_perturbation_absolute_mode!(app, !state.absolute_mode[])
+end
+
+
 function set_perturbation_width_value!(
     state::PerturbationControlState,
     width::Real,
@@ -39,6 +81,36 @@ function set_perturbation_width_value!(
     end
 
     return nothing
+end
+
+
+function set_perturbation_width_value!(app::AppState, width::Real)
+    state = active_perturbation_state(app)
+    state === nothing && return false
+    set_perturbation_width_value!(state, width)
+
+    return true
+end
+
+
+function set_perturbation_height_value!(
+    state::PerturbationControlState,
+    height::Real,
+)
+    formatted_height = string(Float64(height))
+    state.height_textbox.displayed_string[] = formatted_height
+    state.height_textbox.stored_string[] = formatted_height
+
+    return nothing
+end
+
+
+function set_perturbation_height_value!(app::AppState, height::Real)
+    state = active_perturbation_state(app)
+    state === nothing && return false
+    set_perturbation_height_value!(state, height)
+
+    return true
 end
 
 
@@ -71,6 +143,18 @@ function textbox_float_value(textbox; default = nothing)
     end
 
     return value
+end
+
+
+function perturbation_control_values(app::AppState)
+    state = active_perturbation_state(app)
+    state === nothing && return (width = 0.05, height = 1.0)
+
+    height = textbox_float_value(state.height_textbox; default = 1.0)
+    return (
+        width = state.width_value,
+        height = height === nothing ? 1.0 : height,
+    )
 end
 
 
@@ -359,10 +443,7 @@ function change_perturbation_height_from_scroll!(
     end
 
     new_height = current_height + direction
-    formatted_height = string(new_height)
-
-    state.height_textbox.displayed_string[] = formatted_height
-    state.height_textbox.stored_string[] = formatted_height
+    set_perturbation_height_value!(state, new_height)
 
     return true
 end
@@ -687,15 +768,23 @@ function build_perturbation_controls!(
 
     random_button = Button(
         grid[1, 1],
-        label = "Random",
-        buttoncolor = color_active,
+        label = lift(random_mode) do is_random
+            is_random ? "Random" : "Constant"
+        end,
+        buttoncolor = lift(random_mode) do is_random
+            is_random ? color_active : color_inactive
+        end,
         tellwidth = false,
     )
 
     mode_button = Button(
         grid[1, 2],
-        label = "Relative",
-        buttoncolor = color_inactive,
+        label = lift(absolute_mode) do is_absolute
+            is_absolute ? "Absolute" : "Relative"
+        end,
+        buttoncolor = lift(absolute_mode) do is_absolute
+            is_absolute ? color_active : color_inactive
+        end,
         tellwidth = false,
     )
 
@@ -766,19 +855,20 @@ function build_perturbation_controls!(
 
     on(random_button.clicks) do _
         random_mode[] = !random_mode[]
-        random_button.label[] = random_mode[] ? "Random" : "Constant"
-        random_button.buttoncolor[] = random_mode[] ? color_active : color_inactive
+        return nothing
+    end
 
+    on(random_mode) do _
         update_preview_from_current_mouse!()
-
         return nothing
     end
 
     on(mode_button.clicks) do _
         absolute_mode[] = !absolute_mode[]
-        mode_button.label[] = absolute_mode[] ? "Absolute" : "Relative"
-        mode_button.buttoncolor[] = absolute_mode[] ? color_active : color_inactive
+        return nothing
+    end
 
+    on(absolute_mode) do _
         restore_relative_axis_from_solution!(
             app,
             state;
@@ -787,7 +877,6 @@ function build_perturbation_controls!(
 
         update_height_visibility!()
         update_preview_from_current_mouse!()
-
         return nothing
     end
 

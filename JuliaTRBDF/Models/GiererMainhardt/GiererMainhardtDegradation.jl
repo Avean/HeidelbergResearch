@@ -1,4 +1,4 @@
-# models/GiererMeinhardt.jl
+# models/GiererMainhardt/GiererMainhardtDegradation.jl
 
 # ============================================================
 # Classical Gierer-Meinhardt reaction-diffusion system with degradation

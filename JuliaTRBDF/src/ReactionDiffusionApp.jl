@@ -2,6 +2,7 @@ module ReactionDiffusionApp
 
 using GLMakie
 using DifferentialEquations
+using OrdinaryDiffEqSDIRK: TRBDF2
 using SparseArrays
 using LinearAlgebra
 using Random
@@ -22,7 +23,7 @@ include("ModelDSL.jl")
 
 include("ModelLoader.jl")
 
-const MODEL_DIR = normpath(joinpath(@__DIR__, "..", "models"))
+const MODEL_DIR = normpath(joinpath(@__DIR__, "..", "Models"))
 const MODEL_REGISTRY = load_model_registry(MODEL_DIR)
 
 include("Simulation.jl")
