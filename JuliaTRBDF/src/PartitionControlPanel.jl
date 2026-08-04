@@ -4,6 +4,20 @@
 # Domain split / merge controls
 # ============================================================
 
+const PARTITION_WORKER_SETTLE_TIME = 0.05
+
+
+function stop_and_settle_partition_workers!(app::AppState)
+    stop_worker!(app; wait = true)
+
+    # Give the UI/render tasks one short scheduling window after every solver
+    # task has finished before replacing simulations and plot observables.
+    yield()
+    sleep(PARTITION_WORKER_SETTLE_TIME)
+
+    return nothing
+end
+
 
 function update_split_marker!(
     app::AppState,
@@ -91,11 +105,8 @@ function split_domain_segment_app!(
     segment::Int,
     left_count::Int;
     title_obs,
-    steps_per_frame::Int = 5,
-    worker_sleep_time::Float64 = 0.001,
 )
     lock(app.simlock)
-    was_running = false
 
     try
         1 <= segment <= length(app.simulations) || return false
@@ -104,8 +115,7 @@ function split_domain_segment_app!(
         # Increment before the first yielding operation. Every callback from
         # the panel being replaced can then recognize that it is stale.
         app.generation[] += 1
-        was_running = app.worker_running[]
-        stop_worker!(app; wait = true)
+        stop_and_settle_partition_workers!(app)
         domain_length_scale = app.plot_panel.domain_length_scale
         clear_snapshot_buffer!(app.snapshot_buffer)
         split_domain_segment!(app, segment, left_count)
@@ -120,15 +130,6 @@ function split_domain_segment_app!(
         unlock(app.simlock)
     end
 
-
-    if was_running
-        start_worker!(
-            app;
-            steps_per_frame = steps_per_frame,
-            sleep_time = worker_sleep_time,
-        )
-    end
-
     return true
 end
 
@@ -138,11 +139,8 @@ function merge_domain_segments_app!(
     plot_grid::GridLayout,
     left_segment::Int;
     title_obs,
-    steps_per_frame::Int = 5,
-    worker_sleep_time::Float64 = 0.001,
 )
     lock(app.simlock)
-    was_running = false
 
     try
         1 <= left_segment < length(app.simulations) || return false
@@ -151,8 +149,7 @@ function merge_domain_segments_app!(
         # This prevents a queued second click on the old Merge button from
         # starting another merge with obsolete segment indices.
         app.generation[] += 1
-        was_running = app.worker_running[]
-        stop_worker!(app; wait = true)
+        stop_and_settle_partition_workers!(app)
         domain_length_scale = app.plot_panel.domain_length_scale
 
         synchronize_segment_indices_blocking!(
@@ -172,15 +169,6 @@ function merge_domain_segments_app!(
         )
     finally
         unlock(app.simlock)
-    end
-
-
-    if was_running
-        start_worker!(
-            app;
-            steps_per_frame = steps_per_frame,
-            sleep_time = worker_sleep_time,
-        )
     end
 
     return true
@@ -394,8 +382,6 @@ function rebuild_partition_control_panel!(
             split_at,
             left_count;
             title_obs = title_obs,
-            steps_per_frame = steps_per_frame,
-            worker_sleep_time = worker_sleep_time,
         )
         did_split || return nothing
 
@@ -442,8 +428,6 @@ function rebuild_partition_control_panel!(
                     plot_grid,
                     left_boundary;
                     title_obs = title_obs,
-                    steps_per_frame = steps_per_frame,
-                    worker_sleep_time = worker_sleep_time,
                 )
                 did_merge || return nothing
 

@@ -123,29 +123,85 @@ end
 # Axis scaling
 # ============================================================
 
+function fallback_finite_ticks(left::Float64, right::Float64)
+    isfinite(left) && isfinite(right) || return Float64[]
+    left == right && return [left]
+
+    low, high = minmax(left, right)
+    span = high - low
+    ticks = unique([
+        low + span * fraction
+        for fraction in range(0.0, 1.0; length = 5)
+        if isfinite(low + span * fraction)
+    ])
+
+    if length(ticks) < 2
+        ticks = [low, high]
+    end
+
+    return ticks
+end
+
+
+function non_strict_wilkinson_ticks(
+    vmin::Real,
+    vmax::Real;
+    k_ideal::Int = 5,
+    k_min::Int = 3,
+)
+    left = Float64(vmin)
+    right = Float64(vmax)
+    isfinite(left) && isfinite(right) || return Float64[]
+    left == right && return [left]
+
+    low, high = minmax(left, right)
+    locator = WilkinsonTicks(k_ideal; k_min = k_min)
+    ticks = try
+        values, _, _ = GLMakie.Makie.PlotUtils.optimize_ticks(
+            low,
+            high;
+            extend_ticks = false,
+            strict_span = false,
+            span_buffer = nothing,
+            k_min = k_min,
+            k_max = locator.k_max,
+            k_ideal = k_ideal,
+            Q = locator.Q,
+            granularity_weight = locator.granularity_weight,
+            simplicity_weight = locator.simplicity_weight,
+            coverage_weight = locator.coverage_weight,
+            niceness_weight = locator.niceness_weight,
+        )
+        Float64.(collect(values))
+    catch
+        Float64[]
+    end
+
+    filter!(isfinite, ticks)
+    filter!(tick -> low <= tick <= high, ticks)
+    sort!(ticks)
+    unique!(ticks)
+
+    if length(ticks) < 2 || any(diff(ticks) .<= 0.0)
+        return fallback_finite_ticks(low, high)
+    end
+
+    return ticks
+end
+
+
+function automatic_safe_y_ticks(ymin::Real, ymax::Real)
+    return non_strict_wilkinson_ticks(ymin, ymax)
+end
+
+
 function automatic_x_ticks_with_right_endpoint(
     xmin::Real,
     xmax::Real,
 )
     left = Float64(xmin)
     right = Float64(xmax)
-    locator = WilkinsonTicks(5; k_min = 3)
-    ticks, _, _ = GLMakie.Makie.PlotUtils.optimize_ticks(
-        left,
-        right;
-        extend_ticks = false,
-        strict_span = false,
-        span_buffer = nothing,
-        k_min = locator.k_min,
-        k_max = locator.k_max,
-        k_ideal = locator.k_ideal,
-        Q = locator.Q,
-        granularity_weight = locator.granularity_weight,
-        simplicity_weight = locator.simplicity_weight,
-        coverage_weight = locator.coverage_weight,
-        niceness_weight = locator.niceness_weight,
-    )
-    ticks = collect(ticks)
+    ticks = non_strict_wilkinson_ticks(left, right)
 
     tolerance = max(abs(left), abs(right), 1.0) * 1e-9
     filter!(tick -> left - tolerance <= tick <= right + tolerance, ticks)
@@ -339,7 +395,7 @@ function build_spatial_profile_panel!(
             ylabel = profile_name_obs,
             title = profile_name_obs,
             xticks = automatic_x_ticks_with_right_endpoint,
-            yticks = LinearTicks(5),
+            yticks = automatic_safe_y_ticks,
         )
 
         deactivate_interaction!(ax, :scrollzoom)
@@ -556,7 +612,7 @@ function build_partition_spatial_profile_panel!(
                 ylabel = segment == 1 ? profile_name_observables[k] : "",
                 title = profile_name_observables[k],
                 xticks = automatic_x_ticks_with_right_endpoint,
-                yticks = LinearTicks(5),
+                yticks = automatic_safe_y_ticks,
             )
             deactivate_interaction!(ax, :scrollzoom)
 
@@ -804,7 +860,7 @@ function build_plot_panel!(
                 title = axis_title,
                 titlesize = variable == 1 ? 10 : 16,
                 xticks = automatic_x_ticks_with_right_endpoint,
-                yticks = LinearTicks(5),
+                yticks = automatic_safe_y_ticks,
             )
             deactivate_interaction!(ax, :scrollzoom)
 
