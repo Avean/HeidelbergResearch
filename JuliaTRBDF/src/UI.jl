@@ -148,6 +148,10 @@ function run_app(;
         empty_snapshot_buffer(),
         Threads.Atomic{Int}(0),
         ReentrantLock(),
+        SegmentRuntime[empty_segment_runtime()],
+        Threads.Atomic{Bool}(false),
+        Ref{Union{Nothing, Task}}(nothing),
+        Observable("Synchronized"),
     )
 
     app.plot_panel = build_plot_panel!(

@@ -188,8 +188,8 @@ function build_control_panel!(
 
     dt_info_label = Label(
         top_grid[1, 1],
-        lift(app.dtmax_obs, app.dt_obs) do dtmax, dt
-            return "max dt = $(@sprintf("%.1e", dtmax)) | current dt = $(@sprintf("%.1e", dt))"
+        lift(app.dtmax_obs) do dtmax
+            return "max dt = $(@sprintf("%.1e", dtmax))"
         end,
         tellwidth = false,
     )
@@ -235,40 +235,77 @@ function build_control_panel!(
 
     top_grid[4, 1] = action_grid
 
-    bstart = Button(
-        action_grid[1, 1],
-        label = "Start",
-        tellwidth = false,
-    )
+    simulation_state_label = lift(app.running) do running
+        running ? "Running" : "Stopped"
+    end
+    simulation_state_color = lift(app.running) do running
+        running ? RGBf(0.20, 0.68, 0.32) : RGBf(0.82, 0.25, 0.25)
+    end
+    simulation_state_hover_color = lift(app.running) do running
+        running ? RGBf(0.28, 0.76, 0.40) : RGBf(0.90, 0.33, 0.33)
+    end
 
-    bstop = Button(
-        action_grid[1, 2],
-        label = "Stop",
+    bsimulation = Button(
+        action_grid[1, 1],
+        label = simulation_state_label,
+        buttoncolor = simulation_state_color,
+        buttoncolor_hover = simulation_state_hover_color,
+        buttoncolor_active = RGBf(0.25, 0.25, 0.25),
+        labelcolor = :white,
+        labelcolor_hover = :white,
         tellwidth = false,
     )
 
     breset = Button(
-        action_grid[1, 3],
+        action_grid[1, 2],
         label = "Reset",
         tellwidth = false,
     )
 
-    on(bstart.clicks) do _
-        clear_perturbation_previews!(app.plot_panel)
-        start_worker!(
-            app;
-            steps_per_frame = steps_per_frame,
-            sleep_time = worker_sleep_time,
-        )
+    synchronize_color = lift(app.synchronization_status) do status
+        status == "Synchronized" ?
+        RGBf(0.20, 0.68, 0.32) :
+        status == "Synchronizing..." ?
+        RGBf(0.90, 0.65, 0.18) :
+        RGBf(0.92, 0.48, 0.16)
+    end
+    synchronize_hover_color = lift(app.synchronization_status) do status
+        status == "Synchronized" ?
+        RGBf(0.28, 0.76, 0.40) :
+        status == "Synchronizing..." ?
+        RGBf(0.96, 0.72, 0.25) :
+        RGBf(0.98, 0.56, 0.22)
     end
 
-    on(bstop.clicks) do _
-        stop_worker!(app; wait = true)
+    bsynchronize = Button(
+        action_grid[1, 3],
+        label = app.synchronization_status,
+        buttoncolor = synchronize_color,
+        buttoncolor_hover = synchronize_hover_color,
+        buttoncolor_active = RGBf(0.25, 0.25, 0.25),
+        labelcolor = :white,
+        labelcolor_hover = :white,
+        tellwidth = false,
+    )
 
-        update_all_perturbation_previews!(
-            app;
-            stop_simulation = false,
-        )
+    on(bsimulation.clicks) do _
+        if app.worker_running[] || app.running[] || app.synchronization_running[]
+            stop_worker!(app; wait = true)
+
+            update_all_perturbation_previews!(
+                app;
+                stop_simulation = false,
+            )
+        else
+            clear_perturbation_previews!(app.plot_panel)
+            start_worker!(
+                app;
+                steps_per_frame = steps_per_frame,
+                sleep_time = worker_sleep_time,
+            )
+        end
+
+        return nothing
     end
 
 
@@ -287,7 +324,14 @@ function build_control_panel!(
             partition_items,
             plot_grid;
             title_obs = title_obs,
+            steps_per_frame = steps_per_frame,
+            worker_sleep_time = worker_sleep_time,
         )
+    end
+
+    on(bsynchronize.clicks) do _
+        synchronize_domains_app!(app)
+        return nothing
     end
 
     # --------------------------------------------------------
@@ -403,6 +447,8 @@ function build_control_panel!(
         partition_items,
         plot_grid;
         title_obs = title_obs,
+        steps_per_frame = steps_per_frame,
+        worker_sleep_time = worker_sleep_time,
     )
 
     on(model_name_obs) do _
@@ -436,6 +482,8 @@ function build_control_panel!(
             partition_items,
             plot_grid;
             title_obs = title_obs,
+            steps_per_frame = steps_per_frame,
+            worker_sleep_time = worker_sleep_time,
         )
     end
 
@@ -451,9 +499,9 @@ function build_control_panel!(
         diffusion_scale_label,
         diffusion_scale_obs,
         constant_ic_grid,
-        bstart,
-        bstop,
+        bsimulation,
         breset,
+        bsynchronize,
         constant_ic_items,
         constant_ic_textboxes,
         equation_items,

@@ -15,12 +15,21 @@ function make_partition_snapshot(
     generation::Int,
 )
     snapshots = [make_snapshot(sim, generation) for sim in simulations]
+    return partition_snapshot_from_segments(snapshots, generation)
+end
+
+
+function partition_snapshot_from_segments(
+    snapshots::Vector{SimulationSnapshot},
+    generation::Int,
+)
+    isempty(snapshots) && error("A partition snapshot needs at least one segment.")
     dts = filter(isfinite, [snapshot.dt for snapshot in snapshots])
 
     return PartitionSnapshot(
         snapshots,
         generation,
-        first(snapshots).t,
+        maximum(snapshot.t for snapshot in snapshots),
         isempty(dts) ? NaN : minimum(dts),
         minimum(snapshot.dtmax for snapshot in snapshots),
         maximum(snapshot.steps for snapshot in snapshots),
@@ -83,12 +92,13 @@ end
 
 
 function segment_base_length(app::AppState, segment::Int)
-    total_points = total_partition_points(app)
-    total_points > 0 || return 0.0
+    sim = app.simulations[segment]
 
-    return partition_base_length(app) *
-           app.simulations[segment].N /
-           total_points
+    if length(app.simulations) == 1 && sim.boundary_condition == :periodic
+        return (last(sim.x) - first(sim.x)) + sim.dx
+    end
+
+    return last(sim.x) - first(sim.x)
 end
 
 
@@ -173,6 +183,80 @@ function merge_partition_params(
 end
 
 
+function interpolate_partition_values(
+    source_x::AbstractVector{<:Real},
+    source_values::AbstractVector{<:Real},
+    target_x::AbstractVector{<:Real};
+    periodic::Bool = false,
+    period::Union{Nothing, Float64} = nothing,
+)
+    length(source_x) == length(source_values) ||
+        error("Interpolation source coordinates and values must have equal lengths.")
+    length(source_x) >= 2 ||
+        error("At least two source points are required for interpolation.")
+
+    x_values = Float64.(collect(source_x))
+    y_values = Float64.(collect(source_values))
+
+    if periodic
+        period_value = isnothing(period) ?
+            (last(x_values) - first(x_values)) + (x_values[2] - x_values[1]) :
+            period
+        x_values = vcat(x_values, first(x_values) + period_value)
+        y_values = vcat(y_values, first(y_values))
+    end
+
+    result = Vector{Float64}(undef, length(target_x))
+
+    for (target_index, raw_x) in enumerate(target_x)
+        x = Float64(raw_x)
+
+        if x <= first(x_values)
+            result[target_index] = first(y_values)
+            continue
+        elseif x >= last(x_values)
+            result[target_index] = last(y_values)
+            continue
+        end
+
+        right_index = searchsortedfirst(x_values, x)
+        left_index = right_index - 1
+        x0 = x_values[left_index]
+        x1 = x_values[right_index]
+        weight = (x - x0) / (x1 - x0)
+        result[target_index] =
+            (1.0 - weight) * y_values[left_index] +
+            weight * y_values[right_index]
+    end
+
+    return result
+end
+
+
+function resample_partition_params(
+    params::AbstractDict{Symbol},
+    source_x::AbstractVector{<:Real},
+    target_x::AbstractVector{<:Real};
+    periodic::Bool = false,
+    period::Union{Nothing, Float64} = nothing,
+)
+    target_params = Dict{Symbol, Any}(params)
+
+    for (key, value) in params
+        _is_spatial_profile_override_key(key) || continue
+        target_params[key] = interpolate_partition_values(
+            source_x,
+            Float64.(collect(value)),
+            target_x;
+            periodic = periodic,
+            period = period,
+        )
+    end
+
+    return target_params
+end
+
+
 function refresh_partition_spatial_profile_overrides!(
     simulations::Vector{SimulationState},
 )
@@ -196,9 +280,10 @@ function refresh_partition_spatial_profile_overrides!(
         model.spatial_profile_sets,
     )
     _, profiles = model.spatial_profile_sets[set_index]
-    global_x = reduce(vcat, (sim.x for sim in simulations))
-
-    offsets = cumsum(vcat(0, [sim.N for sim in simulations]))
+    reference_N = first(simulations).N
+    global_xmin = first(first(simulations).x)
+    global_xmax = last(last(simulations).x)
+    global_x = collect(range(global_xmin, global_xmax; length = reference_N))
 
     for (profile_name, profile_fun) in profiles
         global_values = _evaluate_spatial_profile_for_parameter(
@@ -210,10 +295,12 @@ function refresh_partition_spatial_profile_overrides!(
 
         override_key = spatial_profile_override_key(profile_name)
 
-        for segment in eachindex(simulations)
-            indices = (offsets[segment] + 1):offsets[segment + 1]
-            simulations[segment].params[override_key] =
-                copy(global_values[indices])
+        for sim in simulations
+            sim.params[override_key] = interpolate_partition_values(
+                global_x,
+                global_values,
+                sim.x,
+            )
         end
     end
 
@@ -233,17 +320,58 @@ function split_simulation_state(
     U = copy(solution_matrix(parent))
     displayed_time = current_display_time(parent)
     dtmax = current_dtmax(parent)
+    parent_periodic = parent.boundary_condition == :periodic
+    parent_length = parent_periodic ?
+        (last(parent.x) - first(parent.x)) + parent.dx :
+        last(parent.x) - first(parent.x)
+    split_fraction = left_count / parent.N
+    split_x = first(parent.x) + split_fraction * parent_length
+    parent_right = first(parent.x) + parent_length
 
-    left_indices = 1:left_count
-    right_indices = (left_count + 1):parent.N
-    left_params = slice_partition_params(parent.params, left_indices, parent.N)
-    right_params = slice_partition_params(parent.params, right_indices, parent.N)
+    left_x = collect(range(first(parent.x), split_x; length = parent.N))
+    right_x = collect(range(split_x, parent_right; length = parent.N))
+    left_U = zeros(Float64, parent.N, parent.model.nvars)
+    right_U = similar(left_U)
+
+    for variable in 1:parent.model.nvars
+        left_U[:, variable] = interpolate_partition_values(
+            parent.x,
+            U[:, variable],
+            left_x;
+            periodic = parent_periodic,
+            period = parent_length,
+        )
+        right_U[:, variable] = interpolate_partition_values(
+            parent.x,
+            U[:, variable],
+            right_x;
+            periodic = parent_periodic,
+            period = parent_length,
+        )
+    end
+
+    left_params = resample_partition_params(
+        parent.params,
+        parent.x,
+        left_x;
+        periodic = parent_periodic,
+        period = parent_length,
+    )
+    right_params = resample_partition_params(
+        parent.params,
+        parent.x,
+        right_x;
+        periodic = parent_periodic,
+        period = parent_length,
+    )
+    left_dx = (last(left_x) - first(left_x)) / (parent.N - 1)
+    right_dx = (last(right_x) - first(right_x)) / (parent.N - 1)
 
     left = create_simulation_state_from_data(
         parent.model,
-        parent.x[left_indices],
-        parent.dx,
-        vec(copy(U[left_indices, :])),
+        left_x,
+        left_dx,
+        vec(left_U),
         left_params;
         boundary_condition = :neumann,
         displayed_time = displayed_time,
@@ -254,9 +382,9 @@ function split_simulation_state(
 
     right = create_simulation_state_from_data(
         parent.model,
-        parent.x[right_indices],
-        parent.dx,
-        vec(copy(U[right_indices, :])),
+        right_x,
+        right_dx,
+        vec(right_U),
         right_params;
         boundary_condition = :neumann,
         displayed_time = displayed_time,
@@ -279,21 +407,67 @@ function merge_simulation_states(
     left.model.id == right.model.id ||
         error("Only segments using the same model can be merged.")
 
-    isapprox(left.dx, right.dx; rtol = 1e-10, atol = 0.0) ||
-        error("Merged segments must use the same grid spacing.")
-
     left_U = copy(solution_matrix(left))
     right_U = copy(solution_matrix(right))
-    merged_U = vcat(left_U, right_U)
-    merged_x = vcat(left.x, right.x)
+    target_N = max(left.N, right.N)
+    merged_x = collect(range(first(left.x), last(right.x); length = target_N))
+    interface_x = 0.5 * (last(left.x) + first(right.x))
+    merged_U = zeros(Float64, target_N, left.model.nvars)
+
+    for variable in 1:left.model.nvars
+        for index in eachindex(merged_x)
+            if merged_x[index] <= interface_x
+                merged_U[index, variable] = interpolate_partition_values(
+                    left.x,
+                    left_U[:, variable],
+                    [merged_x[index]],
+                )[1]
+            else
+                merged_U[index, variable] = interpolate_partition_values(
+                    right.x,
+                    right_U[:, variable],
+                    [merged_x[index]],
+                )[1]
+            end
+        end
+    end
+
     displayed_time = current_display_time(left)
     dtmax = min(current_dtmax(left), current_dtmax(right))
-    merged_params = merge_partition_params(left, right)
+    merged_params = Dict{Symbol, Any}(left.params)
+
+    for key in union(
+        filter(_is_spatial_profile_override_key, keys(left.params)),
+        filter(_is_spatial_profile_override_key, keys(right.params)),
+    )
+        left_values = Float64.(collect(left.params[key]))
+        right_values = Float64.(collect(right.params[key]))
+        values = Vector{Float64}(undef, target_N)
+
+        for index in eachindex(merged_x)
+            if merged_x[index] <= interface_x
+                values[index] = interpolate_partition_values(
+                    left.x,
+                    left_values,
+                    [merged_x[index]],
+                )[1]
+            else
+                values[index] = interpolate_partition_values(
+                    right.x,
+                    right_values,
+                    [merged_x[index]],
+                )[1]
+            end
+        end
+
+        merged_params[key] = values
+    end
+    merged_dx = (last(merged_x) - first(merged_x)) / (target_N - 1)
 
     return create_simulation_state_from_data(
         left.model,
         merged_x,
-        left.dx,
+        merged_dx,
         vec(merged_U),
         merged_params;
         boundary_condition = boundary_condition,
@@ -319,6 +493,11 @@ function split_domain_segment!(
     )
 
     splice!(app.simulations, segment:segment, (left, right))
+    splice!(
+        app.segment_runtimes,
+        segment:segment,
+        (empty_segment_runtime(), empty_segment_runtime()),
+    )
     app.sim = first(app.simulations)
     refresh_partition_spatial_profile_overrides!(app.simulations)
 
@@ -348,6 +527,11 @@ function merge_domain_segments!(
         app.simulations,
         left_segment:(left_segment + 1),
         (merged,),
+    )
+    splice!(
+        app.segment_runtimes,
+        left_segment:(left_segment + 1),
+        (empty_segment_runtime(),),
     )
     app.sim = first(app.simulations)
     refresh_partition_spatial_profile_overrides!(app.simulations)

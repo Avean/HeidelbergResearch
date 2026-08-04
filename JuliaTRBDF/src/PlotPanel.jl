@@ -37,6 +37,9 @@ function empty_plot_panel()
         Vector{Axis}[],
         Vector{Observable{Vector{Float64}}}[],
         Observable{Vector{Float64}}[],
+        Observable{Float64}[],
+        Base.RefValue{Int}[],
+        Observable{String}[],
     )
 end
 
@@ -56,6 +59,26 @@ function simulation_domain_length(sim::SimulationState)
         sim.boundary_condition == :periodic ? sim.N : sim.N - 1
 
     return interval_count * sim.dx
+end
+
+
+function compact_segment_status(sim::SimulationState)
+    return @sprintf(
+        "t=%.2e  steps=%d\ndt=%.1e",
+        current_display_time(sim),
+        sim.step_counter[],
+        current_internal_dt(sim),
+    )
+end
+
+
+function compact_segment_status(snapshot::SimulationSnapshot)
+    return @sprintf(
+        "t=%.2e  steps=%d\ndt=%.1e",
+        snapshot.t,
+        snapshot.steps,
+        snapshot.dt,
+    )
 end
 
 
@@ -106,13 +129,23 @@ function automatic_x_ticks_with_right_endpoint(
 )
     left = Float64(xmin)
     right = Float64(xmax)
-    ticks = collect(
-        GLMakie.Makie.get_tickvalues(
-            WilkinsonTicks(5; k_min = 3),
-            left,
-            right,
-        ),
+    locator = WilkinsonTicks(5; k_min = 3)
+    ticks, _, _ = GLMakie.Makie.PlotUtils.optimize_ticks(
+        left,
+        right;
+        extend_ticks = false,
+        strict_span = false,
+        span_buffer = nothing,
+        k_min = locator.k_min,
+        k_max = locator.k_max,
+        k_ideal = locator.k_ideal,
+        Q = locator.Q,
+        granularity_weight = locator.granularity_weight,
+        simplicity_weight = locator.simplicity_weight,
+        coverage_weight = locator.coverage_weight,
+        niceness_weight = locator.niceness_weight,
     )
+    ticks = collect(ticks)
 
     tolerance = max(abs(left), abs(right), 1.0) * 1e-9
     filter!(tick -> left - tolerance <= tick <= right + tolerance, ticks)
@@ -306,6 +339,7 @@ function build_spatial_profile_panel!(
             ylabel = profile_name_obs,
             title = profile_name_obs,
             xticks = automatic_x_ticks_with_right_endpoint,
+            yticks = LinearTicks(5),
         )
 
         deactivate_interaction!(ax, :scrollzoom)
@@ -491,6 +525,7 @@ function build_partition_spatial_profile_panel!(
     app::AppState,
     segment_x_observables::Vector{Observable{Vector{Float64}}},
     split_marker_observables::Vector{Observable{Vector{Float64}}},
+    split_marker_alpha_observables::Vector{Observable{Float64}},
     all_axes::Vector{Axis},
     ui_items::Vector{Any};
     start_row::Int,
@@ -521,6 +556,7 @@ function build_partition_spatial_profile_panel!(
                 ylabel = segment == 1 ? profile_name_observables[k] : "",
                 title = profile_name_observables[k],
                 xticks = automatic_x_ticks_with_right_endpoint,
+                yticks = LinearTicks(5),
             )
             deactivate_interaction!(ax, :scrollzoom)
 
@@ -536,7 +572,10 @@ function build_partition_spatial_profile_panel!(
             vlines!(
                 ax,
                 split_marker_observables[segment];
-                color = :red,
+                color = lift(
+                    alpha -> (:red, alpha),
+                    split_marker_alpha_observables[segment],
+                ),
                 linewidth = 2,
             )
 
@@ -590,12 +629,18 @@ function build_partition_spatial_profile_panel!(
                 profile_name, _ = profiles[k]
                 profile_name_observables[k][] = profile_name
                 override_key = spatial_profile_override_key(profile_name)
+                row_values = Float64[]
 
                 for segment in 1:nsegments
                     y = copy(app.simulations[segment].params[override_key])
                     profile_observables[segment][k][] = y
-                    set_axis_y_limits_from_values!(profile_axes[segment][k], y)
+                    append!(row_values, finite_values(y))
                 end
+
+                set_axes_y_limits_from_values!(
+                    [profile_axes[segment][k] for segment in 1:nsegments],
+                    row_values,
+                )
 
                 rowsize!(grid, row, Fixed(120))
             else
@@ -643,22 +688,68 @@ end
 function rescale_solution_axes!(
     panel::PlotPanel,
     simulations::Vector{SimulationState},
+    ;
+    include_previews::Bool = true,
 )
     length(panel.segment_axes) == length(simulations) ||
         error("Plot panel does not match the number of domain segments.")
 
-    for segment in eachindex(simulations)
-        sim = simulations[segment]
-        U = solution_matrix(sim)
+    isempty(simulations) && return nothing
 
-        for variable in 1:sim.model.nvars
-            rescale_axis_from_actual_and_preview!(
-                panel.segment_axes[segment][variable],
-                U[:, variable],
-                panel.segment_preview_observables[segment][variable][],
+    for variable in 1:first(simulations).model.nvars
+        rescale_solution_variable_axes!(
+            panel,
+            variable;
+            include_previews = include_previews,
+        )
+    end
+
+    return nothing
+end
+
+
+function set_axes_y_limits_from_values!(
+    axes::AbstractVector{<:Axis},
+    values::AbstractVector,
+)
+    for axis in axes
+        set_axis_y_limits_from_values!(axis, values)
+    end
+
+    return nothing
+end
+
+
+function rescale_solution_variable_axes!(
+    panel::PlotPanel,
+    variable::Int,
+    ;
+    include_previews::Bool = true,
+)
+    nsegments = length(panel.segment_axes)
+    nsegments > 0 || return nothing
+
+    row_values = Float64[]
+    row_axes = Axis[]
+
+    for segment in 1:nsegments
+        variable <= length(panel.segment_axes[segment]) ||
+            error("Plot panel does not contain variable $(variable) in every segment.")
+
+        append!(
+            row_values,
+            finite_values(panel.segment_observables[segment][variable][]),
+        )
+        if include_previews
+            append!(
+                row_values,
+                finite_values(panel.segment_preview_observables[segment][variable][]),
             )
         end
+        push!(row_axes, panel.segment_axes[segment][variable])
     end
+
+    set_axes_y_limits_from_values!(row_axes, row_values)
 
     return nothing
 end
@@ -671,7 +762,10 @@ function build_plot_panel!(
 )
     model = app.sim.model
     nsegments = length(app.simulations)
-    total_points = total_partition_points(app)
+    total_length = sum(
+        segment_base_length(app, segment)
+        for segment in eachindex(app.simulations)
+    )
 
     all_axes = Axis[]
     segment_axes = [Axis[] for _ in 1:nsegments]
@@ -679,6 +773,12 @@ function build_plot_panel!(
     segment_observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments]
     segment_preview_observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments]
     split_marker_observables = [Observable([NaN]) for _ in 1:nsegments]
+    split_marker_alpha_observables = [Observable(0.0) for _ in 1:nsegments]
+    split_marker_fade_tokens = [Ref(0) for _ in 1:nsegments]
+    segment_status_observables = [
+        Observable(compact_segment_status(app.simulations[segment]))
+        for segment in 1:nsegments
+    ]
     perturbation_controls = Any[]
     ui_items = Any[]
 
@@ -691,8 +791,8 @@ function build_plot_panel!(
         push!(segment_x_observables, x_observable)
 
         for variable in 1:model.nvars
-            axis_title = if variable == 1 && segment == 1 && title_obs !== nothing
-                title_obs
+            axis_title = if variable == 1
+                segment_status_observables[segment]
             else
                 model.varnames[variable]
             end
@@ -702,7 +802,9 @@ function build_plot_panel!(
                 xlabel = variable == model.nvars ? "x" : "",
                 ylabel = segment == 1 ? model.varnames[variable] : "",
                 title = axis_title,
+                titlesize = variable == 1 ? 10 : 16,
                 xticks = automatic_x_ticks_with_right_endpoint,
+                yticks = LinearTicks(5),
             )
             deactivate_interaction!(ax, :scrollzoom)
 
@@ -721,7 +823,10 @@ function build_plot_panel!(
             vlines!(
                 ax,
                 split_marker_observables[segment];
-                color = :red,
+                color = lift(
+                    alpha -> (:red, alpha),
+                    split_marker_alpha_observables[segment],
+                ),
                 linewidth = 2,
             )
 
@@ -732,7 +837,10 @@ function build_plot_panel!(
             rowsize!(grid, variable, Auto(false, 1.0))
         end
 
-        colsize!(grid, segment, Relative(sim.N / total_points))
+        column_weight = total_length > 0 ?
+            segment_base_length(app, segment) / total_length :
+            1.0 / nsegments
+        colsize!(grid, segment, Relative(column_weight))
     end
 
     perturbation_row = model.nvars + 1
@@ -755,6 +863,7 @@ function build_plot_panel!(
         app,
         segment_x_observables,
         split_marker_observables,
+        split_marker_alpha_observables,
         all_axes,
         ui_items;
         start_row = perturbation_row + 1,
@@ -785,6 +894,9 @@ function build_plot_panel!(
         profile_panel.axes,
         profile_panel.observables,
         split_marker_observables,
+        split_marker_alpha_observables,
+        split_marker_fade_tokens,
+        segment_status_observables,
     )
 
     set_plot_domain_scale!(panel, app, 1.0)
@@ -944,6 +1056,9 @@ function clear_plot_panel!(panel::PlotPanel)
     empty!(panel.segment_profile_axes)
     empty!(panel.segment_profile_observables)
     empty!(panel.split_marker_observables)
+    empty!(panel.split_marker_alpha_observables)
+    empty!(panel.split_marker_fade_tokens)
+    empty!(panel.segment_status_observables)
 
     return nothing
 end
@@ -959,16 +1074,18 @@ function refresh_plot_panel_from_snapshots!(
     for segment in eachindex(snapshots)
         snapshot = snapshots[segment]
         U = solution_matrix_from_snapshot(snapshot)
+        panel.segment_status_observables[segment][] =
+            compact_segment_status(snapshot)
 
         for variable in 1:snapshot.nvars
             panel.segment_observables[segment][variable][] =
                 copy(U[:, variable])
+        end
+    end
 
-            rescale_axis_from_actual_and_preview!(
-                panel.segment_axes[segment][variable],
-                U[:, variable],
-                panel.segment_preview_observables[segment][variable][],
-            )
+    if !isempty(snapshots)
+        for variable in 1:first(snapshots).nvars
+            rescale_solution_variable_axes!(panel, variable)
         end
     end
 
@@ -986,6 +1103,7 @@ function refresh_plot_panel!(
     for segment in eachindex(simulations)
         sim = simulations[segment]
         U = solution_matrix(sim)
+        panel.segment_status_observables[segment][] = compact_segment_status(sim)
 
         for variable in 1:sim.model.nvars
             panel.segment_observables[segment][variable][] =

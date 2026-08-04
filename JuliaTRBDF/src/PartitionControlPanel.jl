@@ -10,8 +10,10 @@ function update_split_marker!(
     segment::Int,
     left_count::Int,
 )
-    for marker in app.plot_panel.split_marker_observables
-        marker[] = [NaN]
+    for index in eachindex(app.plot_panel.split_marker_observables)
+        app.plot_panel.split_marker_fade_tokens[index][] += 1
+        app.plot_panel.split_marker_observables[index][] = [NaN]
+        app.plot_panel.split_marker_alpha_observables[index][] = 0.0
     end
 
     1 <= segment <= length(app.simulations) || return nothing
@@ -22,7 +24,31 @@ function update_split_marker!(
         segment_base_length(app, segment) *
         app.plot_panel.domain_length_scale
     split_position = displayed_length * left_count / sim.N
-    app.plot_panel.split_marker_observables[segment][] = [split_position]
+    marker = app.plot_panel.split_marker_observables[segment]
+    alpha = app.plot_panel.split_marker_alpha_observables[segment]
+    token_ref = app.plot_panel.split_marker_fade_tokens[segment]
+    marker[] = [split_position]
+    alpha[] = 1.0
+    token = token_ref[]
+
+    @async begin
+        sleep(5.0)
+        fade_duration = 0.5
+        fade_started_at = time_ns()
+
+        while true
+            token_ref[] == token || return nothing
+            elapsed = (time_ns() - fade_started_at) / 1e9
+            elapsed >= fade_duration && break
+            alpha[] = max(0.0, 1.0 - elapsed / fade_duration)
+            sleep(1 / 60)
+        end
+
+        token_ref[] == token || return nothing
+        marker[] = [NaN]
+        alpha[] = 0.0
+        return nothing
+    end
 
     return nothing
 end
@@ -65,14 +91,22 @@ function split_domain_segment_app!(
     segment::Int,
     left_count::Int;
     title_obs,
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
 )
-    stop_worker!(app; wait = true)
-    domain_length_scale = app.plot_panel.domain_length_scale
-
     lock(app.simlock)
+    was_running = false
 
     try
+        1 <= segment <= length(app.simulations) || return false
+        2 <= left_count <= app.simulations[segment].N - 2 || return false
+
+        # Increment before the first yielding operation. Every callback from
+        # the panel being replaced can then recognize that it is stale.
         app.generation[] += 1
+        was_running = app.worker_running[]
+        stop_worker!(app; wait = true)
+        domain_length_scale = app.plot_panel.domain_length_scale
         clear_snapshot_buffer!(app.snapshot_buffer)
         split_domain_segment!(app, segment, left_count)
 
@@ -86,7 +120,16 @@ function split_domain_segment_app!(
         unlock(app.simlock)
     end
 
-    return nothing
+
+    if was_running
+        start_worker!(
+            app;
+            steps_per_frame = steps_per_frame,
+            sleep_time = worker_sleep_time,
+        )
+    end
+
+    return true
 end
 
 
@@ -95,14 +138,29 @@ function merge_domain_segments_app!(
     plot_grid::GridLayout,
     left_segment::Int;
     title_obs,
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
 )
-    stop_worker!(app; wait = true)
-    domain_length_scale = app.plot_panel.domain_length_scale
-
     lock(app.simlock)
+    was_running = false
 
     try
+        1 <= left_segment < length(app.simulations) || return false
+
+        # Invalidate the current control panel before waiting for workers.
+        # This prevents a queued second click on the old Merge button from
+        # starting another merge with obsolete segment indices.
         app.generation[] += 1
+        was_running = app.worker_running[]
+        stop_worker!(app; wait = true)
+        domain_length_scale = app.plot_panel.domain_length_scale
+
+        synchronize_segment_indices_blocking!(
+            app,
+            [left_segment, left_segment + 1];
+            allow_cancel = false,
+        )
+
         clear_snapshot_buffer!(app.snapshot_buffer)
         merge_domain_segments!(app, left_segment)
 
@@ -116,7 +174,16 @@ function merge_domain_segments_app!(
         unlock(app.simlock)
     end
 
-    return nothing
+
+    if was_running
+        start_worker!(
+            app;
+            steps_per_frame = steps_per_frame,
+            sleep_time = worker_sleep_time,
+        )
+    end
+
+    return true
 end
 
 
@@ -127,11 +194,18 @@ function rebuild_partition_control_panel!(
     plot_grid::GridLayout;
     title_obs,
     selected_segment0::Int = 1,
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
 )
     delete_control_items!(item_ref[])
 
     nsegments = length(app.simulations)
+    panel_generation = app.generation[]
     selected_segment = Ref(clamp(selected_segment0, 1, nsegments))
+    updating_split_slider = Ref(false)
+    selected_segment_label_obs = Observable(
+        "Plot $(selected_segment[]) / $(nsegments)",
+    )
     merge_rows = nsegments > 1 ? cld(nsegments - 1, 2) : 0
     last_control_row = nsegments > 1 ? 5 + merge_rows : 3
 
@@ -165,17 +239,48 @@ function rebuild_partition_control_panel!(
     end
 
     row = 2
-    segment_slider = nothing
+    left_segment_button = nothing
+    right_segment_button = nothing
 
     if nsegments > 1
-        segment_label = Label(grid[row, 1], "Segment", tellwidth = false)
-        segment_slider = Slider(
-            grid[row, 2],
-            range = 1:nsegments,
-            startvalue = selected_segment[],
+        segment_selector_grid = GridLayout(
+            tellwidth = true,
+            tellheight = false,
+        )
+        grid[row, 1:2] = segment_selector_grid
+        left_segment_button = Button(
+            segment_selector_grid[1, 1],
+            label = "Left",
             tellwidth = false,
         )
-        append!(item_ref[], Any[segment_label, segment_slider])
+        selected_segment_label = Label(
+            segment_selector_grid[1, 2],
+            selected_segment_label_obs,
+            tellwidth = false,
+            halign = :center,
+        )
+        right_segment_button = Button(
+            segment_selector_grid[1, 3],
+            label = "Right",
+            tellwidth = false,
+        )
+        colsize!(segment_selector_grid, 1, Fixed(72))
+        colsize!(segment_selector_grid, 2, Fixed(105))
+        colsize!(segment_selector_grid, 3, Fixed(72))
+        colgap!(segment_selector_grid, 4)
+        try
+            segment_selector_grid.halign = :center
+        catch
+        end
+        append!(
+            item_ref[],
+            Any[
+                segment_selector_grid,
+                left_segment_button,
+                selected_segment_label,
+                right_segment_button,
+            ],
+        )
         row += 1
     end
 
@@ -202,16 +307,34 @@ function rebuild_partition_control_panel!(
     push!(item_ref[], split_button)
     row += 1
 
-    function refresh_split_selection!()
+    function refresh_split_selection!(; show_marker::Bool = false)
         sim = app.simulations[selected_segment[]]
         can_split_now = sim.N >= 4
+        selected_segment_label_obs[] =
+            "Plot $(selected_segment[]) / $(length(app.simulations))"
+
+        for index in eachindex(app.plot_panel.split_marker_observables)
+            app.plot_panel.split_marker_fade_tokens[index][] += 1
+            app.plot_panel.split_marker_observables[index][] = [NaN]
+            app.plot_panel.split_marker_alpha_observables[index][] = 0.0
+        end
 
         if can_split_now
-            split_slider.range[] = 2:(sim.N - 2)
-            set_close_to!(split_slider, clamp(div(sim.N, 2), 2, sim.N - 2))
+            updating_split_slider[] = true
+
+            try
+                split_slider.range[] = 2:(sim.N - 2)
+                set_close_to!(split_slider, clamp(div(sim.N, 2), 2, sim.N - 2))
+            finally
+                updating_split_slider[] = false
+            end
+
             left_count = Int(round(split_slider.value[]))
             split_label_obs[] = "Split point: $(left_count) / $(sim.N)"
-            update_split_marker!(app, selected_segment[], left_count)
+
+            if show_marker
+                update_split_marker!(app, selected_segment[], left_count)
+            end
         else
             split_slider.range[] = 1:1
             split_label_obs[] = "Too few points"
@@ -219,20 +342,34 @@ function rebuild_partition_control_panel!(
             for marker in app.plot_panel.split_marker_observables
                 marker[] = [NaN]
             end
+
+            for alpha in app.plot_panel.split_marker_alpha_observables
+                alpha[] = 0.0
+            end
         end
 
         return nothing
     end
 
-    if segment_slider !== nothing
-        on(segment_slider.value) do value
-            selected_segment[] = Int(round(value))
-            refresh_split_selection!()
+    if left_segment_button !== nothing
+        on(left_segment_button.clicks) do _
+            panel_generation == app.generation[] || return nothing
+            selected_segment[] = max(1, selected_segment[] - 1)
+            refresh_split_selection!(show_marker = true)
+            return nothing
+        end
+
+        on(right_segment_button.clicks) do _
+            panel_generation == app.generation[] || return nothing
+            selected_segment[] = min(nsegments, selected_segment[] + 1)
+            refresh_split_selection!(show_marker = true)
             return nothing
         end
     end
 
     on(split_slider.value) do value
+        panel_generation == app.generation[] || return nothing
+        updating_split_slider[] && return nothing
         sim = app.simulations[selected_segment[]]
 
         if sim.N >= 4
@@ -245,18 +382,22 @@ function rebuild_partition_control_panel!(
     end
 
     on(split_button.clicks) do _
+        panel_generation == app.generation[] || return nothing
         sim = app.simulations[selected_segment[]]
         sim.N >= 4 || return nothing
         left_count = Int(round(split_slider.value[]))
         split_at = selected_segment[]
 
-        split_domain_segment_app!(
+        did_split = split_domain_segment_app!(
             app,
             plot_grid,
             split_at,
             left_count;
             title_obs = title_obs,
+            steps_per_frame = steps_per_frame,
+            worker_sleep_time = worker_sleep_time,
         )
+        did_split || return nothing
 
         rebuild_partition_control_panel!(
             grid,
@@ -265,6 +406,8 @@ function rebuild_partition_control_panel!(
             plot_grid;
             title_obs = title_obs,
             selected_segment0 = split_at,
+            steps_per_frame = steps_per_frame,
+            worker_sleep_time = worker_sleep_time,
         )
 
         return nothing
@@ -292,12 +435,17 @@ function rebuild_partition_control_panel!(
             push!(item_ref[], merge_button)
 
             on(merge_button.clicks) do _
-                merge_domain_segments_app!(
+                panel_generation == app.generation[] || return nothing
+
+                did_merge = merge_domain_segments_app!(
                     app,
                     plot_grid,
                     left_boundary;
                     title_obs = title_obs,
+                    steps_per_frame = steps_per_frame,
+                    worker_sleep_time = worker_sleep_time,
                 )
+                did_merge || return nothing
 
                 rebuild_partition_control_panel!(
                     grid,
@@ -306,6 +454,8 @@ function rebuild_partition_control_panel!(
                     plot_grid;
                     title_obs = title_obs,
                     selected_segment0 = min(left_boundary, length(app.simulations)),
+                    steps_per_frame = steps_per_frame,
+                    worker_sleep_time = worker_sleep_time,
                 )
 
                 return nothing

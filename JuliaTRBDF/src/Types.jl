@@ -172,6 +172,26 @@ function empty_snapshot_buffer()
 end
 
 
+mutable struct SegmentRuntime
+    running::Threads.Atomic{Bool}
+    task_ref::Base.RefValue{Union{Nothing, Task}}
+    lock::ReentrantLock
+    latest_snapshot::Base.RefValue{Union{Nothing, SimulationSnapshot}}
+    snapshot_lock::ReentrantLock
+end
+
+
+function empty_segment_runtime()
+    return SegmentRuntime(
+        Threads.Atomic{Bool}(false),
+        Ref{Union{Nothing, Task}}(nothing),
+        ReentrantLock(),
+        Ref{Union{Nothing, SimulationSnapshot}}(nothing),
+        ReentrantLock(),
+    )
+end
+
+
 # ============================================================
 # Plot panel
 # ============================================================
@@ -192,6 +212,9 @@ mutable struct PlotPanel
     segment_profile_axes::Vector{Vector{Axis}}
     segment_profile_observables::Vector{Vector{Observable{Vector{Float64}}}}
     split_marker_observables::Vector{Observable{Vector{Float64}}}
+    split_marker_alpha_observables::Vector{Observable{Float64}}
+    split_marker_fade_tokens::Vector{Base.RefValue{Int}}
+    segment_status_observables::Vector{Observable{String}}
 end
 
 # ============================================================
@@ -249,4 +272,11 @@ mutable struct AppState
 
     simlock::ReentrantLock
     # Lock protecting the live solver state.
+
+    segment_runtimes::Vector{SegmentRuntime}
+    # One independently scheduled worker runtime per domain segment.
+
+    synchronization_running::Threads.Atomic{Bool}
+    synchronization_task_ref::Base.RefValue{Union{Nothing, Task}}
+    synchronization_status::Observable{String}
 end

@@ -32,6 +32,7 @@ function snapshot_matches_current_app(
     length(snapshot.segments) == length(app.simulations) || return false
 
     return all(
+        segment_snapshot.generation == app.generation[] &&
         segment_snapshot.model_id == app.sim.model.id &&
         segment_snapshot.N == app.simulations[segment].N &&
         segment_snapshot.nvars == app.sim.model.nvars
@@ -46,7 +47,6 @@ function refresh_app_observables_from_snapshot!(
 )
     app.time_obs[] = snapshot.t
     app.dt_obs[] = snapshot.dt
-    app.dtmax_obs[] = snapshot.dtmax
     app.step_counter_obs[] = snapshot.steps
 
     return nothing
@@ -92,16 +92,31 @@ end
 function request_stop_worker!(app::AppState)
     app.worker_running[] = false
     app.running[] = false
+    app.synchronization_running[] = false
+
+    for runtime in app.segment_runtimes
+        runtime.running[] = false
+    end
 
     return nothing
 end
 
 
 function wait_for_worker!(app::AppState)
-    task = app.worker_task_ref[]
+    for runtime in app.segment_runtimes
+        task = runtime.task_ref[]
 
-    if task !== nothing && !istaskdone(task)
-        wait(task)
+        if task !== nothing && task !== current_task() && !istaskdone(task)
+            wait(task)
+        end
+    end
+
+    sync_task = app.synchronization_task_ref[]
+
+    if sync_task !== nothing &&
+       sync_task !== current_task() &&
+       !istaskdone(sync_task)
+        wait(sync_task)
     end
 
     return nothing
@@ -129,22 +144,44 @@ function start_ui_snapshot_poller!(
 
     app.ui_task_ref[] = @async begin
         while true
-            snapshot = take_latest_snapshot!(app.snapshot_buffer)
+            snapshots = SimulationSnapshot[]
 
-            if snapshot !== nothing
+            for runtime in app.segment_runtimes
+                lock(runtime.snapshot_lock)
+
                 try
+                    runtime.latest_snapshot[] === nothing ||
+                        push!(snapshots, runtime.latest_snapshot[])
+                finally
+                    unlock(runtime.snapshot_lock)
+                end
+            end
+
+            if length(snapshots) == length(app.simulations) && !isempty(snapshots)
+                try
+                    snapshot = partition_snapshot_from_segments(
+                        snapshots,
+                        app.generation[],
+                    )
                     refresh_app_from_snapshot!(app, snapshot)
                 catch err
                     @error "Error while refreshing UI from snapshot." exception = (err, catch_backtrace())
                 end
             end
 
-            # If the worker stopped because of an error, reflect that in the UI.
-            if app.running[] &&
-               !app.worker_running[] &&
-               app.worker_task_ref[] !== nothing &&
-               istaskdone(app.worker_task_ref[])
-                app.running[] = false
+            workers_active = any(runtime.running[] for runtime in app.segment_runtimes)
+            app.worker_running[] = workers_active
+            app.running[] = workers_active
+
+            if !app.synchronization_running[] && length(snapshots) > 1
+                times = [snapshot.t for snapshot in snapshots]
+                tolerance = max(maximum(abs, times), 1.0) * 1e-10
+                app.synchronization_status[] =
+                    maximum(times) - minimum(times) <= tolerance ?
+                    "Synchronized" :
+                    "Synchronize"
+            elseif length(snapshots) <= 1 && !app.synchronization_running[]
+                app.synchronization_status[] = "Synchronized"
             end
 
             yield()
@@ -161,11 +198,7 @@ function start_worker!(
     steps_per_frame::Int = 5,
     sleep_time::Float64 = 0.001,
 )
-    if app.worker_task_ref[] !== nothing && !istaskdone(app.worker_task_ref[])
-        app.worker_running[] = true
-        app.running[] = true
-        return nothing
-    end
+    app.synchronization_running[] && return nothing
 
     # When the simulation starts, hide perturbation previews.
     clear_perturbation_previews!(app.plot_panel)
@@ -173,37 +206,75 @@ function start_worker!(
     app.worker_running[] = true
     app.running[] = true
 
-    app.worker_task_ref[] = Threads.@spawn begin
-        while app.worker_running[]
-            snapshot = nothing
+    for segment in eachindex(app.simulations)
+        sim = app.simulations[segment]
+        runtime = app.segment_runtimes[segment]
+        existing_task = runtime.task_ref[]
 
-            lock(app.simlock)
+        if existing_task !== nothing && !istaskdone(existing_task)
+            runtime.running[] = true
+            continue
+        end
 
-            try
-                step_partition_synchronized!(
-                    app.simulations,
-                    steps_per_frame,
-                )
+        runtime.running[] = true
+        generation = app.generation[]
+        runtime.task_ref[] = Threads.@spawn begin
+            while runtime.running[]
+                snapshot = nothing
+                lock(runtime.lock)
 
-                snapshot = make_partition_snapshot(
-                    app.simulations,
-                    app.generation[],
-                )
+                try
+                    step_simulation!(sim, steps_per_frame)
+                    snapshot = make_snapshot(sim, generation)
+                catch err
+                    @error "Critical error in segment worker." segment exception = (err, catch_backtrace())
+                    runtime.running[] = false
+                finally
+                    unlock(runtime.lock)
+                end
 
-            catch err
-                @error "Critical error in the simulation worker." exception = (err, catch_backtrace())
-                app.worker_running[] = false
+                if snapshot !== nothing
+                    lock(runtime.snapshot_lock)
 
-            finally
-                unlock(app.simlock)
+                    try
+                        runtime.latest_snapshot[] = snapshot
+                    finally
+                        unlock(runtime.snapshot_lock)
+                    end
+                end
+
+                yield()
+                sleep(sleep_time)
             end
+        end
+    end
 
-            if snapshot !== nothing
-                put_latest_snapshot!(app.snapshot_buffer, snapshot)
+    active_tasks = [
+        runtime.task_ref[]
+        for runtime in app.segment_runtimes
+        if runtime.task_ref[] !== nothing
+    ]
+    app.worker_task_ref[] = isempty(active_tasks) ? nothing : first(active_tasks)
+
+    return nothing
+end
+
+
+function stop_segment_workers!(app::AppState; wait::Bool = false)
+    app.worker_running[] = false
+    app.running[] = false
+
+    for runtime in app.segment_runtimes
+        runtime.running[] = false
+    end
+
+    if wait
+        for runtime in app.segment_runtimes
+            task = runtime.task_ref[]
+
+            if task !== nothing && task !== current_task() && !istaskdone(task)
+                Base.wait(task)
             end
-
-            yield()
-            sleep(sleep_time)
         end
     end
 
@@ -222,6 +293,28 @@ function make_locked_snapshot(app::AppState)
 end
 
 
+function store_runtime_snapshots!(
+    app::AppState,
+    snapshots::Vector{SimulationSnapshot},
+)
+    length(snapshots) == length(app.segment_runtimes) ||
+        error("Snapshot count does not match segment runtime count.")
+
+    for segment in eachindex(snapshots)
+        runtime = app.segment_runtimes[segment]
+        lock(runtime.snapshot_lock)
+
+        try
+            runtime.latest_snapshot[] = snapshots[segment]
+        finally
+            unlock(runtime.snapshot_lock)
+        end
+    end
+
+    return nothing
+end
+
+
 function step_once_app!(app::AppState)
     # Advance the simulation by one solver step.
     #
@@ -232,44 +325,63 @@ function step_once_app!(app::AppState)
         return nothing
     end
 
-    snapshot = nothing
+    snapshots = SimulationSnapshot[]
 
-    lock(app.simlock)
+    for segment in eachindex(app.simulations)
+        runtime = app.segment_runtimes[segment]
+        lock(runtime.lock)
 
-    try
-        step_partition_synchronized!(app.simulations, 1)
-        snapshot = make_locked_snapshot(app)
-
-    finally
-        unlock(app.simlock)
+        try
+            step_simulation!(app.simulations[segment])
+            push!(snapshots, make_snapshot(app.simulations[segment], app.generation[]))
+        finally
+            unlock(runtime.lock)
+        end
     end
 
-    if snapshot !== nothing
-        refresh_app_from_snapshot!(app, snapshot)
-    end
+    refresh_app_from_snapshot!(
+        app,
+        partition_snapshot_from_segments(snapshots, app.generation[]),
+    )
+    store_runtime_snapshots!(app, snapshots)
 
     return nothing
 end
 
 
 function set_dtmax_app!(app::AppState, new_dtmax::Float64)
-    snapshot = nothing
+    if app.synchronization_running[]
+        app.dtmax_obs[] = new_dtmax
+        return nothing
+    end
 
-    lock(app.simlock)
+    snapshots = SimulationSnapshot[]
 
-    try
-        for sim in app.simulations
-            set_dtmax!(sim, new_dtmax)
+    for segment in eachindex(app.simulations)
+        runtime = app.segment_runtimes[segment]
+        lock(runtime.lock)
+
+        try
+            set_dtmax!(app.simulations[segment], new_dtmax)
+            snapshot = make_snapshot(app.simulations[segment], app.generation[])
+            push!(snapshots, snapshot)
+
+            lock(runtime.snapshot_lock)
+            try
+                runtime.latest_snapshot[] = snapshot
+            finally
+                unlock(runtime.snapshot_lock)
+            end
+        finally
+            unlock(runtime.lock)
         end
-        snapshot = make_locked_snapshot(app)
-
-    finally
-        unlock(app.simlock)
     end
 
-    if snapshot !== nothing
-        refresh_app_from_snapshot!(app, snapshot)
-    end
+    app.dtmax_obs[] = new_dtmax
+    refresh_app_from_snapshot!(
+        app,
+        partition_snapshot_from_segments(snapshots, app.generation[]),
+    )
 
     return nothing
 end
@@ -303,6 +415,7 @@ function with_worker_paused!(
     clear_snapshot_buffer!(app.snapshot_buffer)
 
     if snapshot !== nothing
+        store_runtime_snapshots!(app, snapshot.segments)
         refresh_app_from_snapshot!(app, snapshot)
     end
 
@@ -368,6 +481,7 @@ function reset_initial_condition_app!(
             dtmax = current_dtmax(app.sim),
         )
         app.simulations = SimulationState[app.sim]
+        app.segment_runtimes = SegmentRuntime[empty_segment_runtime()]
 
         rebuild_plot_panel_for_partition!(
             app,
@@ -388,6 +502,134 @@ function reset_initial_condition_app!(
             steps_per_frame = steps_per_frame,
             sleep_time = worker_sleep_time,
         )
+    end
+
+    return nothing
+end
+
+
+function catch_up_segment_to_time!(
+    app::AppState,
+    segment::Int,
+    target_time::Float64,
+    ;
+    allow_cancel::Bool,
+)
+    sim = app.simulations[segment]
+    runtime = app.segment_runtimes[segment]
+    tolerance = max(abs(target_time), 1.0) * 1e-11
+
+    lock(runtime.lock)
+
+    try
+        remaining = target_time - current_display_time(sim)
+
+        if remaining > tolerance
+            integrator = sim.integrator_ref[]
+            integrator.opts.dtmax = Inf
+            add_tstop!(integrator, integrator.t + remaining)
+
+            while current_display_time(sim) < target_time - tolerance
+                allow_cancel && !app.synchronization_running[] && break
+                step_simulation!(sim)
+
+                if sim.step_counter[] % 5 == 0
+                    snapshot = make_snapshot(sim, app.generation[])
+                    lock(runtime.snapshot_lock)
+                    try
+                        runtime.latest_snapshot[] = snapshot
+                    finally
+                        unlock(runtime.snapshot_lock)
+                    end
+                end
+            end
+        end
+    finally
+        set_dtmax!(sim, app.dtmax_obs[])
+        snapshot = make_snapshot(sim, app.generation[])
+        lock(runtime.snapshot_lock)
+        try
+            runtime.latest_snapshot[] = snapshot
+        finally
+            unlock(runtime.snapshot_lock)
+        end
+        unlock(runtime.lock)
+    end
+
+    return nothing
+end
+
+
+function synchronize_segment_indices_blocking!(
+    app::AppState,
+    indices::AbstractVector{Int};
+    allow_cancel::Bool,
+)
+    isempty(indices) && return nothing
+    all(index -> 1 <= index <= length(app.simulations), indices) || return nothing
+    target_time = maximum(current_display_time(app.simulations[index]) for index in indices)
+    tasks = Task[]
+
+    for index in indices
+        if current_display_time(app.simulations[index]) < target_time
+            task = Threads.@spawn begin
+                catch_up_segment_to_time!(
+                    app,
+                    index,
+                    target_time;
+                    allow_cancel = allow_cancel,
+                )
+            end
+            push!(tasks, task)
+        else
+            set_dtmax!(app.simulations[index], app.dtmax_obs[])
+        end
+    end
+
+    wait.(tasks)
+
+    for index in indices
+        set_dtmax!(app.simulations[index], app.dtmax_obs[])
+    end
+
+    return nothing
+end
+
+
+function synchronize_domains_app!(app::AppState)
+    length(app.simulations) <= 1 && begin
+        app.synchronization_status[] = "Synchronized"
+        return nothing
+    end
+
+    existing_task = app.synchronization_task_ref[]
+    existing_task !== nothing && !istaskdone(existing_task) && return nothing
+
+    app.synchronization_running[] = true
+    app.synchronization_status[] = "Synchronizing..."
+
+    app.synchronization_task_ref[] = @async begin
+        stop_segment_workers!(app; wait = true)
+
+        try
+            synchronize_segment_indices_blocking!(
+                app,
+                collect(eachindex(app.simulations));
+                allow_cancel = true,
+            )
+
+            if app.synchronization_running[]
+                snapshot = make_partition_snapshot(app.simulations, app.generation[])
+                store_runtime_snapshots!(app, snapshot.segments)
+                refresh_app_from_snapshot!(app, snapshot)
+                app.synchronization_status[] = "Synchronized"
+            end
+        catch err
+            @error "Error while synchronizing domain solvers." exception = (err, catch_backtrace())
+            app.synchronization_status[] = "Synchronize"
+        finally
+            app.synchronization_running[] = false
+        end
     end
 
     return nothing
@@ -734,6 +976,7 @@ function switch_model_app!(
             boundary_condition = boundary_condition,
         )
         app.simulations = SimulationState[app.sim]
+        app.segment_runtimes = SegmentRuntime[empty_segment_runtime()]
         app.initial_N = N
         app.initial_boundary_condition = boundary_condition
 
@@ -801,6 +1044,7 @@ function switch_boundary_condition_app!(
             boundary_condition = boundary_condition,
         )
         app.simulations = SimulationState[app.sim]
+        app.segment_runtimes = SegmentRuntime[empty_segment_runtime()]
         app.initial_N = N
         app.initial_boundary_condition = boundary_condition
 

@@ -75,7 +75,9 @@ end
 
 
 function simulation_is_stopped(app::AppState)
-    return !app.worker_running[] && !app.running[]
+    return !app.worker_running[] &&
+           !app.running[] &&
+           !app.synchronization_running[]
 end
 
 
@@ -286,11 +288,7 @@ function update_mouse_perturbation_preview!(
         app.plot_panel.segment_preview_observables[segment][variable][] = preview
 
         if state.absolute_mode[]
-            rescale_axis_from_actual_and_preview!(
-                app.plot_panel.segment_axes[segment][variable],
-                actual,
-                preview,
-            )
+            rescale_solution_variable_axes!(app.plot_panel, variable)
         end
 
         success = true
@@ -417,11 +415,7 @@ function amplify_relative_perturbation_from_scroll!(
         state.relative_axis_scaled = true
         app.plot_panel.segment_preview_observables[segment][variable][] = preview
 
-        rescale_axis_from_actual_and_preview!(
-            app.plot_panel.segment_axes[segment][variable],
-            actual,
-            preview,
-        )
+        rescale_solution_variable_axes!(app.plot_panel, variable)
     finally
         unlock(app.simlock)
     end
@@ -439,14 +433,11 @@ function restore_relative_axis_from_solution!(
     (force || state.relative_axis_scaled) ||
         return false
 
-    for segment in eachindex(app.plot_panel.segment_observables)
-        for variable in eachindex(app.plot_panel.segment_observables[segment])
-            set_axis_y_limits_from_values!(
-                app.plot_panel.segment_axes[segment][variable],
-                app.plot_panel.segment_observables[segment][variable][],
-            )
-        end
-    end
+    rescale_solution_axes!(
+        app.plot_panel,
+        app.simulations;
+        include_previews = false,
+    )
 
     state.relative_axis_scaled = false
 
