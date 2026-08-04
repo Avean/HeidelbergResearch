@@ -91,6 +91,7 @@ ApplicationWindow {
 
             ToolButton {
                 text: "Models: " + ui.modelName
+                Layout.maximumWidth: Math.min(390, window.width * 0.34)
                 enabled: !ui.graphicsBusy
                 palette.buttonText: "white"
                 onClicked: modelDrawer.opened ? modelDrawer.close() : window.openModelDrawer()
@@ -98,6 +99,29 @@ ApplicationWindow {
 
             Item {
                 Layout.fillWidth: true
+            }
+
+            Label {
+                text: "Maximum dt"
+                color: "white"
+                font.bold: true
+            }
+
+            Slider {
+                Layout.preferredWidth: Math.min(230, window.width * 0.19)
+                enabled: !ui.graphicsBusy
+                from: -5
+                to: 5
+                stepSize: 1
+                value: Math.log(Number(ui.dtmax)) / Math.LN10
+                onMoved: Julia.setDtExponent(Math.round(value))
+            }
+
+            Label {
+                Layout.preferredWidth: 62
+                text: Number(ui.dtmax).toExponential(1)
+                color: "white"
+                font.family: "Consolas"
             }
 
             Rectangle {
@@ -122,10 +146,25 @@ ApplicationWindow {
                 }
             }
 
-            ToolButton {
-                text: controlDrawer.opened ? "Close controls" : "Controls"
-                palette.buttonText: "white"
-                onClicked: controlDrawer.opened ? controlDrawer.close() : window.openControlDrawer()
+            Rectangle {
+                Layout.preferredWidth: 72
+                Layout.preferredHeight: 34
+                radius: 5
+                color: "#596575"
+
+                Text {
+                    anchors.centerIn: parent
+                    text: ui.graphicsBusy ? "Wait..." : "Reset"
+                    color: "white"
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: !ui.graphicsBusy
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Julia.resetSimulation()
+                }
             }
         }
     }
@@ -143,6 +182,12 @@ ApplicationWindow {
             anchors.leftMargin: 12
             anchors.rightMargin: 12
             spacing: 10
+
+            ToolButton {
+                text: controlDrawer.opened ? "Close steady state" : "Set steady state"
+                palette.buttonText: "white"
+                onClicked: controlDrawer.opened ? controlDrawer.close() : window.openControlDrawer()
+            }
 
             Label {
                 text: "Domain rescale"
@@ -198,12 +243,23 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: window.bottomPanel === "" ? 0
-                : window.bottomPanel === "perturbations" ? 112 : 150
+                : window.bottomPanel === "perturbations" ? 108 : 122
         color: "#f3f5f8"
         border.color: "#929ca9"
         border.width: height > 0 ? 1 : 0
         clip: true
         visible: height > 0
+
+        HoverHandler {
+            id: bottomDrawerHover
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onHoveredChanged: {
+                if (hovered)
+                    bottomCloseDelay.stop()
+                else if (window.bottomPanel !== "")
+                    bottomCloseDelay.restart()
+            }
+        }
 
         Behavior on height {
             NumberAnimation {
@@ -448,6 +504,16 @@ ApplicationWindow {
         }
     }
 
+    Timer {
+        id: bottomCloseDelay
+        interval: 500
+        repeat: false
+        onTriggered: {
+            if (!bottomDrawerHover.hovered)
+                window.bottomPanel = ""
+        }
+    }
+
     Rectangle {
         id: leftEdgeHotspot
         z: 20
@@ -480,8 +546,33 @@ ApplicationWindow {
         interval: 500
         repeat: false
         onTriggered: {
-            if (!modelDrawerHover.hovered && !modelDrawer.pinned)
+            if (!modelDrawerHover.hovered
+                    && !modelDrawer.pinned
+                    && !familyCombo.popup.visible
+                    && !modelCombo.popup.visible)
                 modelDrawer.close()
+        }
+    }
+
+    Connections {
+        target: familyCombo.popup
+
+        function onVisibleChanged() {
+            if (familyCombo.popup.visible)
+                modelCloseDelay.stop()
+            else if (!modelDrawerHover.hovered && !modelDrawer.pinned)
+                modelCloseDelay.restart()
+        }
+    }
+
+    Connections {
+        target: modelCombo.popup
+
+        function onVisibleChanged() {
+            if (modelCombo.popup.visible)
+                modelCloseDelay.stop()
+            else if (!modelDrawerHover.hovered && !modelDrawer.pinned)
+                modelCloseDelay.restart()
         }
     }
 
@@ -513,7 +604,9 @@ ApplicationWindow {
                 onHoveredChanged: {
                     if (hovered)
                         modelCloseDelay.stop()
-                    else if (!modelDrawer.pinned)
+                    else if (!modelDrawer.pinned
+                             && !familyCombo.popup.visible
+                             && !modelCombo.popup.visible)
                         modelCloseDelay.restart()
                 }
             }
@@ -584,6 +677,10 @@ ApplicationWindow {
                                 enabled: !ui.graphicsBusy
                                 model: window.modelCatalog.map(function(item) { return item.family })
                                 currentIndex: window.selectedFamilyIndex
+                                popup.height: Math.min(
+                                    popup.implicitContentHeight + popup.topPadding + popup.bottomPadding,
+                                    320
+                                )
                                 onActivated: window.selectedFamilyIndex = currentIndex
                             }
 
@@ -600,6 +697,10 @@ ApplicationWindow {
                                 model: entries.map(function(item) { return item.label })
                                 currentIndex: window.activeModelIndexInSelectedFamily()
                                 displayText: currentIndex >= 0 ? currentText : "Select model"
+                                popup.height: Math.min(
+                                    popup.implicitContentHeight + popup.topPadding + popup.bottomPadding,
+                                    360
+                                )
                                 onActivated: Julia.selectModel(entries[currentIndex].key)
                             }
                         }
@@ -616,13 +717,19 @@ ApplicationWindow {
                                     required property var modelData
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: implicitWidth > 0
-                                                            ? Math.max(42, Math.min(190, width * implicitHeight / implicitWidth))
+                                                            ? Math.max(54, Math.min(260, width * implicitHeight / implicitWidth))
                                                             : 60
                                     source: modelData
+                                    sourceSize.width: Math.max(
+                                        1600,
+                                        Math.ceil(width * window.screen.devicePixelRatio * 2)
+                                    )
                                     fillMode: Image.PreserveAspectFit
                                     horizontalAlignment: Image.AlignLeft
                                     asynchronous: false
                                     cache: true
+                                    smooth: true
+                                    mipmap: true
                                 }
                             }
 

@@ -148,12 +148,12 @@ end
 
 function perturbation_control_values(app::AppState)
     state = active_perturbation_state(app)
-    state === nothing && return (width = 0.05, height = 1.0)
+    state === nothing && return (width = 0.05, height = 0.0)
 
-    height = textbox_float_value(state.height_textbox; default = 1.0)
+    height = textbox_float_value(state.height_textbox; default = 0.0)
     return (
         width = state.width_value,
-        height = height === nothing ? 1.0 : height,
+        height = height === nothing ? 0.0 : height,
     )
 end
 
@@ -809,7 +809,7 @@ function build_perturbation_controls!(
 
     height_textbox = Textbox(
         grid[1, 6],
-        stored_string = "1.0",
+        stored_string = "0.0",
         width = 70,
         tellwidth = false,
     )
@@ -831,7 +831,7 @@ function build_perturbation_controls!(
     )
 
     function update_height_visibility!()
-        is_visible = absolute_mode[]
+        is_visible = app.show_embedded_perturbation_controls && absolute_mode[]
 
         for block in (height_label, height_textbox)
             block.blockscene.visible[] = is_visible

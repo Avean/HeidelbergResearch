@@ -102,29 +102,69 @@ function json_string_array(values)
 end
 
 
-function render_equation_svg_uri(equation::AbstractString)
-    lines = filter(!isempty, strip.(split(String(equation), '\n')))
-    isempty(lines) && return ""
+function render_model_equations_svg_uri(equations::AbstractVector{<:AbstractString})
+    equation_lines = [
+        filter(!isempty, strip.(split(String(equation), '\n')))
+        for equation in equations
+    ]
+    filter!(!isempty, equation_lines)
+    isempty(equation_lines) && return ""
 
+    row_count = sum(length, equation_lines)
     figure = CairoMakie.Figure(
-        size = (900, 70 * length(lines)),
-        figure_padding = (8, 8, 6, 6),
+        size = (1200, max(100, 54 * row_count + 28)),
+        figure_padding = (16, 16, 12, 12),
         backgroundcolor = :transparent,
     )
+    row = 1
 
-    for (row, line) in enumerate(lines)
-        CairoMakie.Label(
-            figure[row, 1],
-            LaTeXStrings.latexstring(line);
-            fontsize = 25,
-            color = :black,
-            halign = :left,
-            tellwidth = true,
-            tellheight = true,
-        )
+    for lines in equation_lines
+        for (line_index, line) in enumerate(lines)
+            parts = split(line, '='; limit = 2)
+            has_equals = line_index == 1 && length(parts) == 2
+            left_side = has_equals ? strip(parts[1]) : ""
+            right_side = has_equals ? strip(parts[2]) : line
+
+            if !isempty(left_side)
+                CairoMakie.Label(
+                    figure[row, 1],
+                    LaTeXStrings.latexstring(left_side);
+                    fontsize = 38,
+                    color = :black,
+                    halign = :right,
+                    tellwidth = true,
+                    tellheight = false,
+                )
+                CairoMakie.Label(
+                    figure[row, 2],
+                    LaTeXStrings.latexstring("=");
+                    fontsize = 38,
+                    color = :black,
+                    halign = :center,
+                    tellwidth = false,
+                    tellheight = false,
+                )
+            end
+
+            CairoMakie.Label(
+                figure[row, 3],
+                LaTeXStrings.latexstring(right_side);
+                fontsize = 38,
+                color = :black,
+                halign = :left,
+                tellwidth = false,
+                tellheight = false,
+            )
+            rowsize!(figure.layout, row, Fixed(48))
+            row += 1
+        end
     end
 
-    CairoMakie.resize_to_layout!(figure)
+    colsize!(figure.layout, 1, Auto())
+    colsize!(figure.layout, 2, Fixed(42))
+    colsize!(figure.layout, 3, Relative(1.0))
+    colgap!(figure.layout, 7)
+    rowgap!(figure.layout, 5)
     svg = sprint(show, MIME"image/svg+xml"(), figure)
     return "data:image/svg+xml;base64," * base64encode(svg)
 end
@@ -136,7 +176,8 @@ function render_equation_catalog(registry::Dict{String, RD.ModelSpec})
 
     try
         for (key, model) in registry
-            images[key] = render_equation_svg_uri.(model.latex_equations)
+            image = render_model_equations_svg_uri(model.latex_equations)
+            images[key] = isempty(image) ? String[] : String[image]
         end
     finally
         GLMakie.activate!()
@@ -461,7 +502,7 @@ function apply_constant_initial_condition!(
     zero_based_variable,
     value_text,
 )
-    return guarded_action(controller, "Constant initial condition failed") do
+    return guarded_action(controller, "Steady-state change failed") do
         value = tryparse(Float64, String(value_text))
         value === nothing && error("Invalid numeric value: $(String(value_text))")
         variable = Int(zero_based_variable) + 1
@@ -469,6 +510,7 @@ function apply_constant_initial_condition!(
             controller.app;
             variable = variable,
             value = value,
+            segment = controller.selected_segment,
             steps_per_frame = controller.steps_per_frame,
             worker_sleep_time = controller.worker_sleep_time,
         )
@@ -476,19 +518,44 @@ function apply_constant_initial_condition!(
 end
 
 
-function change_selected_segment!(controller::QMLController, direction)
-    return guarded_action(controller, "Segment selection failed") do
-        count = length(controller.app.simulations)
-        controller.selected_segment = clamp(
-            controller.selected_segment + Int(direction),
-            1,
-            count,
-        )
-        update_partition_bindings!(controller; reset_index = true)
+function update_selected_segment!(
+    controller::QMLController,
+    segment::Integer;
+    show_split_marker::Bool,
+)
+    count = length(controller.app.simulations)
+    controller.selected_segment = clamp(Int(segment), 1, count)
+    update_partition_bindings!(controller; reset_index = true)
+
+    if show_split_marker
         RD.update_split_marker!(
             controller.app,
             controller.selected_segment,
             controller.split_index,
+        )
+    end
+
+    return nothing
+end
+
+
+function select_segment!(controller::QMLController, one_based_segment)
+    return guarded_action(controller, "Segment selection failed") do
+        update_selected_segment!(
+            controller,
+            Int(one_based_segment);
+            show_split_marker = false,
+        )
+    end
+end
+
+
+function change_selected_segment!(controller::QMLController, direction)
+    return guarded_action(controller, "Segment selection failed") do
+        update_selected_segment!(
+            controller,
+            controller.selected_segment + Int(direction);
+            show_split_marker = true,
         )
     end
 end
@@ -692,6 +759,10 @@ function register_qml_functions!(controller::QMLController)
     QML.qmlfunction(
         "applyConstantInitialCondition",
         (index, value) -> apply_constant_initial_condition!(controller, index, value),
+    )
+    QML.qmlfunction(
+        "selectSegment",
+        index -> select_segment!(controller, index),
     )
     QML.qmlfunction(
         "changeSelectedSegment",

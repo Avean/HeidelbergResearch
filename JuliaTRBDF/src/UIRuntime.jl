@@ -711,15 +711,25 @@ function set_single_constant_initial_condition_app!(
     app::AppState;
     variable::Int,
     value::Real,
+    segment::Union{Nothing, Int} = nothing,
     steps_per_frame::Int = 5,
     worker_sleep_time::Float64 = 0.001,
 )
+    if segment !== nothing
+        1 <= segment <= length(app.simulations) ||
+            error("Invalid simulation segment: $segment.")
+    end
+
     with_worker_paused!(
         app,
         () -> begin
-            for sim in app.simulations
+            target_segments = segment === nothing ?
+                eachindex(app.simulations) :
+                segment:segment
+
+            for segment_index in target_segments
                 set_single_constant_initial_condition!(
-                    sim;
+                    app.simulations[segment_index];
                     variable = variable,
                     value = value,
                 )
