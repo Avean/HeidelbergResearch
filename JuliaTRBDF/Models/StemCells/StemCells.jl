@@ -74,12 +74,8 @@ RDModel(
     ),
 
     latex_equations = (
-        raw"\partial_t Q = D_Q \partial_{xx} Q
-        - r_0 \frac{Q^2}{K+Q^2}
-        + \frac{2b_0p_0(Q+A)A}{(1+\beta Q)(H+Q+A)}",
+        raw"\partial_t Q = D_Q \partial_{xx} Q - r_0 \frac{Q^2}{K+Q^2} + \frac{2b_0p_0(Q+A)A}{(1+\beta Q)(H+Q+A)}",
 
-        raw"\partial_t A = D_A \partial_{xx} A
-        + \gamma r_0 \frac{Q^2}{K+Q^2}
-        - p_0\frac{(Q+A)A}{H+Q+A}",
+        raw"\partial_t A = D_A \partial_{xx} A + \gamma r_0 \frac{Q^2}{K+Q^2} - p_0\frac{(Q+A)A}{H+Q+A}",
     ),
 )

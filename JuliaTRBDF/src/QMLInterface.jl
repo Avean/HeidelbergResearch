@@ -914,7 +914,7 @@ function create_qml_controller(;
         Observable(json_string_array(first_model.varnames)),
         Observable(json_string_array(equation_images_by_model[first_key])),
         Observable(0.05),
-        Observable(1.0),
+        Observable(0.0),
         Observable(""),
     )
     controller = QMLController(

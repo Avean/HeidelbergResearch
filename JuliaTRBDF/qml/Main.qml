@@ -61,7 +61,17 @@ ApplicationWindow {
     }
 
     function toggleBottomPanel(panelName) {
-        bottomPanel = bottomPanel === panelName ? "" : panelName
+        if (bottomPanel === panelName)
+            closeBottomPanel()
+        else
+            bottomPanel = panelName
+    }
+
+    function closeBottomPanel() {
+        perturbationWidthField.focus = false
+        perturbationHeightField.focus = false
+        textEditorFocused = false
+        bottomPanel = ""
     }
 
     onActiveFamilyIndexChanged: selectedFamilyIndex = activeFamilyIndex
@@ -359,7 +369,7 @@ ApplicationWindow {
 
                     ToolButton {
                         text: "Close"
-                        onClicked: window.bottomPanel = ""
+                        onClicked: window.closeBottomPanel()
                     }
                 }
             }
@@ -432,7 +442,7 @@ ApplicationWindow {
 
                         ToolButton {
                             text: "Close"
-                            onClicked: window.bottomPanel = ""
+                            onClicked: window.closeBottomPanel()
                         }
                     }
 
@@ -510,7 +520,7 @@ ApplicationWindow {
         repeat: false
         onTriggered: {
             if (!bottomDrawerHover.hovered)
-                window.bottomPanel = ""
+                window.closeBottomPanel()
         }
     }
 
@@ -861,7 +871,7 @@ ApplicationWindow {
                         anchors.rightMargin: 8
 
                         Label {
-                            text: "Simulation controls"
+                            text: "Set steady state"
                             color: "white"
                             font.bold: true
                             font.pixelSize: 16
@@ -897,37 +907,41 @@ ApplicationWindow {
                         }
 
                         ControlSection {
-                            title: "Time and reset"
+                            title: "Set steady state"
                             Layout.leftMargin: 9
                             Layout.rightMargin: 9
 
                             Label {
                                 Layout.fillWidth: true
-                                text: "Maximum time step: " + Number(ui.dtmax).toExponential(1)
+                                text: "Target panel"
+                                font.bold: true
                             }
 
-                            Slider {
+                            ScrollView {
                                 Layout.fillWidth: true
-                                enabled: !ui.graphicsBusy
-                                from: -5
-                                to: 5
-                                stepSize: 1
-                                value: Math.log(Number(ui.dtmax)) / Math.LN10
-                                onMoved: Julia.setDtExponent(Math.round(value))
-                            }
+                                Layout.preferredHeight: 44
+                                contentHeight: availableHeight
+                                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                                clip: true
 
-                            Button {
-                                Layout.fillWidth: true
-                                enabled: !ui.graphicsBusy
-                                text: ui.graphicsBusy ? "Updating plots..." : "Reset initial state"
-                                onClicked: Julia.resetSimulation()
-                            }
-                        }
+                                Row {
+                                    spacing: 6
 
-                        ControlSection {
-                            title: "Constant initial condition"
-                            Layout.leftMargin: 9
-                            Layout.rightMargin: 9
+                                    Repeater {
+                                        model: ui.segmentCount
+
+                                        Button {
+                                            required property int index
+                                            width: 44
+                                            text: String(index + 1)
+                                            highlighted: ui.selectedSegment === index + 1
+                                            enabled: !ui.graphicsBusy
+                                            onClicked: Julia.selectSegment(index + 1)
+                                        }
+                                    }
+                                }
+                            }
 
                             Repeater {
                                 model: window.variables
