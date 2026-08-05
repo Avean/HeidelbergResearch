@@ -1107,6 +1107,17 @@ end
 # ============================================================
 
 function delete_plot_panel_item!(item)
+    if item isa GridLayout
+        try
+            grid_content = Makie.gridcontent(item)
+            grid_content === nothing ||
+                Makie.GridLayoutBase.remove_from_gridlayout!(grid_content)
+        catch
+        end
+
+        return nothing
+    end
+
     try
         delete!(item)
     catch
@@ -1116,6 +1127,24 @@ function delete_plot_panel_item!(item)
         end
     end
 
+    return nothing
+end
+
+
+function reset_plot_grid_layout!(grid::GridLayout)
+    # Blocks such as Axis remove themselves from their GridLayout when they
+    # are deleted. Nested GridLayouts do not implement delete!, however, and
+    # older panel versions could therefore leave empty layout content behind.
+    # Detach everything that remains before trimming so old row/column sizes
+    # cannot influence the next model or partition layout.
+    for grid_content in copy(grid.content)
+        try
+            Makie.GridLayoutBase.remove_from_gridlayout!(grid_content)
+        catch
+        end
+    end
+
+    trim!(grid)
     return nothing
 end
 

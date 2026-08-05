@@ -995,6 +995,7 @@ function switch_model_app!(
         app.initial_boundary_condition = boundary_condition
 
         clear_plot_panel!(app.plot_panel)
+        reset_plot_grid_layout!(plot_grid)
 
         app.plot_panel = build_plot_panel!(
             plot_grid,
@@ -1065,6 +1066,7 @@ function switch_boundary_condition_app!(
         bc_name_obs[] = boundary_condition_label(boundary_condition)
 
         clear_plot_panel!(app.plot_panel)
+        reset_plot_grid_layout!(plot_grid)
 
         app.plot_panel = build_plot_panel!(
             plot_grid,

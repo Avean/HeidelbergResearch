@@ -24,6 +24,16 @@ ApplicationWindow {
     property int activeFamilyIndex: findFamilyIndex(ui.activeModelKey)
     property string bottomPanel: ""
 
+    ButtonGroup {
+        id: splitSegmentButtonGroup
+        exclusive: true
+    }
+
+    ButtonGroup {
+        id: steadySegmentButtonGroup
+        exclusive: true
+    }
+
     function findFamilyIndex(modelKey) {
         for (let familyIndex = 0; familyIndex < modelCatalog.length; ++familyIndex) {
             const models = modelCatalog[familyIndex].models
@@ -50,28 +60,42 @@ ApplicationWindow {
         return -1
     }
 
+    function dtMatchesExponent(exponent) {
+        const dt = Number(ui.dtmax)
+        return dt > 0
+                && Math.abs(Math.log(dt) / Math.LN10 - exponent) < 0.0001
+    }
+
     function openModelDrawer() {
         controlDrawer.close()
+        bottomDrawer.close()
         modelDrawer.open()
     }
 
     function openControlDrawer() {
         modelDrawer.close()
+        bottomDrawer.close()
         controlDrawer.open()
     }
 
     function toggleBottomPanel(panelName) {
-        if (bottomPanel === panelName)
+        modelDrawer.close()
+        controlDrawer.close()
+
+        if (bottomDrawer.opened && bottomPanel === panelName) {
             closeBottomPanel()
-        else
+        } else {
             bottomPanel = panelName
+            if (!bottomDrawer.opened)
+                bottomDrawer.open()
+        }
     }
 
     function closeBottomPanel() {
         perturbationWidthField.focus = false
         perturbationHeightField.focus = false
         textEditorFocused = false
-        bottomPanel = ""
+        bottomDrawer.close()
     }
 
     onActiveFamilyIndexChanged: selectedFamilyIndex = activeFamilyIndex
@@ -97,11 +121,11 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.leftMargin: 8
             anchors.rightMargin: 8
-            spacing: 8
+            spacing: 6
 
             ToolButton {
                 text: "Models: " + ui.modelName
-                Layout.maximumWidth: Math.min(390, window.width * 0.34)
+                Layout.maximumWidth: Math.min(390, window.width * 0.30)
                 enabled: !ui.graphicsBusy
                 palette.buttonText: "white"
                 onClicked: modelDrawer.opened ? modelDrawer.close() : window.openModelDrawer()
@@ -111,32 +135,9 @@ ApplicationWindow {
                 Layout.fillWidth: true
             }
 
-            Label {
-                text: "Maximum dt"
-                color: "white"
-                font.bold: true
-            }
-
-            Slider {
-                Layout.preferredWidth: Math.min(230, window.width * 0.19)
-                enabled: !ui.graphicsBusy
-                from: -5
-                to: 5
-                stepSize: 1
-                value: Math.log(Number(ui.dtmax)) / Math.LN10
-                onMoved: Julia.setDtExponent(Math.round(value))
-            }
-
-            Label {
-                Layout.preferredWidth: 62
-                text: Number(ui.dtmax).toExponential(1)
-                color: "white"
-                font.family: "Consolas"
-            }
-
             Rectangle {
                 id: runningButton
-                Layout.preferredWidth: 96
+                Layout.preferredWidth: 92
                 Layout.preferredHeight: 34
                 radius: 5
                 color: ui.running ? "#26945b" : "#c63f45"
@@ -156,8 +157,84 @@ ApplicationWindow {
                 }
             }
 
+            Item {
+                Layout.preferredWidth: 5
+            }
+
+            Label {
+                text: "Speed"
+                color: "white"
+                font.bold: true
+            }
+
+            Repeater {
+                model: [
+                    { key: "1", exponent: -3, description: "Slow: maximum dt = 1e-3" },
+                    { key: "2", exponent: -1, description: "Medium: maximum dt = 1e-1" },
+                    { key: "3", exponent: 1, description: "Fast: maximum dt = 1e1" },
+                    { key: "4", exponent: 5, description: "Very fast: maximum dt = 1e5" }
+                ]
+
+                Rectangle {
+                    id: speedPreset
+                    required property var modelData
+                    Layout.preferredWidth: 30
+                    Layout.preferredHeight: 30
+                    property bool active: window.dtMatchesExponent(modelData.exponent)
+                    radius: 4
+                    color: active ? "#3b82f6" : "#46515f"
+                    border.color: active ? "#93c5fd" : "#697586"
+                    opacity: ui.graphicsBusy ? 0.55 : 1.0
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: speedPreset.modelData.key
+                        color: "white"
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        id: speedPresetMouse
+                        anchors.fill: parent
+                        enabled: !ui.graphicsBusy
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Julia.setDtExponent(speedPreset.modelData.exponent)
+                    }
+
+                    ToolTip.visible: speedPresetMouse.containsMouse
+                    ToolTip.text: modelData.description + "  [" + modelData.key + "]"
+                }
+            }
+
+            Label {
+                text: window.width < 1150 ? "Max dt" : "Maximum dt"
+                color: "white"
+                font.bold: true
+            }
+
+            Slider {
+                Layout.preferredWidth: Math.min(
+                    210,
+                    Math.max(110, window.width * 0.13)
+                )
+                enabled: !ui.graphicsBusy
+                from: -5
+                to: 5
+                stepSize: 1
+                value: Math.log(Number(ui.dtmax)) / Math.LN10
+                onMoved: Julia.setDtExponent(Math.round(value))
+            }
+
+            Label {
+                Layout.preferredWidth: 62
+                text: Number(ui.dtmax).toExponential(1)
+                color: "white"
+                font.family: "Consolas"
+            }
+
             Rectangle {
-                Layout.preferredWidth: 72
+                Layout.preferredWidth: 68
                 Layout.preferredHeight: 34
                 radius: 5
                 color: "#596575"
@@ -191,51 +268,74 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.leftMargin: 12
             anchors.rightMargin: 12
-            spacing: 10
+            spacing: 8
 
-            ToolButton {
-                text: controlDrawer.opened ? "Close steady state" : "Set steady state"
-                palette.buttonText: "white"
-                onClicked: controlDrawer.opened ? controlDrawer.close() : window.openControlDrawer()
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                Layout.minimumWidth: 230
+
+                RowLayout {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+
+                    ToolButton {
+                        Layout.alignment: Qt.AlignVCenter
+                        text: "Split / Merge"
+                        palette.buttonText: window.bottomPanel === "partition" ? "#93c5fd" : "white"
+                        onClicked: window.toggleBottomPanel("partition")
+                    }
+
+                    ToolButton {
+                        Layout.alignment: Qt.AlignVCenter
+                        text: "Perturbations"
+                        palette.buttonText: window.bottomPanel === "perturbations" ? "#93c5fd" : "white"
+                        onClicked: window.toggleBottomPanel("perturbations")
+                    }
+                }
             }
 
-            Label {
-                text: "Domain rescale"
-                color: "white"
-                font.bold: true
-            }
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 8
 
-            Slider {
-                Layout.preferredWidth: Math.min(330, window.width * 0.27)
-                enabled: !ui.graphicsBusy
-                from: 0
-                to: 3
-                stepSize: 0.2
-                value: 2 * Math.log(Number(ui.domainLength)) / Math.LN10
-                onMoved: Julia.setDomainExponent(value)
-            }
+                Label {
+                    text: "Domain rescale"
+                    color: "white"
+                    font.bold: true
+                }
 
-            Label {
-                Layout.preferredWidth: 72
-                text: Number(ui.domainLength).toPrecision(3)
-                color: "white"
-                font.family: "Consolas"
+                Slider {
+                    Layout.preferredWidth: Math.min(300, window.width * 0.24)
+                    enabled: !ui.graphicsBusy
+                    from: 0
+                    to: 3
+                    stepSize: 0.2
+                    value: 2 * Math.log(Number(ui.domainLength)) / Math.LN10
+                    onMoved: Julia.setDomainExponent(value)
+                }
+
+                Label {
+                    Layout.preferredWidth: 72
+                    text: Number(ui.domainLength).toPrecision(3)
+                    color: "white"
+                    font.family: "Consolas"
+                }
             }
 
             Item {
                 Layout.fillWidth: true
-            }
+                Layout.preferredWidth: 1
+                Layout.minimumWidth: 230
 
-            ToolButton {
-                text: "Perturbations"
-                palette.buttonText: window.bottomPanel === "perturbations" ? "#93c5fd" : "white"
-                onClicked: window.toggleBottomPanel("perturbations")
-            }
-
-            ToolButton {
-                text: "Split / Merge"
-                palette.buttonText: window.bottomPanel === "partition" ? "#93c5fd" : "white"
-                onClicked: window.toggleBottomPanel("partition")
+                ToolButton {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: controlDrawer.opened ? "Close steady state" : "Set steady state"
+                    palette.buttonText: "white"
+                    onClicked: controlDrawer.opened ? controlDrawer.close() : window.openControlDrawer()
+                }
             }
         }
     }
@@ -246,29 +346,49 @@ ApplicationWindow {
         scene: plot
     }
 
-    Rectangle {
+    Popup {
         id: bottomDrawer
-        z: 35
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: window.bottomPanel === "" ? 0
-                : window.bottomPanel === "perturbations" ? 108 : 122
-        color: "#f3f5f8"
-        border.color: "#929ca9"
-        border.width: height > 0 ? 1 : 0
-        clip: true
-        visible: height > 0
+        x: 0
+        y: parent.height - height
+        width: parent.width
+        height: window.bottomPanel === "perturbations" ? 108 : 122
+        modal: true
+        dim: false
+        focus: true
+        padding: 0
+        closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
 
-        HoverHandler {
-            id: bottomDrawerHover
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            onHoveredChanged: {
-                if (hovered)
-                    bottomCloseDelay.stop()
-                else if (window.bottomPanel !== "")
-                    bottomCloseDelay.restart()
+        enter: Transition {
+            NumberAnimation {
+                property: "y"
+                from: bottomDrawer.parent.height
+                to: bottomDrawer.parent.height - bottomDrawer.height
+                duration: 180
+                easing.type: Easing.OutCubic
             }
+        }
+
+        exit: Transition {
+            NumberAnimation {
+                property: "y"
+                from: bottomDrawer.parent.height - bottomDrawer.height
+                to: bottomDrawer.parent.height
+                duration: 150
+                easing.type: Easing.InCubic
+            }
+        }
+
+        onClosed: {
+            perturbationWidthField.focus = false
+            perturbationHeightField.focus = false
+            window.textEditorFocused = false
+            window.bottomPanel = ""
+        }
+
+        background: Rectangle {
+            color: "#f3f5f8"
+            border.color: "#929ca9"
+            border.width: 1
         }
 
         Behavior on height {
@@ -278,7 +398,7 @@ ApplicationWindow {
             }
         }
 
-        StackLayout {
+        contentItem: StackLayout {
             anchors.fill: parent
             currentIndex: window.bottomPanel === "partition" ? 1 : 0
 
@@ -393,22 +513,43 @@ ApplicationWindow {
                             font.pixelSize: 16
                         }
 
-                        Button {
-                            text: "Left"
-                            enabled: !ui.graphicsBusy && ui.selectedSegment > 1
-                            onClicked: Julia.changeSelectedSegment(-1)
-                        }
-
                         Label {
-                            Layout.preferredWidth: 100
-                            horizontalAlignment: Text.AlignHCenter
-                            text: "Panel " + ui.selectedSegment + " / " + ui.segmentCount
+                            text: "Panel"
+                            font.bold: true
                         }
 
-                        Button {
-                            text: "Right"
-                            enabled: !ui.graphicsBusy && ui.selectedSegment < ui.segmentCount
-                            onClicked: Julia.changeSelectedSegment(1)
+                        ScrollView {
+                            Layout.preferredWidth: Math.min(
+                                330,
+                                Math.max(48, ui.segmentCount * 50)
+                            )
+                            Layout.preferredHeight: 38
+                            contentHeight: availableHeight
+                            ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                            clip: true
+
+                            Row {
+                                spacing: 6
+
+                                Repeater {
+                                    model: ui.segmentCount
+
+                                    Button {
+                                        required property int index
+                                        width: 44
+                                        height: 32
+                                        text: String(index + 1)
+                                        checkable: true
+                                        checked: ui.selectedSegment === index + 1
+                                        highlighted: checked
+                                        focusPolicy: Qt.NoFocus
+                                        enabled: !ui.graphicsBusy
+                                        ButtonGroup.group: splitSegmentButtonGroup
+                                        onClicked: Julia.selectSplitSegment(index + 1)
+                                    }
+                                }
+                            }
                         }
 
                         Item {
@@ -514,16 +655,6 @@ ApplicationWindow {
         }
     }
 
-    Timer {
-        id: bottomCloseDelay
-        interval: 500
-        repeat: false
-        onTriggered: {
-            if (!bottomDrawerHover.hovered)
-                window.closeBottomPanel()
-        }
-    }
-
     Rectangle {
         id: leftEdgeHotspot
         z: 20
@@ -551,53 +682,27 @@ ApplicationWindow {
         }
     }
 
-    Timer {
-        id: modelCloseDelay
-        interval: 500
-        repeat: false
-        onTriggered: {
-            if (!modelDrawerHover.hovered
-                    && !modelDrawer.pinned
-                    && !familyCombo.popup.visible
-                    && !modelCombo.popup.visible)
-                modelDrawer.close()
-        }
-    }
-
-    Connections {
-        target: familyCombo.popup
-
-        function onVisibleChanged() {
-            if (familyCombo.popup.visible)
-                modelCloseDelay.stop()
-            else if (!modelDrawerHover.hovered && !modelDrawer.pinned)
-                modelCloseDelay.restart()
-        }
-    }
-
-    Connections {
-        target: modelCombo.popup
-
-        function onVisibleChanged() {
-            if (modelCombo.popup.visible)
-                modelCloseDelay.stop()
-            else if (!modelDrawerHover.hovered && !modelDrawer.pinned)
-                modelCloseDelay.restart()
-        }
-    }
-
     Drawer {
         id: modelDrawer
-        property bool pinned: false
 
         edge: Qt.LeftEdge
-        width: Math.min(530, window.width * 0.46)
+        width: Math.min(
+            window.width * 0.90,
+            Math.max(410, Number(ui.equationPreferredWidth) + 58)
+        )
         height: window.height - topBar.height - bottomBar.height
         y: topBar.height
-        modal: false
+        modal: true
         dim: false
         interactive: true
-        closePolicy: Popup.NoAutoClose
+        closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+
+        Behavior on width {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
 
         background: Rectangle {
             color: "#f3f5f8"
@@ -607,19 +712,6 @@ ApplicationWindow {
 
         contentItem: Rectangle {
             color: "#f3f5f8"
-
-            HoverHandler {
-                id: modelDrawerHover
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onHoveredChanged: {
-                    if (hovered)
-                        modelCloseDelay.stop()
-                    else if (!modelDrawer.pinned
-                             && !familyCombo.popup.visible
-                             && !modelCombo.popup.visible)
-                        modelCloseDelay.restart()
-                }
-            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -641,12 +733,6 @@ ApplicationWindow {
                             font.bold: true
                             font.pixelSize: 16
                             Layout.fillWidth: true
-                        }
-
-                        ToolButton {
-                            text: modelDrawer.pinned ? "Unpin" : "Pin"
-                            palette.buttonText: "white"
-                            onClicked: modelDrawer.pinned = !modelDrawer.pinned
                         }
 
                         ToolButton {
@@ -691,7 +777,12 @@ ApplicationWindow {
                                     popup.implicitContentHeight + popup.topPadding + popup.bottomPadding,
                                     320
                                 )
-                                onActivated: window.selectedFamilyIndex = currentIndex
+                                onActivated: {
+                                    window.selectedFamilyIndex = currentIndex
+                                    const entries = window.selectedFamilyModels()
+                                    if (entries.length > 0)
+                                        Julia.selectModel(entries[0].key)
+                                }
                             }
 
                             Label {
@@ -727,12 +818,12 @@ ApplicationWindow {
                                     required property var modelData
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: implicitWidth > 0
-                                                            ? Math.max(54, Math.min(260, width * implicitHeight / implicitWidth))
-                                                            : 60
+                                                            ? Math.max(90, Math.min(620, width * implicitHeight / implicitWidth))
+                                                            : 90
                                     source: modelData
                                     sourceSize.width: Math.max(
-                                        1600,
-                                        Math.ceil(width * window.screen.devicePixelRatio * 2)
+                                        2400,
+                                        Math.ceil(width * window.screen.devicePixelRatio * 2.5)
                                     )
                                     fillMode: Image.PreserveAspectFit
                                     horizontalAlignment: Image.AlignLeft
@@ -786,55 +877,39 @@ ApplicationWindow {
         }
     }
 
-    Rectangle {
-        id: rightEdgeHotspot
-        z: 20
-        width: 9
-        color: "transparent"
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.right: parent.right
-        visible: !controlDrawer.opened
-
-        HoverHandler {
-            id: rightEdgeHover
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            onHoveredChanged: hovered ? controlOpenDelay.restart() : controlOpenDelay.stop()
-        }
-    }
-
-    Timer {
-        id: controlOpenDelay
-        interval: 350
-        repeat: false
-        onTriggered: {
-            if (rightEdgeHover.hovered && !controlDrawer.opened)
-                window.openControlDrawer()
-        }
-    }
-
-    Timer {
-        id: controlCloseDelay
-        interval: 500
-        repeat: false
-        onTriggered: {
-            if (!controlDrawerHover.hovered && !controlDrawer.pinned)
-                controlDrawer.close()
-        }
-    }
-
-    Drawer {
+    Popup {
         id: controlDrawer
-        property bool pinned: false
-
-        edge: Qt.RightEdge
-        width: Math.min(440, window.width * 0.42)
-        height: window.height - topBar.height - bottomBar.height
-        y: topBar.height
-        modal: false
+        x: 0
+        y: parent.height - height
+        width: parent.width
+        height: 132
+        modal: true
         dim: false
-        interactive: true
-        closePolicy: Popup.NoAutoClose
+        focus: true
+        padding: 0
+        closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+
+        enter: Transition {
+            NumberAnimation {
+                property: "y"
+                from: controlDrawer.parent.height
+                to: controlDrawer.parent.height - controlDrawer.height
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        exit: Transition {
+            NumberAnimation {
+                property: "y"
+                from: controlDrawer.parent.height - controlDrawer.height
+                to: controlDrawer.parent.height
+                duration: 150
+                easing.type: Easing.InCubic
+            }
+        }
+
+        onClosed: window.textEditorFocused = false
 
         background: Rectangle {
             color: "#f3f5f8"
@@ -842,141 +917,143 @@ ApplicationWindow {
             border.width: 1
         }
 
-        contentItem: Rectangle {
-            color: "#f3f5f8"
+        contentItem: ColumnLayout {
+            anchors.fill: parent
+            spacing: 0
 
-            HoverHandler {
-                id: controlDrawerHover
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onHoveredChanged: {
-                    if (hovered)
-                        controlCloseDelay.stop()
-                    else if (!controlDrawer.pinned)
-                        controlCloseDelay.restart()
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 46
+                color: "#2b313b"
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 8
+                    spacing: 9
+
+                    Label {
+                        text: "Set steady state"
+                        color: "white"
+                        font.bold: true
+                        font.pixelSize: 16
+                    }
+
+                    Label {
+                        text: "Target panel"
+                        color: "#cbd3dc"
+                        font.bold: true
+                    }
+
+                    ScrollView {
+                        Layout.preferredWidth: Math.min(
+                            330,
+                            Math.max(48, ui.segmentCount * 50)
+                        )
+                        Layout.preferredHeight: 38
+                        contentHeight: availableHeight
+                        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                        ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                        clip: true
+
+                        Row {
+                            spacing: 6
+
+                            Repeater {
+                                model: ui.segmentCount
+
+                                Button {
+                                    required property int index
+                                    width: 44
+                                    height: 32
+                                    text: String(index + 1)
+                                    checkable: true
+                                    checked: ui.selectedSegment === index + 1
+                                    highlighted: checked
+                                    focusPolicy: Qt.NoFocus
+                                    enabled: !ui.graphicsBusy
+                                    ButtonGroup.group: steadySegmentButtonGroup
+                                    onClicked: Julia.selectSegment(index + 1)
+                                }
+                            }
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+
+                    ToolButton {
+                        text: "Close"
+                        palette.buttonText: "white"
+                        onClicked: controlDrawer.close()
+                    }
                 }
             }
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 0
+            ScrollView {
+                id: steadyValuesScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentHeight: availableHeight
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                clip: true
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 48
-                    color: "#2b313b"
+                Row {
+                    spacing: 10
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 8
+                    Item {
+                        width: 6
+                        height: 1
+                    }
 
-                        Label {
-                            text: "Set steady state"
-                            color: "white"
-                            font.bold: true
-                            font.pixelSize: 16
-                            Layout.fillWidth: true
-                        }
+                    Repeater {
+                        model: window.variables
 
-                        ToolButton {
-                            text: controlDrawer.pinned ? "Unpin" : "Pin"
-                            palette.buttonText: "white"
-                            onClicked: controlDrawer.pinned = !controlDrawer.pinned
-                        }
+                        Rectangle {
+                            required property int index
+                            required property var modelData
+                            width: 260
+                            height: 54
+                            y: Math.max(0, (steadyValuesScroll.availableHeight - height) / 2)
+                            radius: 5
+                            color: "#e7ebf0"
+                            border.color: "#c3cad4"
 
-                        ToolButton {
-                            text: "Close"
-                            palette.buttonText: "white"
-                            onClicked: controlDrawer.close()
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 6
+                                spacing: 7
+
+                                Label {
+                                    text: modelData
+                                    font.bold: true
+                                    Layout.preferredWidth: 42
+                                    elide: Text.ElideRight
+                                }
+
+                                TextField {
+                                    id: constantValue
+                                    Layout.fillWidth: true
+                                    text: "0.0"
+                                    selectByMouse: true
+                                    validator: DoubleValidator {}
+                                    onActiveFocusChanged: window.textEditorFocused = activeFocus
+                                }
+
+                                Button {
+                                    text: "Apply"
+                                    enabled: !ui.graphicsBusy
+                                    onClicked: Julia.applyConstantInitialCondition(index, constantValue.text)
+                                }
+                            }
                         }
                     }
-                }
 
-                ScrollView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    contentWidth: availableWidth
-                    clip: true
-
-                    ColumnLayout {
-                        width: parent.width
-                        spacing: 9
-
-                        Item {
-                            Layout.preferredHeight: 2
-                        }
-
-                        ControlSection {
-                            title: "Set steady state"
-                            Layout.leftMargin: 9
-                            Layout.rightMargin: 9
-
-                            Label {
-                                Layout.fillWidth: true
-                                text: "Target panel"
-                                font.bold: true
-                            }
-
-                            ScrollView {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 44
-                                contentHeight: availableHeight
-                                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
-                                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-                                clip: true
-
-                                Row {
-                                    spacing: 6
-
-                                    Repeater {
-                                        model: ui.segmentCount
-
-                                        Button {
-                                            required property int index
-                                            width: 44
-                                            text: String(index + 1)
-                                            highlighted: ui.selectedSegment === index + 1
-                                            enabled: !ui.graphicsBusy
-                                            onClicked: Julia.selectSegment(index + 1)
-                                        }
-                                    }
-                                }
-                            }
-
-                            Repeater {
-                                model: window.variables
-
-                                RowLayout {
-                                    required property int index
-                                    required property var modelData
-                                    Layout.fillWidth: true
-
-                                    Label {
-                                        text: modelData
-                                        Layout.preferredWidth: 45
-                                    }
-
-                                    TextField {
-                                        id: constantValue
-                                        Layout.fillWidth: true
-                                        text: "0.0"
-                                        selectByMouse: true
-                                        validator: DoubleValidator {}
-                                        onActiveFocusChanged: window.textEditorFocused = activeFocus
-                                    }
-
-                                    Button {
-                                        text: "Apply"
-                                        enabled: !ui.graphicsBusy
-                                        onClicked: Julia.applyConstantInitialCondition(index, constantValue.text)
-                                    }
-                                }
-                            }
-                        }
-
-                        Item {
-                            Layout.preferredHeight: 8
-                        }
+                    Item {
+                        width: 6
+                        height: 1
                     }
                 }
             }
@@ -988,7 +1065,11 @@ ApplicationWindow {
         z: 60
         visible: ui.message.length > 0
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: bottomDrawer.height > 0 ? bottomDrawer.top : parent.bottom
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Math.max(
+            bottomDrawer.visible ? bottomDrawer.height : 0,
+            controlDrawer.visible ? controlDrawer.height : 0
+        )
         width: Math.min(parent.width - 40, 760)
         implicitHeight: messageText.implicitHeight + 18
         color: "#fff0f0"
@@ -1003,6 +1084,54 @@ ApplicationWindow {
             color: "#9f252b"
             wrapMode: Text.Wrap
         }
+    }
+
+    Shortcut {
+        sequence: "Space"
+        context: Qt.WindowShortcut
+        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        autoRepeat: false
+        onActivated: Julia.toggleRunning()
+    }
+
+    Shortcut {
+        sequence: "R"
+        context: Qt.WindowShortcut
+        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        autoRepeat: false
+        onActivated: Julia.resetSimulation()
+    }
+
+    Shortcut {
+        sequence: "1"
+        context: Qt.WindowShortcut
+        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        autoRepeat: false
+        onActivated: Julia.setDtExponent(-3)
+    }
+
+    Shortcut {
+        sequence: "2"
+        context: Qt.WindowShortcut
+        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        autoRepeat: false
+        onActivated: Julia.setDtExponent(-1)
+    }
+
+    Shortcut {
+        sequence: "3"
+        context: Qt.WindowShortcut
+        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        autoRepeat: false
+        onActivated: Julia.setDtExponent(1)
+    }
+
+    Shortcut {
+        sequence: "4"
+        context: Qt.WindowShortcut
+        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        autoRepeat: false
+        onActivated: Julia.setDtExponent(5)
     }
 
     Shortcut {

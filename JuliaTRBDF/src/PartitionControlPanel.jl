@@ -74,8 +74,8 @@ function rebuild_plot_panel_for_partition!(
     title_obs,
     domain_length_scale::Float64,
 )
-    previous_columns = length(app.plot_panel.segment_axes)
     clear_plot_panel!(app.plot_panel)
+    reset_plot_grid_layout!(plot_grid)
 
     app.plot_panel = build_plot_panel!(
         plot_grid,
@@ -88,10 +88,6 @@ function rebuild_plot_panel_for_partition!(
         app,
         domain_length_scale^2,
     )
-
-    for column in (length(app.simulations) + 1):previous_columns
-        colsize!(plot_grid, column, Fixed(0))
-    end
 
     refresh_app_from_live_state!(app)
 

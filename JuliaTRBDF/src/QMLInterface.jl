@@ -31,6 +31,7 @@ mutable struct QMLBindings
     split_maximum::Observable{Int}
     variables_json::Observable{String}
     equation_images_json::Observable{String}
+    equation_preferred_width::Observable{Float64}
     perturbation_width::Observable{Float64}
     perturbation_height::Observable{Float64}
     message::Observable{String}
@@ -45,6 +46,7 @@ mutable struct QMLController
     boundary_name_obs::Observable{String}
     registry::Dict{String, RD.ModelSpec}
     equation_images_by_model::Dict{String, Vector{String}}
+    equation_widths_by_model::Dict{String, Float64}
     bindings::QMLBindings
     diffusion_scale::Float64
     selected_segment::Int
@@ -108,12 +110,10 @@ function render_model_equations_svg_uri(equations::AbstractVector{<:AbstractStri
         for equation in equations
     ]
     filter!(!isempty, equation_lines)
-    isempty(equation_lines) && return ""
+    isempty(equation_lines) && return (uri = "", width = 0.0)
 
-    row_count = sum(length, equation_lines)
     figure = CairoMakie.Figure(
-        size = (1200, max(100, 54 * row_count + 28)),
-        figure_padding = (16, 16, 12, 12),
+        figure_padding = (18, 18, 14, 14),
         backgroundcolor = :transparent,
     )
     row = 1
@@ -129,61 +129,68 @@ function render_model_equations_svg_uri(equations::AbstractVector{<:AbstractStri
                 CairoMakie.Label(
                     figure[row, 1],
                     LaTeXStrings.latexstring(left_side);
-                    fontsize = 38,
+                    fontsize = 24,
                     color = :black,
                     halign = :right,
                     tellwidth = true,
-                    tellheight = false,
+                    tellheight = true,
                 )
                 CairoMakie.Label(
                     figure[row, 2],
                     LaTeXStrings.latexstring("=");
-                    fontsize = 38,
+                    fontsize = 24,
                     color = :black,
                     halign = :center,
                     tellwidth = false,
-                    tellheight = false,
+                    tellheight = true,
                 )
             end
 
             CairoMakie.Label(
                 figure[row, 3],
                 LaTeXStrings.latexstring(right_side);
-                fontsize = 38,
+                fontsize = 24,
                 color = :black,
                 halign = :left,
-                tellwidth = false,
-                tellheight = false,
+                tellwidth = true,
+                tellheight = true,
             )
-            rowsize!(figure.layout, row, Fixed(48))
             row += 1
         end
     end
 
     colsize!(figure.layout, 1, Auto())
-    colsize!(figure.layout, 2, Fixed(42))
-    colsize!(figure.layout, 3, Relative(1.0))
-    colgap!(figure.layout, 7)
-    rowgap!(figure.layout, 5)
+    colsize!(figure.layout, 2, Fixed(58))
+    colsize!(figure.layout, 3, Auto())
+    colgap!(figure.layout, 10)
+    rowgap!(figure.layout, 18)
+    CairoMakie.resize_to_layout!(figure)
+
+    rendered_width = Float64(figure.scene.viewport[].widths[1])
     svg = sprint(show, MIME"image/svg+xml"(), figure)
-    return "data:image/svg+xml;base64," * base64encode(svg)
+    return (
+        uri = "data:image/svg+xml;base64," * base64encode(svg),
+        width = rendered_width,
+    )
 end
 
 
 function render_equation_catalog(registry::Dict{String, RD.ModelSpec})
     images = Dict{String, Vector{String}}()
+    widths = Dict{String, Float64}()
     CairoMakie.activate!(type = "svg")
 
     try
         for (key, model) in registry
-            image = render_model_equations_svg_uri(model.latex_equations)
-            images[key] = isempty(image) ? String[] : String[image]
+            rendered = render_model_equations_svg_uri(model.latex_equations)
+            images[key] = isempty(rendered.uri) ? String[] : String[rendered.uri]
+            widths[key] = rendered.width
         end
     finally
         GLMakie.activate!()
     end
 
-    return images
+    return images, widths
 end
 
 
@@ -233,6 +240,10 @@ function update_model_bindings!(controller::QMLController)
     set_if_changed!(
         bindings.equation_images_json,
         json_string_array(get(controller.equation_images_by_model, active_key, String[])),
+    )
+    set_if_changed!(
+        bindings.equation_preferred_width,
+        get(controller.equation_widths_by_model, active_key, 0.0),
     )
 
     return nothing
@@ -550,6 +561,17 @@ function select_segment!(controller::QMLController, one_based_segment)
 end
 
 
+function select_split_segment!(controller::QMLController, one_based_segment)
+    return guarded_action(controller, "Split-panel selection failed") do
+        update_selected_segment!(
+            controller,
+            Int(one_based_segment);
+            show_split_marker = true,
+        )
+    end
+end
+
+
 function change_selected_segment!(controller::QMLController, direction)
     return guarded_action(controller, "Segment selection failed") do
         update_selected_segment!(
@@ -765,6 +787,10 @@ function register_qml_functions!(controller::QMLController)
         index -> select_segment!(controller, index),
     )
     QML.qmlfunction(
+        "selectSplitSegment",
+        index -> select_split_segment!(controller, index),
+    )
+    QML.qmlfunction(
         "changeSelectedSegment",
         direction -> change_selected_segment!(controller, direction),
     )
@@ -829,6 +855,7 @@ function qml_property_map(
         "splitMaximum" => bindings.split_maximum,
         "variablesJson" => bindings.variables_json,
         "equationImagesJson" => bindings.equation_images_json,
+        "equationPreferredWidth" => bindings.equation_preferred_width,
         "modelCatalogJson" => Observable(catalog_json),
         "message" => bindings.message,
         "graphicsBusy" => controller.graphics_busy,
@@ -848,7 +875,8 @@ function create_qml_controller(;
 )
     RD.validate_boundary_condition(boundary_condition0)
     registry = RD.MODEL_REGISTRY
-    equation_images_by_model = render_equation_catalog(registry)
+    equation_images_by_model, equation_widths_by_model =
+        render_equation_catalog(registry)
     labels = RD.model_labels(registry)
     isempty(labels) && error("No models found in MODEL_REGISTRY.")
     first_label = first(labels)
@@ -913,6 +941,7 @@ function create_qml_controller(;
         Observable(max(2, N - 2)),
         Observable(json_string_array(first_model.varnames)),
         Observable(json_string_array(equation_images_by_model[first_key])),
+        Observable(get(equation_widths_by_model, first_key, 0.0)),
         Observable(0.05),
         Observable(0.0),
         Observable(""),
@@ -925,6 +954,7 @@ function create_qml_controller(;
         boundary_name,
         registry,
         equation_images_by_model,
+        equation_widths_by_model,
         bindings,
         1.0,
         1,
