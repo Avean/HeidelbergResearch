@@ -229,3 +229,82 @@ def approx_nonlocal_dispersal():
     w0 = (A - np.sqrt(A**2 - 4*B**2)) / 2
     initial_guess_steady_state = [u0, u0, w0]
     return [func_f, func_g, func_h], initial_guess_steady_state
+
+def classical_GM():
+    a = 2.0
+    b = 1.0
+    muu = 0.5
+    muv = 1.0
+    beta = 0.01
+    func_f = "-x"
+    func_g = f"{a}*y**2 / (1 + z) - {muu}*y + {beta}"
+    func_h = f"{b}*y**2 - {muv}*z"
+    v0 = (a*muv + np.sqrt(a**2 * muv**2 - 4 * b * muu**2 *muv)) / (2 * b * muu)
+    initial_guess_steady_state = [0, v0, b / muv * v0**2]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+def GM_source_density_v1():
+    # a = 2.0
+    # b = 1.0
+    a = 1.5
+    b = 2.0
+    muu = 0.4
+    muv = 1.0
+    cu = 0.0
+    beta = 0.0
+    func_f = f"y - x + {beta}"
+    func_g = f"{a}*x*(y**2 + {cu}) / (1 + z) - {muu}*y"
+    func_h = f"{b}*x*y**2 - {muv}*z"
+    v0 = (a*muv + np.sqrt(a**2 * muv**2 - 4 * b * muu**2 *muv)) / (2 * b * muu)
+    initial_guess_steady_state = [v0, v0, b / muv * v0**2]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+def GM_source_density_v2():
+    a = 2.0
+    b = 1.0
+    muu = 0.5
+    muv = 1.0
+    func_f = f"{b}*y**2 - {muv}*x"
+    func_g = f"{a}*y**2 / (1 + z) - {muu}*y"
+    func_h = "y - z"
+    v0 = (a*muv + np.sqrt(a**2 * muv**2 - 4 * b * muu**2 *muv)) / (2 * b * muu)
+    initial_guess_steady_state = [b / muv * v0**2, v0, v0]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+def classical_GM_mult_heads():
+    a = 1.5
+    b = 2.0
+    muu = 0.5
+    muv = 1.0
+    pu = 0.0
+    func_f = "-x"
+    func_g = f"({a}*y**2 + {pu}) / (1 + z) - {muu}*y"
+    func_h = f"{b}*y**2 - {muv}*z"
+    v0 = (a*muv + np.sqrt(a**2 * muv**2 - 4 * b * muu**2 *muv)) / (2 * b * muu)
+    initial_guess_steady_state = [0, v0, b / muv * v0**2]
+    return [func_f, func_g, func_h], initial_guess_steady_state
+
+# μu = 0.5;
+# μv = 1.0;
+# a = 1.5;
+# b = 2.0;
+# pu = 0.0;
+# pv = 0.0;
+# D = [1e-4, 1e-1]; # Diffusion Coefficients
+# image.png
+
+# Steady states: (0,0): Stable
+# DDI: (1.0, 2.0)
+
+def classical_GM_2_heads():
+    a = 1.5
+    b = 2.0
+    muu = 0.5
+    muv = 1.0
+    beta = 0.0
+    func_f = "-x"
+    func_g = f"{a}*y**2 / (1 + z) - {muu}*y + {beta}"
+    func_h = f"{b}*y**2 - {muv}*z"
+    v0 = (a*muv + np.sqrt(a**2 * muv**2 - 4 * b * muu**2 *muv)) / (2 * b * muu)
+    initial_guess_steady_state = [0, v0, b / muv * v0**2]
+    return [func_f, func_g, func_h], initial_guess_steady_state
