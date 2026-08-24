@@ -456,6 +456,7 @@ function RDModel(;
     initial::Function,
     reaction::Function,
     diffusion = NamedTuple(),
+    default_boundary_condition::Union{Nothing, Symbol} = nothing,
     spatial_profiles = NamedTuple(),
     latex_equations = String[],    
 )
@@ -559,6 +560,7 @@ function RDModel(;
         default_params = default_params,
         initialize! = initialize_wrapped!,
         rhs! = rhs_wrapped!,
+        default_boundary_condition = default_boundary_condition,
         spatial_profile_sets = wrapped_spatial_profile_sets,
         latex_equations = _make_latex_equations(latex_equations),
     )

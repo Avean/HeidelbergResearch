@@ -38,6 +38,10 @@ Base.@kwdef struct ModelSpec
     #
     # where U and dU have size N × nvars.
 
+    default_boundary_condition::Union{Nothing, Symbol} = nothing
+    # Optional boundary condition selected automatically when the model is
+    # chosen. A value of `nothing` preserves the currently selected condition.
+
     spatial_profile_sets::Vector{Tuple{String, Vector{Tuple{String, Function}}}} =
     Tuple{String, Vector{Tuple{String, Function}}}[]
     # Optional spatial profiles that can be displayed in the UI.
@@ -56,6 +60,10 @@ function validate_model(model::ModelSpec)
 
     length(unique(model.varnames)) == length(model.varnames) ||
         error("Variable names must be unique.")
+
+    if !isnothing(model.default_boundary_condition)
+        validate_boundary_condition(model.default_boundary_condition)
+    end
 
     return true
 end

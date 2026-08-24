@@ -445,6 +445,7 @@ function select_model!(controller::QMLController, key)
             boundary_condition = controller.app.sim.boundary_condition,
             title_obs = controller.title_obs,
             model_name_obs = controller.model_name_obs,
+            bc_name_obs = controller.boundary_name_obs,
         )
         RD.set_diffusion_scale_app!(
             controller.app,

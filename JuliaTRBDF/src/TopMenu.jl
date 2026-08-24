@@ -50,6 +50,8 @@ function build_top_menu!(
         tellwidth = false,
     )
 
+    updating_boundary_menu = Ref(false)
+
     on(model_menu.selection) do selected_label
         model = get_model(registry, selected_label)
 
@@ -64,10 +66,27 @@ function build_top_menu!(
             boundary_condition = app.sim.boundary_condition,
             title_obs = title_obs,
             model_name_obs = model_name_obs,
+            bc_name_obs = bc_name_obs,
         )
+
+        selected_boundary_label = boundary_condition_label(
+            app.sim.boundary_condition,
+        )
+
+        if boundary_menu.selection[] != selected_boundary_label
+            updating_boundary_menu[] = true
+
+            try
+                boundary_menu.selection[] = selected_boundary_label
+            finally
+                updating_boundary_menu[] = false
+            end
+        end
     end
 
     on(boundary_menu.selection) do selected_label
+        updating_boundary_menu[] && return
+
         boundary_condition = boundary_condition_from_label(selected_label)
 
         switch_boundary_condition_app!(

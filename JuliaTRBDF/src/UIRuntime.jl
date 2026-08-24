@@ -970,6 +970,7 @@ function switch_model_app!(
     boundary_condition::Symbol,
     title_obs,
     model_name_obs::Observable{String},
+    bc_name_obs = nothing,
 )
     # Switch to another already-loaded model.
 
@@ -981,18 +982,21 @@ function switch_model_app!(
         app.generation[] = app.generation[] + 1
         clear_snapshot_buffer!(app.snapshot_buffer)
 
+        selected_boundary_condition = isnothing(model.default_boundary_condition) ?
+            boundary_condition : model.default_boundary_condition
+
         app.sim = create_simulation_state(
             model;
             N = N,
             dtmax = dtmax,
             reltol = reltol,
             abstol = abstol,
-            boundary_condition = boundary_condition,
+            boundary_condition = selected_boundary_condition,
         )
         app.simulations = SimulationState[app.sim]
         app.segment_runtimes = SegmentRuntime[empty_segment_runtime()]
         app.initial_N = N
-        app.initial_boundary_condition = boundary_condition
+        app.initial_boundary_condition = selected_boundary_condition
 
         clear_plot_panel!(app.plot_panel)
         reset_plot_grid_layout!(plot_grid)
@@ -1014,6 +1018,10 @@ function switch_model_app!(
         # diffusion rescaling. If it is triggered too early, the new model
         # may have 3 variables while the old plot panel still has 2 axes.
         model_name_obs[] = model.display_name
+
+        if bc_name_obs !== nothing
+            bc_name_obs[] = boundary_condition_label(selected_boundary_condition)
+        end
 
     finally
         unlock(app.simlock)
