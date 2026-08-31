@@ -34,6 +34,7 @@ mutable struct QMLBindings
     equation_preferred_width::Observable{Float64}
     perturbation_width::Observable{Float64}
     perturbation_height::Observable{Float64}
+    checkpoint_available::Observable{Bool}
     message::Observable{String}
 end
 
@@ -293,6 +294,10 @@ function refresh_qml_state!(controller::QMLController)
         controller.bindings.domain_length,
         controller.app.plot_panel.domain_length_scale,
     )
+    set_if_changed!(
+        controller.bindings.checkpoint_available,
+        controller.app.saved_state[] !== nothing,
+    )
     update_partition_bindings!(controller)
 
     return nothing
@@ -422,6 +427,34 @@ function reset_simulation!(controller::QMLController)
             title_obs = controller.title_obs,
             steps_per_frame = controller.steps_per_frame,
             worker_sleep_time = controller.worker_sleep_time,
+        )
+        controller.selected_segment = 1
+        update_partition_bindings!(controller; reset_index = true)
+    end
+end
+
+
+function save_current_state!(controller::QMLController)
+    return guarded_action(controller, "State save failed") do
+        RD.save_simulation_state!(controller.app)
+        controller.bindings.checkpoint_available[] = true
+    end
+end
+
+
+function restore_saved_state!(controller::QMLController)
+    return guarded_action(controller, "State restore failed") do
+        RD.restore_saved_simulation_state_app!(
+            controller.app;
+            plot_grid = controller.plot_grid,
+            title_obs = controller.title_obs,
+            reltol = controller.reltol,
+            abstol = controller.abstol,
+        )
+        controller.diffusion_scale =
+            controller.app.plot_panel.domain_length_scale^2
+        controller.boundary_name_obs[] = RD.boundary_condition_label(
+            controller.app.initial_boundary_condition,
         )
         controller.selected_segment = 1
         update_partition_bindings!(controller; reset_index = true)
@@ -633,6 +666,53 @@ function merge_boundary!(controller::QMLController, one_based_boundary)
 end
 
 
+function swap_boundary!(controller::QMLController, one_based_boundary)
+    return guarded_action(controller, "Domain swap failed") do
+        boundary = Int(one_based_boundary)
+        selected_before_swap = controller.selected_segment
+        success = RD.swap_adjacent_domain_segments_app!(
+            controller.app,
+            controller.plot_grid,
+            boundary;
+            title_obs = controller.title_obs,
+            steps_per_frame = controller.steps_per_frame,
+            worker_sleep_time = controller.worker_sleep_time,
+        )
+        success || error("The selected swap boundary is not valid.")
+        controller.selected_segment = if selected_before_swap == boundary
+            boundary + 1
+        elseif selected_before_swap == boundary + 1
+            boundary
+        else
+            selected_before_swap
+        end
+        update_partition_bindings!(controller; reset_index = true)
+    end
+end
+
+
+function delete_selected_segment!(controller::QMLController)
+    return guarded_action(controller, "Domain deletion failed") do
+        deleted_segment = controller.selected_segment
+        success = RD.delete_domain_segment_app!(
+            controller.app,
+            controller.plot_grid,
+            deleted_segment;
+            title_obs = controller.title_obs,
+            steps_per_frame = controller.steps_per_frame,
+            worker_sleep_time = controller.worker_sleep_time,
+        )
+        success || error("The last remaining panel cannot be deleted.")
+        controller.selected_segment = clamp(
+            deleted_segment,
+            1,
+            length(controller.app.simulations),
+        )
+        update_partition_bindings!(controller; reset_index = true)
+    end
+end
+
+
 function synchronize_domains!(controller::QMLController)
     return guarded_action(controller, "Synchronization failed") do
         RD.synchronize_domains_app!(controller.app)
@@ -747,6 +827,14 @@ end
 function register_qml_functions!(controller::QMLController)
     QML.qmlfunction("refreshUI", () -> refresh_qml_state!(controller))
     QML.qmlfunction("toggleRunning", () -> toggle_running!(controller))
+    QML.qmlfunction("saveCurrentState", () -> save_current_state!(controller))
+    QML.qmlfunction(
+        "restoreSavedState",
+        () -> enqueue_graphics_action!(
+            controller,
+            () -> restore_saved_state!(controller),
+        ),
+    )
     QML.qmlfunction(
         "resetSimulation",
         () -> enqueue_graphics_action!(
@@ -813,6 +901,23 @@ function register_qml_functions!(controller::QMLController)
             )
         end,
     )
+    QML.qmlfunction(
+        "swapBoundary",
+        index -> begin
+            boundary = Int(index)
+            enqueue_graphics_action!(
+                controller,
+                () -> swap_boundary!(controller, boundary),
+            )
+        end,
+    )
+    QML.qmlfunction(
+        "deleteSelectedSegment",
+        () -> enqueue_graphics_action!(
+            controller,
+            () -> delete_selected_segment!(controller),
+        ),
+    )
     QML.qmlfunction("synchronizeDomains", () -> synchronize_domains!(controller))
     QML.qmlfunction("toggleRandomMode", () -> toggle_random_mode!(controller))
     QML.qmlfunction("toggleAbsoluteMode", () -> toggle_absolute_mode!(controller))
@@ -850,6 +955,7 @@ function qml_property_map(
         "absoluteMode" => bindings.absolute_mode,
         "perturbationWidth" => bindings.perturbation_width,
         "perturbationHeight" => bindings.perturbation_height,
+        "checkpointAvailable" => bindings.checkpoint_available,
         "selectedSegment" => bindings.selected_segment,
         "segmentCount" => bindings.segment_count,
         "splitIndex" => bindings.split_index,
@@ -927,6 +1033,7 @@ function create_qml_controller(;
         Threads.Atomic{Bool}(false),
         Ref{Union{Nothing, Task}}(nothing),
         Observable("Synchronized"),
+        Ref{Union{Nothing, RD.SavedSimulationState}}(nothing),
         false,
     )
     app.plot_panel = RD.build_plot_panel!(plot_grid, app; title_obs = title)
@@ -945,6 +1052,7 @@ function create_qml_controller(;
         Observable(get(equation_widths_by_model, first_key, 0.0)),
         Observable(0.05),
         Observable(0.0),
+        Observable(false),
         Observable(""),
     )
     controller = QMLController(

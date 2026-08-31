@@ -171,6 +171,112 @@ function merge_domain_segments_app!(
 end
 
 
+function finalize_partition_topology_change!(
+    app::AppState,
+    plot_grid::GridLayout;
+    title_obs,
+    domain_length_scale::Float64,
+)
+    rebuild_plot_panel_for_partition!(
+        app,
+        plot_grid;
+        title_obs = title_obs,
+        domain_length_scale = domain_length_scale,
+    )
+
+    snapshot = make_partition_snapshot(app.simulations, app.generation[])
+    store_runtime_snapshots!(app, snapshot.segments)
+    refresh_app_from_snapshot!(app, snapshot)
+
+    return nothing
+end
+
+
+function swap_adjacent_domain_segments_app!(
+    app::AppState,
+    plot_grid::GridLayout,
+    left_segment::Int;
+    title_obs,
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
+)
+    1 <= left_segment < length(app.simulations) || return false
+    was_running = app.worker_running[] ||
+        any(runtime.running[] for runtime in app.segment_runtimes)
+
+    lock(app.simlock)
+
+    try
+        app.generation[] += 1
+        stop_and_settle_partition_workers!(app)
+        domain_length_scale = app.plot_panel.domain_length_scale
+        clear_snapshot_buffer!(app.snapshot_buffer)
+        swap_adjacent_domain_segments!(app, left_segment)
+        finalize_partition_topology_change!(
+            app,
+            plot_grid;
+            title_obs = title_obs,
+            domain_length_scale = domain_length_scale,
+        )
+    finally
+        unlock(app.simlock)
+    end
+
+    if was_running
+        start_worker!(
+            app;
+            steps_per_frame = steps_per_frame,
+            sleep_time = worker_sleep_time,
+        )
+    end
+
+    return true
+end
+
+
+function delete_domain_segment_app!(
+    app::AppState,
+    plot_grid::GridLayout,
+    segment::Int;
+    title_obs,
+    steps_per_frame::Int = 5,
+    worker_sleep_time::Float64 = 0.001,
+)
+    length(app.simulations) > 1 || return false
+    1 <= segment <= length(app.simulations) || return false
+    was_running = app.worker_running[] ||
+        any(runtime.running[] for runtime in app.segment_runtimes)
+
+    lock(app.simlock)
+
+    try
+        app.generation[] += 1
+        stop_and_settle_partition_workers!(app)
+        domain_length_scale = app.plot_panel.domain_length_scale
+        clear_snapshot_buffer!(app.snapshot_buffer)
+        delete_domain_segment!(app, segment)
+        finalize_partition_topology_change!(
+            app,
+            plot_grid;
+            title_obs = title_obs,
+            domain_length_scale = domain_length_scale,
+        )
+    finally
+        unlock(app.simlock)
+    end
+
+    if was_running
+        start_worker!(
+            app;
+            steps_per_frame = steps_per_frame,
+            sleep_time = worker_sleep_time,
+        )
+    end
+
+    return true
+end
+
+
 function rebuild_partition_control_panel!(
     grid::GridLayout,
     app::AppState,

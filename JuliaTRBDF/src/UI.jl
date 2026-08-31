@@ -154,6 +154,7 @@ function run_app(;
         Threads.Atomic{Bool}(false),
         Ref{Union{Nothing, Task}}(nothing),
         Observable("Synchronized"),
+        Ref{Union{Nothing, SavedSimulationState}}(nothing),
         true,
     )
 

@@ -512,6 +512,176 @@ function reset_initial_condition_app!(
 end
 
 
+# ============================================================
+# In-memory save / restore
+# ============================================================
+
+function save_simulation_state!(app::AppState)
+    length(app.simulations) == length(app.segment_runtimes) ||
+        error("Segment runtime count does not match the simulation partition.")
+
+    saved_segments = SavedSegmentState[]
+
+    # Holding simlock freezes only topology-changing UI operations. Each live
+    # solver keeps running until its own short runtime lock is acquired for a
+    # consistent copy of that segment.
+    lock(app.simlock)
+
+    try
+        generation = app.generation[]
+        model_id = app.sim.model.id
+
+        for segment in eachindex(app.simulations)
+            sim = app.simulations[segment]
+            runtime = app.segment_runtimes[segment]
+            lock(runtime.lock)
+
+            try
+                app.generation[] == generation ||
+                    error("Simulation topology changed while saving state.")
+                sim.model.id == model_id ||
+                    error("All saved segments must use the same model.")
+
+                dtmax = current_dtmax(sim)
+                if !isfinite(dtmax) || dtmax <= 0
+                    dtmax = app.dtmax_obs[]
+                end
+
+                push!(
+                    saved_segments,
+                    SavedSegmentState(
+                        model_id,
+                        copy(sim.x),
+                        sim.dx,
+                        copy(sim.integrator_ref[].u),
+                        deepcopy(sim.params),
+                        sim.boundary_condition,
+                        current_display_time(sim),
+                        current_internal_dt(sim),
+                        dtmax,
+                        sim.step_counter[],
+                    ),
+                )
+            finally
+                unlock(runtime.lock)
+            end
+        end
+
+        app.saved_state[] = SavedSimulationState(
+            model_id,
+            saved_segments,
+            app.plot_panel.domain_length_scale,
+            app.dtmax_obs[],
+            app.initial_N,
+            app.initial_boundary_condition,
+        )
+    finally
+        unlock(app.simlock)
+    end
+
+    return app.saved_state[]
+end
+
+
+function clear_saved_simulation_state!(app::AppState)
+    app.saved_state[] = nothing
+    return nothing
+end
+
+
+function restore_saved_simulation_state_app!(
+    app::AppState;
+    plot_grid::GridLayout,
+    title_obs,
+    reltol::Float64 = 1e-5,
+    abstol::Float64 = 1e-7,
+)
+    saved = app.saved_state[]
+    saved === nothing && error("No saved simulation state is available.")
+    isempty(saved.segments) && error("Saved simulation state has no segments.")
+    saved.model_id == app.sim.model.id ||
+        error("The saved state belongs to a different model.")
+
+    stop_worker!(app; wait = true)
+    restored_simulations = SimulationState[]
+
+    lock(app.simlock)
+
+    try
+        app.generation[] += 1
+        clear_snapshot_buffer!(app.snapshot_buffer)
+        model = app.sim.model
+
+        for segment in saved.segments
+            segment.model_id == model.id ||
+                error("Saved segment belongs to a different model.")
+            isfinite(segment.dtmax) && segment.dtmax > 0 ||
+                error("Saved segment has an invalid maximum time step.")
+
+            sim = create_simulation_state_from_data(
+                model,
+                copy(segment.x),
+                segment.dx,
+                copy(segment.y),
+                deepcopy(segment.params);
+                boundary_condition = segment.boundary_condition,
+                displayed_time = segment.t,
+                dtmax = segment.dtmax,
+                reltol = reltol,
+                abstol = abstol,
+            )
+            sim.step_counter[] = segment.steps
+
+            if isfinite(segment.dt) && segment.dt > 0
+                set_proposed_dt!(
+                    sim.integrator_ref[],
+                    min(segment.dt, segment.dtmax),
+                )
+            end
+
+            push!(restored_simulations, sim)
+        end
+
+        app.simulations = restored_simulations
+        app.sim = first(restored_simulations)
+        app.segment_runtimes = [
+            empty_segment_runtime() for _ in restored_simulations
+        ]
+        app.initial_N = saved.initial_N
+        app.initial_boundary_condition = saved.initial_boundary_condition
+        app.dtmax_obs[] = saved.requested_dtmax
+        app.running[] = false
+        app.worker_running[] = false
+        app.synchronization_running[] = false
+
+        rebuild_plot_panel_for_partition!(
+            app,
+            plot_grid;
+            title_obs = title_obs,
+            domain_length_scale = saved.domain_length_scale,
+        )
+
+        snapshot = make_partition_snapshot(
+            app.simulations,
+            app.generation[],
+        )
+        store_runtime_snapshots!(app, snapshot.segments)
+        refresh_app_from_snapshot!(app, snapshot)
+
+        times = [segment.t for segment in saved.segments]
+        tolerance = max(maximum(abs, times), 1.0) * 1e-10
+        app.synchronization_status[] =
+            maximum(times) - minimum(times) <= tolerance ?
+            "Synchronized" :
+            "Synchronize"
+    finally
+        unlock(app.simlock)
+    end
+
+    return nothing
+end
+
+
 function catch_up_segment_to_time!(
     app::AppState,
     segment::Int,
@@ -981,6 +1151,7 @@ function switch_model_app!(
     try
         app.generation[] = app.generation[] + 1
         clear_snapshot_buffer!(app.snapshot_buffer)
+        clear_saved_simulation_state!(app)
 
         selected_boundary_condition = isnothing(model.default_boundary_condition) ?
             boundary_condition : model.default_boundary_condition

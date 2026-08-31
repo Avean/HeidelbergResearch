@@ -131,6 +131,31 @@ ApplicationWindow {
                 onClicked: modelDrawer.opened ? modelDrawer.close() : window.openModelDrawer()
             }
 
+            ToolButton {
+                id: stateButton
+                text: ui.checkpointAvailable ? "State  •" : "State"
+                enabled: !ui.graphicsBusy
+                palette.buttonText: "white"
+                onClicked: stateMenu.open()
+
+                Menu {
+                    id: stateMenu
+                    y: stateButton.height
+
+                    MenuItem {
+                        text: "Save current state"
+                        enabled: !ui.graphicsBusy
+                        onTriggered: Julia.saveCurrentState()
+                    }
+
+                    MenuItem {
+                        text: "Restore saved state"
+                        enabled: ui.checkpointAvailable && !ui.graphicsBusy
+                        onTriggered: Julia.restoreSavedState()
+                    }
+                }
+            }
+
             Item {
                 Layout.fillWidth: true
             }
@@ -351,7 +376,7 @@ ApplicationWindow {
         x: 0
         y: parent.height - height
         width: parent.width
-        height: window.bottomPanel === "perturbations" ? 108 : 122
+        height: window.bottomPanel === "perturbations" ? 108 : 174
         modal: true
         dim: false
         focus: true
@@ -611,8 +636,29 @@ ApplicationWindow {
                             onClicked: Julia.splitSelectedSegment()
                         }
 
+                        Button {
+                            enabled: ui.segmentCount > 1 && !ui.graphicsBusy
+                            text: "Delete selected panel"
+                            onClicked: Julia.deleteSelectedSegment()
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                        }
+
                         Label {
-                            visible: ui.segmentCount > 1
+                            visible: ui.segmentCount <= 1
+                            text: "Split the domain to enable Merge, Swap and Delete."
+                            color: "#68717d"
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: ui.segmentCount > 1
+                        spacing: 8
+
+                        Label {
                             text: "Merge:"
                             font.bold: true
                         }
@@ -620,7 +666,6 @@ ApplicationWindow {
                         ScrollView {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 42
-                            visible: ui.segmentCount > 1
                             contentHeight: availableHeight
                             ScrollBar.vertical.policy: ScrollBar.AlwaysOff
                             ScrollBar.horizontal.policy: ScrollBar.AsNeeded
@@ -643,11 +688,32 @@ ApplicationWindow {
                         }
 
                         Label {
+                            text: "Swap:"
+                            font.bold: true
+                        }
+
+                        ScrollView {
                             Layout.fillWidth: true
-                            visible: ui.segmentCount <= 1
-                            text: "No divided domains to merge or synchronize."
-                            color: "#68717d"
-                            horizontalAlignment: Text.AlignHCenter
+                            Layout.preferredHeight: 42
+                            contentHeight: availableHeight
+                            ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                            clip: true
+
+                            Row {
+                                spacing: 6
+
+                                Repeater {
+                                    model: Math.max(0, ui.segmentCount - 1)
+
+                                    Button {
+                                        required property int index
+                                        enabled: !ui.graphicsBusy
+                                        text: (index + 1) + " ↔ " + (index + 2)
+                                        onClicked: Julia.swapBoundary(index + 1)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

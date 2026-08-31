@@ -201,6 +201,34 @@ end
 
 
 # ============================================================
+# In-memory simulation checkpoint
+# ============================================================
+
+struct SavedSegmentState
+    model_id::Symbol
+    x::Vector{Float64}
+    dx::Float64
+    y::Vector{Float64}
+    params::Dict{Symbol, Any}
+    boundary_condition::Symbol
+    t::Float64
+    dt::Float64
+    dtmax::Float64
+    steps::Int
+end
+
+
+struct SavedSimulationState
+    model_id::Symbol
+    segments::Vector{SavedSegmentState}
+    domain_length_scale::Float64
+    requested_dtmax::Float64
+    initial_N::Int
+    initial_boundary_condition::Symbol
+end
+
+
+# ============================================================
 # Plot panel
 # ============================================================
 
@@ -287,6 +315,10 @@ mutable struct AppState
     synchronization_running::Threads.Atomic{Bool}
     synchronization_task_ref::Base.RefValue{Union{Nothing, Task}}
     synchronization_status::Observable{String}
+
+    saved_state::Base.RefValue{Union{Nothing, SavedSimulationState}}
+    # One reusable in-memory checkpoint. Model changes invalidate it, while
+    # Reset and domain-topology edits intentionally leave it available.
 
     show_embedded_perturbation_controls::Bool
     # The legacy GLMakie interface keeps its controls inside the plot layout.

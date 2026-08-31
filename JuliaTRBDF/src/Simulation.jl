@@ -58,6 +58,7 @@ function make_problem(
     Lap::SparseMatrixCSC{Float64, Int},
     x::Vector{Float64},
     params::Dict{Symbol, Any},
+    time_offset::Base.RefValue{Float64},
 )
     # Build an ODEProblem from a ModelSpec.
     #
@@ -71,7 +72,7 @@ function make_problem(
         U  = reshape(y,  N, nvars)
         dU = reshape(dy, N, nvars)
 
-        model.rhs!(dU, U, Lap, x, params, t)
+        model.rhs!(dU, U, Lap, x, params, t + time_offset[])
 
         return nothing
     end
@@ -110,7 +111,8 @@ function create_simulation_state(
 
     y0, params = make_initial_state(model, x)
 
-    prob = make_problem(model, y0, Lap, x, params)
+    time_offset = Ref(0.0)
+    prob = make_problem(model, y0, Lap, x, params, time_offset)
 
     integrator = init(
         prob,
@@ -133,7 +135,7 @@ function create_simulation_state(
         params,
         prob,
         Ref{Any}(integrator),
-        Ref(0.0),
+        time_offset,
         Ref(0),
     )
 end
@@ -235,7 +237,14 @@ function shift_time_to_zero_if_needed!(
     dtmax = current_dtmax(sim)
     dt = min(current_internal_dt(sim), dtmax)
 
-    sim.prob = make_problem(sim.model, current_u, sim.Lap, sim.x, sim.params)
+    sim.prob = make_problem(
+        sim.model,
+        current_u,
+        sim.Lap,
+        sim.x,
+        sim.params,
+        sim.time_offset,
+    )
 
     sim.integrator_ref[] = init(
         sim.prob,
@@ -271,7 +280,14 @@ function restart_after_manual_change!(
 
     dtmax = max(dt_after_kick, current_dtmax(sim))
 
-    sim.prob = make_problem(sim.model, copy(ynew), sim.Lap, sim.x, sim.params)
+    sim.prob = make_problem(
+        sim.model,
+        copy(ynew),
+        sim.Lap,
+        sim.x,
+        sim.params,
+        sim.time_offset,
+    )
 
     sim.integrator_ref[] = init(
         sim.prob,
@@ -451,12 +467,14 @@ function create_simulation_state_from_data(
         boundary_condition = boundary_condition,
     )
 
+    time_offset = Ref(displayed_time)
     prob = make_problem(
         model,
         Float64.(collect(y0)),
         Lap,
         x_values,
         segment_params,
+        time_offset,
     )
 
     integrator = init(
@@ -480,7 +498,7 @@ function create_simulation_state_from_data(
         segment_params,
         prob,
         Ref{Any}(integrator),
-        Ref(displayed_time),
+        time_offset,
         Ref(0),
     )
 end

@@ -102,6 +102,37 @@ function segment_base_length(app::AppState, segment::Int)
 end
 
 
+function segment_physical_length(sim::SimulationState)
+    interval_count = sim.boundary_condition == :periodic ? sim.N : sim.N - 1
+    return interval_count * sim.dx
+end
+
+
+function rebase_partition_coordinates!(
+    simulations::Vector{SimulationState};
+    origin::Float64 = 0.0,
+)
+    cursor = origin
+
+    for sim in simulations
+        sim.N == length(sim.x) ||
+            error("Segment grid size does not match its coordinate vector.")
+        isfinite(sim.dx) && sim.dx > 0 ||
+            error("Segment grid spacing must be positive and finite.")
+
+        # Mutate the existing vector rather than replacing it: the ODE RHS
+        # closure holds this same x object and immediately sees the new origin.
+        for index in eachindex(sim.x)
+            sim.x[index] = cursor + (index - 1) * sim.dx
+        end
+
+        cursor += segment_physical_length(sim)
+    end
+
+    return nothing
+end
+
+
 function segment_display_coordinates(
     app::AppState,
     segment::Int,
@@ -308,6 +339,51 @@ function refresh_partition_spatial_profile_overrides!(
 end
 
 
+function partition_spatial_profile_overrides_are_valid(
+    simulations::Vector{SimulationState},
+)
+    isempty(simulations) && return true
+    model = first(simulations).model
+    isempty(model.spatial_profile_sets) && return true
+
+    first_params = first(simulations).params
+    set_index = _active_spatial_profile_set_index(
+        first_params,
+        model.spatial_profile_sets,
+    )
+    _, profiles = model.spatial_profile_sets[set_index]
+
+    for sim in simulations
+        sim.model.id == model.id || return false
+        _active_spatial_profile_set_index(
+            sim.params,
+            sim.model.spatial_profile_sets,
+        ) == set_index || return false
+
+        for (profile_name, _) in profiles
+            override_key = spatial_profile_override_key(profile_name)
+            haskey(sim.params, override_key) || return false
+
+            values = sim.params[override_key]
+            values isa AbstractVector || return false
+            length(values) == sim.N || return false
+        end
+    end
+
+    return true
+end
+
+
+function ensure_partition_spatial_profile_overrides!(
+    simulations::Vector{SimulationState},
+)
+    partition_spatial_profile_overrides_are_valid(simulations) ||
+        refresh_partition_spatial_profile_overrides!(simulations)
+
+    return nothing
+end
+
+
 function split_simulation_state(
     parent::SimulationState,
     left_count::Int;
@@ -410,8 +486,22 @@ function merge_simulation_states(
     left_U = copy(solution_matrix(left))
     right_U = copy(solution_matrix(right))
     target_N = max(left.N, right.N)
-    merged_x = collect(range(first(left.x), last(right.x); length = target_N))
-    interface_x = 0.5 * (last(left.x) + first(right.x))
+    merged_start = first(left.x)
+    left_length = segment_physical_length(left)
+    merged_length = left_length + segment_physical_length(right)
+    interface_x = merged_start + left_length
+
+    if boundary_condition == :periodic
+        merged_dx = merged_length / target_N
+        merged_x = collect(
+            range(merged_start; step = merged_dx, length = target_N),
+        )
+    else
+        merged_dx = merged_length / (target_N - 1)
+        merged_x = collect(
+            range(merged_start; step = merged_dx, length = target_N),
+        )
+    end
     merged_U = zeros(Float64, target_N, left.model.nvars)
 
     for variable in 1:left.model.nvars
@@ -462,8 +552,6 @@ function merge_simulation_states(
 
         merged_params[key] = values
     end
-    merged_dx = (last(merged_x) - first(merged_x)) / (target_N - 1)
-
     return create_simulation_state_from_data(
         left.model,
         merged_x,
@@ -499,7 +587,6 @@ function split_domain_segment!(
         (empty_segment_runtime(), empty_segment_runtime()),
     )
     app.sim = first(app.simulations)
-    refresh_partition_spatial_profile_overrides!(app.simulations)
 
     return nothing
 end
@@ -534,7 +621,45 @@ function merge_domain_segments!(
         (empty_segment_runtime(),),
     )
     app.sim = first(app.simulations)
-    refresh_partition_spatial_profile_overrides!(app.simulations)
+
+    return nothing
+end
+
+
+function swap_adjacent_domain_segments!(
+    app::AppState,
+    left_segment::Int,
+)
+    1 <= left_segment < length(app.simulations) ||
+        error("Invalid swap boundary.")
+    length(app.simulations) == length(app.segment_runtimes) ||
+        error("Segment runtime count does not match the simulation partition.")
+
+    right_segment = left_segment + 1
+    app.simulations[left_segment], app.simulations[right_segment] =
+        app.simulations[right_segment], app.simulations[left_segment]
+    app.segment_runtimes[left_segment], app.segment_runtimes[right_segment] =
+        app.segment_runtimes[right_segment], app.segment_runtimes[left_segment]
+
+    rebase_partition_coordinates!(app.simulations)
+    app.sim = first(app.simulations)
+
+    return nothing
+end
+
+
+function delete_domain_segment!(app::AppState, segment::Int)
+    length(app.simulations) > 1 ||
+        error("The last remaining domain segment cannot be deleted.")
+    1 <= segment <= length(app.simulations) ||
+        error("Invalid segment index.")
+    length(app.simulations) == length(app.segment_runtimes) ||
+        error("Segment runtime count does not match the simulation partition.")
+
+    deleteat!(app.simulations, segment)
+    deleteat!(app.segment_runtimes, segment)
+    rebase_partition_coordinates!(app.simulations)
+    app.sim = first(app.simulations)
 
     return nothing
 end

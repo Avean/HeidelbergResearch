@@ -692,7 +692,10 @@ function build_partition_spatial_profile_panel!(
         current_set_index[] = clamp(current_set_index[], 1, length(current_profile_sets))
         set_name, profiles = current_profile_sets[current_set_index[]]
         set_label_obs[] = "spatial profile: $(set_name)"
-        refresh_partition_spatial_profile_overrides!(app.simulations)
+        # A layout rebuild after Split, Swap, Delete, Merge, or Restore must
+        # display the profile arrays carried by the segments, not regenerate
+        # them on the possibly shortened/reordered global domain.
+        ensure_partition_spatial_profile_overrides!(app.simulations)
 
         for k in 1:max_profiles
             row = start_row + k - 1
