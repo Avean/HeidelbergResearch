@@ -155,6 +155,7 @@ end
 function words_from_identifier(value::AbstractString)
     words = replace(String(value), '_' => ' ', '-' => ' ')
     words = replace(words, r"(?<=[a-z0-9])(?=[A-Z])" => " ")
+    words = replace(words, r"(?<=[A-Za-z])(?=[0-9])" => " ")
 
     return strip(words)
 end

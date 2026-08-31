@@ -1156,6 +1156,10 @@ end
             sim.params[name] = base_value / scale_float
         end
 
+        if haskey(sim.params, :domain_scale)
+            sim.params[:domain_scale] = sqrt(scale_float)
+        end
+
         # Restart the integrator from the current solution, with changed parameters.
         ynew = copy(sim.integrator_ref[].u)
 

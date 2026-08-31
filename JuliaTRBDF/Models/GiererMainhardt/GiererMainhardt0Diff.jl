@@ -1,0 +1,74 @@
+# models/GiererMainhardt/GiererMainhardt.jl
+
+# ============================================================
+# Classical Gierer-Meinhardt reaction-diffusion system
+# ============================================================
+#
+# Model:
+#
+#     u_t = Du u_xx  - b u + u^2 / (v+1)
+#     v_t = Dv v_xx + u^2 - v
+#
+# Here:
+#
+#     u = activator
+#     v = inhibitor
+#
+# Usually Du << Dv.
+#
+# ============================================================
+
+RDModel(
+    id = :gierer_meinhardt,
+
+    display_name = "Gierer-Meinhardt system",
+
+    variables = (:u, :v),
+
+    parameters = (
+        Du = 0.0,
+        Dv = 0.0,
+
+        a = 1.5,
+        b = 2.0,
+
+        μu = 0.5,
+        μv = 1.0,
+
+        pu = 0.0,
+        pv = 0.0,
+
+        ρ0 = 1.0,
+        ρ1 = 0.5,
+    ),
+
+    initial = function (U, x, p)
+        # Random.seed!(6)
+
+        u0 = 1.0
+        v0 = 2.0
+
+        U.u .= u0 .+ 0.01 .* randn(length(x))
+        U.v .= v0 .+ 0.01 .* randn(length(x))
+
+        return nothing
+    end,
+
+    reaction = function (F, U, x, p, t)
+        @. F.u = p.a * U.u^2 / (U.v + 1.0) - p.μu * U.u + p.pu 
+        @. F.v = p.b * U.u^2 - p.μv * U.v + p.pv
+
+        return nothing
+    end,
+
+    diffusion = (
+        u = :Du,
+        v = :Dv,
+    ),
+
+    latex_equations = (
+    raw"\partial_t u =  a \frac{u^2}{v + 1} - \mu_u u",
+    raw"\partial_t v =  b u^2 - \mu_v v",
+    ),
+
+)
