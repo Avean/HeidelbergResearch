@@ -41,6 +41,9 @@ function _head_prominence(
     left_minimum = peak
     right_minimum = peak
 
+    left_seen = false
+    right_seen = false
+
     # Search each side until a higher peak is reached.  On a non-periodic
     # domain the boundary itself serves as the endpoint of the basin.
     index = start_index
@@ -50,6 +53,7 @@ function _head_prominence(
         index = next_index
         value = Float64(values[index])
         left_minimum = min(left_minimum, value)
+        left_seen = true
         value > peak && break
         boundary_condition != :periodic && index == 1 && break
     end
@@ -61,9 +65,16 @@ function _head_prominence(
         index = next_index
         value = Float64(values[index])
         right_minimum = min(right_minimum, value)
+        right_seen = true
         value > peak && break
         boundary_condition != :periodic && index == N && break
     end
+
+    # A peak on a Neumann boundary is half of a head mirrored by the boundary:
+    # the side beyond the boundary is the reflection of the other side, so it
+    # takes that side's minimum instead of leaving the prominence at zero.
+    left_seen || (left_minimum = right_minimum)
+    right_seen || (right_minimum = left_minimum)
 
     return peak - max(left_minimum, right_minimum)
 end
