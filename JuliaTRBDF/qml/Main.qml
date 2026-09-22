@@ -19,6 +19,7 @@ ApplicationWindow {
     property var modelCatalog: JSON.parse(ui.modelCatalogJson)
     property var variables: JSON.parse(ui.variablesJson)
     property var equationImages: JSON.parse(ui.equationImagesJson)
+    property var seriesPerturbations: JSON.parse(ui.seriesPerturbationsJson)
     property bool textEditorFocused: false
     property int selectedFamilyIndex: 0
     property int activeFamilyIndex: findFamilyIndex(ui.activeModelKey)
@@ -76,6 +77,19 @@ ApplicationWindow {
         modelDrawer.close()
         bottomDrawer.close()
         controlDrawer.open()
+    }
+
+    function openSeriesDrawer() {
+        modelDrawer.close()
+        controlDrawer.close()
+        bottomDrawer.close()
+        seriesDrawer.open()
+        Julia.openSeriesEditor()
+    }
+
+    function closeSeriesDrawer() {
+        seriesDrawer.close()
+        Julia.closeSeriesEditor()
     }
 
     function toggleBottomPanel(panelName) {
@@ -154,6 +168,16 @@ ApplicationWindow {
                         onTriggered: Julia.restoreSavedState()
                     }
                 }
+            }
+
+            ToolButton {
+                id: seriesButton
+                text: ui.seriesRunning
+                      ? "Series " + ui.seriesCompletedRuns + "/" + ui.seriesTotalRuns
+                      : "Series"
+                enabled: !ui.graphicsBusy || ui.seriesRunning
+                palette.buttonText: "white"
+                onClicked: seriesDrawer.opened ? window.closeSeriesDrawer() : window.openSeriesDrawer()
             }
 
             Item {
@@ -721,6 +745,384 @@ ApplicationWindow {
         }
     }
 
+    Drawer {
+        id: seriesDrawer
+
+        edge: Qt.LeftEdge
+        width: Math.min(window.width * 0.88, 570)
+        height: window.height - topBar.height - bottomBar.height
+        y: topBar.height
+        modal: true
+        dim: false
+        interactive: true
+        closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+        onClosed: Julia.closeSeriesEditor()
+
+        background: Rectangle {
+            color: "#f3f5f8"
+            border.color: "#aab3bf"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 50
+                color: "#2b313b"
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: ui.seriesRunning
+                              ? "Series: " + ui.seriesCompletedRuns + " / " + ui.seriesTotalRuns
+                              : "Simulation series"
+                        color: "white"
+                        font.bold: true
+                        font.pixelSize: 16
+                    }
+
+                    ToolButton {
+                        visible: ui.seriesRunning
+                        text: "Stop series"
+                        palette.buttonText: "#fecaca"
+                        onClicked: Julia.stopSeries()
+                    }
+
+                    ToolButton {
+                        visible: !ui.seriesRunning
+                        text: "Close"
+                        palette.buttonText: "white"
+                        onClicked: window.closeSeriesDrawer()
+                    }
+                }
+            }
+
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                clip: true
+
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 9
+
+                    Label {
+                        Layout.leftMargin: 14
+                        Layout.rightMargin: 14
+                        Layout.topMargin: 10
+                        Layout.fillWidth: true
+                        text: ui.seriesStatus
+                        color: ui.seriesRunning ? "#2563eb" : "#4b5563"
+                        wrapMode: Text.WordWrap
+                    }
+
+                    ControlSection {
+                        title: "New perturbation"
+                        Layout.leftMargin: 10
+                        Layout.rightMargin: 10
+                        enabled: !ui.seriesRunning
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Label { text: "Panel" }
+
+                            ComboBox {
+                                Layout.preferredWidth: 80
+                                model: Array.from({length: ui.segmentCount}, (_, index) => String(index + 1))
+                                currentIndex: Math.max(0, ui.seriesSelectedSegment - 1)
+                                onActivated: Julia.selectSeriesSegment(currentIndex + 1)
+                            }
+
+                            Label { text: "Variable" }
+
+                            ComboBox {
+                                Layout.fillWidth: true
+                                model: window.variables
+                                currentIndex: Math.max(0, ui.seriesSelectedVariable - 1)
+                                onActivated: Julia.selectSeriesVariable(currentIndex + 1)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Label {
+                                text: "Position: " + Number(ui.seriesPosition).toPrecision(5)
+                                Layout.preferredWidth: 138
+                            }
+
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: Math.max(0.000001, Number(ui.seriesSelectedPanelLength))
+                                value: Number(ui.seriesPosition)
+                                onMoved: Julia.setSeriesPosition(value)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: "The marker is temporary; saved perturbations are shown as dashed grey boxes."
+                                color: "#68717d"
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Button {
+                                text: "Add perturbation"
+                                onClicked: Julia.addSeriesPerturbation()
+                            }
+                        }
+                    }
+
+                    ControlSection {
+                        title: "Series settings"
+                        Layout.leftMargin: 10
+                        Layout.rightMargin: 10
+                        enabled: !ui.seriesRunning
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 7
+
+                            Label { text: "Number of runs" }
+                            TextField {
+                                selectByMouse: true
+                                validator: IntValidator { bottom: 1 }
+                                text: String(ui.seriesRunCount)
+                                onEditingFinished: Julia.setSeriesRunCount(text)
+                            }
+
+                            Label { text: "Maximum steps / panel" }
+                            TextField {
+                                selectByMouse: true
+                                validator: IntValidator { bottom: 1 }
+                                text: String(ui.seriesMaximumSteps)
+                                onEditingFinished: Julia.setSeriesMaximumSteps(text)
+                            }
+
+                            Label { text: "Check interval" }
+                            TextField {
+                                selectByMouse: true
+                                validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                text: Number(ui.seriesCheckInterval).toString()
+                                onEditingFinished: Julia.setSeriesCheckInterval(text)
+                            }
+
+                            Label { text: "Steady-state tolerance" }
+                            TextField {
+                                selectByMouse: true
+                                validator: DoubleValidator { bottom: 0.000000000000000001; notation: DoubleValidator.ScientificNotation }
+                                text: Number(ui.seriesTolerance).toExponential()
+                                onEditingFinished: Julia.setSeriesTolerance(text)
+                            }
+
+                            Label { text: "Random seed" }
+                            TextField {
+                                selectByMouse: true
+                                text: ui.seriesSeed
+                                onEditingFinished: Julia.setSeriesSeed(text)
+                            }
+
+                            Label { text: "Head detection variable" }
+                            ComboBox {
+                                model: window.variables
+                                currentIndex: Math.max(0, ui.seriesHeadVariable - 1)
+                                onActivated: Julia.setSeriesHeadVariable(currentIndex + 1)
+                            }
+                        }
+
+                        Switch {
+                            Layout.topMargin: 5
+                            text: "Live simulation preview (max. 2 updates/s)"
+                            checked: ui.seriesLivePreview
+                            onToggled: Julia.setSeriesLivePreview(checked)
+                        }
+                    }
+
+                    ControlSection {
+                        title: "Perturbations"
+                        Layout.leftMargin: 10
+                        Layout.rightMargin: 10
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: window.seriesPerturbations.length === 0
+                            text: "Add at least one perturbation to start a series."
+                            color: "#68717d"
+                        }
+
+                        Repeater {
+                            model: window.seriesPerturbations
+
+                            Rectangle {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                implicitHeight: perturbationCard.implicitHeight + 16
+                                color: "#e6eaf0"
+                                radius: 5
+                                border.color: "#bdc6d2"
+                                border.width: 1
+
+                                ColumnLayout {
+                                    id: perturbationCard
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 5
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: "Perturbation " + modelData.id + "   ·   x = " + Number(modelData.position).toPrecision(5)
+                                            font.bold: true
+                                        }
+
+                                        ToolButton {
+                                            enabled: !ui.seriesRunning
+                                            text: "Select"
+                                            onClicked: Julia.selectSeriesPerturbation(modelData.id)
+                                        }
+
+                                        ToolButton {
+                                            enabled: !ui.seriesRunning
+                                            text: "Delete"
+                                            onClicked: Julia.deleteSeriesPerturbation(modelData.id)
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+
+                                        Label { text: "Panel" }
+                                        ComboBox {
+                                            Layout.preferredWidth: 75
+                                            enabled: !ui.seriesRunning
+                                            model: Array.from({length: ui.segmentCount}, (_, index) => String(index + 1))
+                                            currentIndex: Math.max(0, modelData.panel - 1)
+                                            onActivated: Julia.updateSeriesPerturbation(modelData.id, "panel", currentIndex + 1)
+                                        }
+
+                                        Label { text: "Variable" }
+                                        ComboBox {
+                                            Layout.fillWidth: true
+                                            enabled: !ui.seriesRunning
+                                            model: window.variables
+                                            currentIndex: Math.max(0, modelData.variable - 1)
+                                            onActivated: Julia.updateSeriesPerturbation(modelData.id, "variable", currentIndex + 1)
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+
+                                        Label { text: "Position" }
+
+                                        TextField {
+                                            Layout.fillWidth: true
+                                            selectByMouse: true
+                                            enabled: !ui.seriesRunning
+                                            text: Number(modelData.position).toPrecision(5)
+                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "position", text)
+                                        }
+                                    }
+
+                                    GridLayout {
+                                        Layout.fillWidth: true
+                                        columns: 4
+                                        columnSpacing: 6
+
+                                        Label { text: "Width min" }
+                                        TextField {
+                                            selectByMouse: true
+                                            enabled: !ui.seriesRunning
+                                            text: Number(modelData.widthMin).toPrecision(5)
+                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "widthMin", text)
+                                        }
+                                        Label { text: "Width max" }
+                                        TextField {
+                                            selectByMouse: true
+                                            enabled: !ui.seriesRunning
+                                            text: Number(modelData.widthMax).toPrecision(5)
+                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "widthMax", text)
+                                        }
+
+                                        Label { text: "Height min" }
+                                        TextField {
+                                            selectByMouse: true
+                                            enabled: !ui.seriesRunning
+                                            text: Number(modelData.heightMin).toPrecision(5)
+                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "heightMin", text)
+                                        }
+                                        Label { text: "Height max" }
+                                        TextField {
+                                            selectByMouse: true
+                                            enabled: !ui.seriesRunning
+                                            text: Number(modelData.heightMax).toPrecision(5)
+                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "heightMax", text)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.leftMargin: 10
+                        Layout.rightMargin: 10
+                        Layout.bottomMargin: 12
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Button {
+                            Layout.fillWidth: true
+                            enabled: !ui.seriesRunning && window.seriesPerturbations.length > 0
+                            text: "Start series"
+                            highlighted: true
+                            onClicked: {
+                                window.closeSeriesDrawer()
+                                Julia.startSeries()
+                            }
+                        }
+
+                        Button {
+                            visible: ui.seriesRunning || ui.seriesCompletedRuns > 0
+                            text: "Show results"
+                            onClicked: Julia.setSeriesResultsWindowVisible(true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    SeriesResults {
+        id: seriesResultsWindow
+        visible: ui.seriesResultsWindowVisible
+        resultsJson: ui.seriesResultsJson
+        running: ui.seriesRunning
+        completedRuns: ui.seriesCompletedRuns
+        totalRuns: ui.seriesTotalRuns
+        status: ui.seriesStatus
+        onVisibleChanged: {
+            if (!visible)
+                Julia.setSeriesResultsWindowVisible(false)
+        }
+    }
+
     Rectangle {
         id: leftEdgeHotspot
         z: 20
@@ -729,7 +1131,7 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.left: parent.left
-        visible: !modelDrawer.opened
+        visible: !modelDrawer.opened && !seriesDrawer.opened
 
         HoverHandler {
             id: leftEdgeHover
@@ -743,7 +1145,7 @@ ApplicationWindow {
         interval: 350
         repeat: false
         onTriggered: {
-            if (leftEdgeHover.hovered && !modelDrawer.opened)
+            if (leftEdgeHover.hovered && !modelDrawer.opened && !seriesDrawer.opened)
                 window.openModelDrawer()
         }
     }

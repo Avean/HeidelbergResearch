@@ -27,6 +27,7 @@ function update_split_marker!(
     for index in eachindex(app.plot_panel.split_marker_observables)
         app.plot_panel.split_marker_fade_tokens[index][] += 1
         app.plot_panel.split_marker_observables[index][] = [NaN]
+        app.plot_panel.split_marker_color_observables[index][] = :red
         app.plot_panel.split_marker_alpha_observables[index][] = 0.0
     end
 

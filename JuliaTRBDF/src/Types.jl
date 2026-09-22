@@ -248,6 +248,7 @@ mutable struct PlotPanel
     segment_profile_axes::Vector{Vector{Axis}}
     segment_profile_observables::Vector{Vector{Observable{Vector{Float64}}}}
     split_marker_observables::Vector{Observable{Vector{Float64}}}
+    split_marker_color_observables::Vector{Observable{Symbol}}
     split_marker_alpha_observables::Vector{Observable{Float64}}
     split_marker_fade_tokens::Vector{Base.RefValue{Int}}
     segment_status_observables::Vector{Observable{String}}

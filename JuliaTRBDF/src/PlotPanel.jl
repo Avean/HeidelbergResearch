@@ -37,6 +37,7 @@ function empty_plot_panel()
         Vector{Axis}[],
         Vector{Observable{Vector{Float64}}}[],
         Observable{Vector{Float64}}[],
+        Observable{Symbol}[],
         Observable{Float64}[],
         Base.RefValue{Int}[],
         Observable{String}[],
@@ -848,6 +849,7 @@ function build_plot_panel!(
     segment_observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments]
     segment_preview_observables = [Observable{Vector{Float64}}[] for _ in 1:nsegments]
     split_marker_observables = [Observable([NaN]) for _ in 1:nsegments]
+    split_marker_color_observables = [Observable(:red) for _ in 1:nsegments]
     split_marker_alpha_observables = [Observable(0.0) for _ in 1:nsegments]
     split_marker_fade_tokens = [Ref(0) for _ in 1:nsegments]
     segment_status_observables = [
@@ -899,12 +901,12 @@ function build_plot_panel!(
                 ax,
                 split_marker_observables[segment];
                 color = lift(
-                    alpha -> (:red, alpha),
+                    (color, alpha) -> (color, alpha),
+                    split_marker_color_observables[segment],
                     split_marker_alpha_observables[segment],
                 ),
                 linewidth = 2,
             )
-
             push!(segment_axes[segment], ax)
             push!(segment_observables[segment], y_obs)
             push!(segment_preview_observables[segment], preview_obs)
@@ -984,6 +986,7 @@ function build_plot_panel!(
         profile_panel.axes,
         profile_panel.observables,
         split_marker_observables,
+        split_marker_color_observables,
         split_marker_alpha_observables,
         split_marker_fade_tokens,
         segment_status_observables,
@@ -1175,6 +1178,7 @@ function clear_plot_panel!(panel::PlotPanel)
     empty!(panel.segment_profile_axes)
     empty!(panel.segment_profile_observables)
     empty!(panel.split_marker_observables)
+    empty!(panel.split_marker_color_observables)
     empty!(panel.split_marker_alpha_observables)
     empty!(panel.split_marker_fade_tokens)
     empty!(panel.segment_status_observables)

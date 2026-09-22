@@ -38,6 +38,8 @@ end
 
 include("Simulation.jl")
 include("DomainPartition.jl")
+include("HeadDetection.jl")
+include("SeriesSimulation.jl")
 
 include("PerturbationPanel.jl")
 include("PlotPanel.jl")

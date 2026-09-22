@@ -36,6 +36,55 @@ mutable struct QMLBindings
     perturbation_height::Observable{Float64}
     checkpoint_available::Observable{Bool}
     message::Observable{String}
+    series_running::Observable{Bool}
+    series_completed_runs::Observable{Int}
+    series_total_runs::Observable{Int}
+    series_status::Observable{String}
+    series_run_count::Observable{Int}
+    series_maximum_steps::Observable{Int}
+    series_check_interval::Observable{Float64}
+    series_tolerance::Observable{Float64}
+    series_seed::Observable{String}
+    series_head_variable::Observable{Int}
+    series_live_preview::Observable{Bool}
+    series_selected_segment::Observable{Int}
+    series_selected_variable::Observable{Int}
+    series_position::Observable{Float64}
+    series_selected_panel_length::Observable{Float64}
+    series_perturbations_json::Observable{String}
+    series_results_json::Observable{String}
+    series_results_window_visible::Observable{Bool}
+end
+
+
+mutable struct SeriesController
+    settings::RD.SeriesSettings
+    perturbations::Vector{RD.SeriesPerturbation}
+    next_perturbation_id::Int
+    selected_perturbation_id::Int
+    selected_segment::Int
+    selected_variable::Int
+    selected_position::Float64
+    editor_open::Bool
+    preview_items::Vector{Any}
+    running::Threads.Atomic{Bool}
+    stop_requested::Threads.Atomic{Bool}
+    task_ref::Base.RefValue{Union{Nothing, Task}}
+    lock::ReentrantLock
+    templates::Vector{RD.SeriesSegmentTemplate}
+    base_snapshots::Vector{RD.SimulationSnapshot}
+    latest_snapshots::Vector{Union{Nothing, RD.SimulationSnapshot}}
+    snapshot_revision::Int
+    published_snapshot_revision::Int
+    generation::Int
+    completed_runs::Int
+    status::String
+    location_counts::Vector{Vector{Int}}
+    head_count_counts::Vector{Dict{Int, Int}}
+    not_converged_counts::Vector{Int}
+    results_revision::Int
+    published_results_revision::Int
+    finish_restores_base::Bool
 end
 
 
@@ -49,6 +98,7 @@ mutable struct QMLController
     equation_images_by_model::Dict{String, Vector{String}}
     equation_widths_by_model::Dict{String, Float64}
     bindings::QMLBindings
+    series::SeriesController
     diffusion_scale::Float64
     selected_segment::Int
     split_index::Int
@@ -112,6 +162,143 @@ function json_string_array(values)
     return "[" * join(json_string.(String.(collect(values))), ",") * "]"
 end
 
+
+
+function json_number(value::Real)
+    number = Float64(value)
+    return isfinite(number) ? @sprintf("%.17g", number) : "null"
+end
+
+
+function empty_series_controller()
+    return SeriesController(
+        RD.SeriesSettings(),
+        RD.SeriesPerturbation[],
+        1,
+        0,
+        1,
+        1,
+        0.5,
+        false,
+        Any[],
+        Threads.Atomic{Bool}(false),
+        Threads.Atomic{Bool}(false),
+        Ref{Union{Nothing, Task}}(nothing),
+        ReentrantLock(),
+        RD.SeriesSegmentTemplate[],
+        RD.SimulationSnapshot[],
+        Union{Nothing, RD.SimulationSnapshot}[],
+        0,
+        -1,
+        0,
+        0,
+        "Configure perturbations",
+        Vector{Int}[],
+        Vector{Dict{Int, Int}}[],
+        Int[],
+        0,
+        -1,
+        false,
+    )
+end
+
+
+function series_perturbations_json(series::SeriesController)
+    entries = String[]
+
+    for perturbation in series.perturbations
+        push!(
+            entries,
+            "{" *
+            "\"id\":" * string(perturbation.id) * "," *
+            "\"panel\":" * string(perturbation.segment) * "," *
+            "\"variable\":" * string(perturbation.variable) * "," *
+            "\"position\":" * json_number(perturbation.position) * "," *
+            "\"widthMin\":" * json_number(perturbation.width_min) * "," *
+            "\"widthMax\":" * json_number(perturbation.width_max) * "," *
+            "\"heightMin\":" * json_number(perturbation.height_min) * "," *
+            "\"heightMax\":" * json_number(perturbation.height_max) *
+            "}",
+        )
+    end
+
+    return "[" * join(entries, ",") * "]"
+end
+
+
+function series_results_json(controller)
+    series = controller.series
+    app = controller.app
+    entries = String[]
+
+    lock(series.lock)
+
+    try
+        for segment in eachindex(series.location_counts)
+            location_counts = series.location_counts[segment]
+            count_map = series.head_count_counts[segment]
+            maximum_heads = isempty(count_map) ? 0 : maximum(keys(count_map))
+            head_labels = [json_string(string(count)) for count in 0:maximum_heads]
+            head_values = [string(get(count_map, count, 0)) for count in 0:maximum_heads]
+            push!(head_labels, json_string("Not converged"))
+            push!(head_values, string(series.not_converged_counts[segment]))
+            # Every partition panel displays local coordinates.  Keep the
+            # histogram axis consistent with that convention, including the
+            # right endpoint of a periodic panel (which is not itself a node).
+            xmin = 0.0
+            xmax = segment <= length(app.simulations) ?
+                series_display_length(app, segment) :
+                1.0
+
+            push!(
+                entries,
+                "{" *
+                "\"panel\":" * string(segment) * "," *
+                "\"locationCounts\":[" * join(string.(location_counts), ",") * "]," *
+                "\"xMin\":" * json_number(xmin) * "," *
+                "\"xMax\":" * json_number(xmax) * "," *
+                "\"headLabels\":[" * join(head_labels, ",") * "]," *
+                "\"headCounts\":[" * join(head_values, ",") * "]" *
+                "}",
+            )
+        end
+    finally
+        unlock(series.lock)
+    end
+
+    return "[" * join(entries, ",") * "]"
+end
+
+
+function series_perturbation_by_id(series::SeriesController, id::Int)
+    index = findfirst(perturbation -> perturbation.id == id, series.perturbations)
+    return index === nothing ? nothing : series.perturbations[index]
+end
+
+
+function series_display_length(app::RD.AppState, segment::Int)
+    return RD.segment_base_length(app, segment) * app.plot_panel.domain_length_scale
+end
+
+
+function series_default_position(app::RD.AppState, segment::Int)
+    return series_display_length(app, segment) / 2
+end
+
+
+function clamp_series_perturbation!(app::RD.AppState, perturbation::RD.SeriesPerturbation)
+    1 <= perturbation.segment <= length(app.simulations) || return false
+    displayed_length = series_display_length(app, perturbation.segment)
+    perturbation.position = clamp(perturbation.position, 0.0, displayed_length)
+    perturbation.width_max = clamp(perturbation.width_max, eps(Float64), displayed_length)
+    perturbation.width_min = clamp(perturbation.width_min, eps(Float64), perturbation.width_max)
+    perturbation.variable = clamp(
+        perturbation.variable,
+        1,
+        app.simulations[perturbation.segment].model.nvars,
+    )
+    return true
+end
 
 function render_model_equations_svg_uri(equations::AbstractVector{<:AbstractString})
     equation_lines = [
@@ -408,6 +595,881 @@ function guarded_action(action, controller::QMLController, context::AbstractStri
 end
 
 
+# ============================================================
+# Series controls and runtime bridge
+# ============================================================
+
+function refresh_series_bindings!(controller::QMLController)
+    series = controller.series
+    settings = series.settings
+    set_if_changed!(controller.bindings.series_running, series.running[])
+    set_if_changed!(controller.bindings.series_completed_runs, series.completed_runs)
+    set_if_changed!(controller.bindings.series_total_runs, settings.run_count)
+    set_if_changed!(controller.bindings.series_status, series.status)
+    set_if_changed!(controller.bindings.series_run_count, settings.run_count)
+    set_if_changed!(
+        controller.bindings.series_maximum_steps,
+        settings.maximum_steps_per_panel,
+    )
+    set_if_changed!(controller.bindings.series_check_interval, settings.check_interval)
+    set_if_changed!(controller.bindings.series_tolerance, settings.tolerance)
+    set_if_changed!(controller.bindings.series_seed, string(settings.seed))
+    set_if_changed!(controller.bindings.series_head_variable, settings.head_variable)
+    set_if_changed!(controller.bindings.series_live_preview, settings.live_preview)
+    set_if_changed!(controller.bindings.series_selected_segment, series.selected_segment)
+    set_if_changed!(controller.bindings.series_selected_variable, series.selected_variable)
+    set_if_changed!(controller.bindings.series_position, series.selected_position)
+    set_if_changed!(
+        controller.bindings.series_selected_panel_length,
+        series_display_length(controller.app, series.selected_segment),
+    )
+    set_if_changed!(
+        controller.bindings.series_perturbations_json,
+        series_perturbations_json(series),
+    )
+
+    if series.published_results_revision != series.results_revision
+        set_if_changed!(
+            controller.bindings.series_results_json,
+            series_results_json(controller),
+        )
+        series.published_results_revision = series.results_revision
+    end
+
+    return nothing
+end
+
+
+function refresh_series_runtime!(controller::QMLController)
+    series = controller.series
+    snapshots = RD.SimulationSnapshot[]
+    running = series.running[]
+    task = series.task_ref[]
+    publish_snapshots = false
+    commit_partial_state = false
+
+    lock(series.lock)
+    try
+        if (series.settings.live_preview || !running) &&
+           series.snapshot_revision != series.published_snapshot_revision &&
+           length(series.latest_snapshots) == length(controller.app.simulations) &&
+           all(snapshot -> snapshot !== nothing, series.latest_snapshots)
+            snapshots = RD.SimulationSnapshot[
+                snapshot::RD.SimulationSnapshot for snapshot in series.latest_snapshots
+            ]
+            series.published_snapshot_revision = series.snapshot_revision
+            publish_snapshots = true
+        end
+
+        commit_partial_state = !running &&
+                               task !== nothing &&
+                               istaskdone(task) &&
+                               series.stop_requested[] &&
+                               !series.finish_restores_base &&
+                               length(series.latest_snapshots) ==
+                               length(controller.app.simulations) &&
+                               all(snapshot -> snapshot !== nothing, series.latest_snapshots)
+
+        if commit_partial_state && isempty(snapshots)
+            snapshots = RD.SimulationSnapshot[
+                snapshot::RD.SimulationSnapshot for snapshot in series.latest_snapshots
+            ]
+        end
+
+        # This flag means that a terminal state has already been handled:
+        # either the base state after a normal finish or the partial state
+        # after a user stop.
+        commit_partial_state && (series.finish_restores_base = true)
+    finally
+        unlock(series.lock)
+    end
+
+    commit_partial_state && commit_series_partial_state!(controller, snapshots)
+
+    if publish_snapshots &&
+       length(snapshots) == length(controller.app.simulations) &&
+       !isempty(snapshots)
+        try
+            snapshot = RD.partition_snapshot_from_segments(snapshots, series.generation)
+            RD.refresh_app_from_snapshot!(controller.app, snapshot)
+        catch error
+            report_error!(controller, "Series display refresh failed", error)
+        end
+    end
+
+    refresh_series_bindings!(controller)
+
+    if !running && task !== nothing && istaskdone(task) && controller.graphics_busy[]
+        controller.graphics_busy[] = false
+        refresh_qml_state!(controller)
+    end
+
+    return nothing
+end
+
+
+function commit_series_partial_state!(
+    controller::QMLController,
+    snapshots::Vector{RD.SimulationSnapshot},
+)
+    app = controller.app
+    length(snapshots) == length(app.simulations) || return nothing
+
+    lock(app.simlock)
+    try
+        for segment in eachindex(app.simulations)
+            sim = app.simulations[segment]
+            snapshot = snapshots[segment]
+            runtime = app.segment_runtimes[segment]
+
+            lock(runtime.lock)
+            try
+                RD.restart_after_manual_change!(
+                    sim,
+                    copy(snapshot.y);
+                    reltol = controller.reltol,
+                    abstol = controller.abstol,
+                )
+                sim.time_offset[] = snapshot.t
+                sim.step_counter[] = snapshot.steps
+            finally
+                unlock(runtime.lock)
+            end
+        end
+
+        RD.clear_snapshot_buffer!(app.snapshot_buffer)
+    finally
+        unlock(app.simlock)
+    end
+
+    return nothing
+end
+
+
+function clear_series_previews!(controller::QMLController)
+    series = controller.series
+
+    for item in series.preview_items
+        try
+            RD.delete_plot_panel_item!(item)
+        catch error
+            @debug "Series preview item was already deleted." exception = error
+        end
+    end
+
+    empty!(series.preview_items)
+    RD.rescale_solution_axes!(controller.app.plot_panel, controller.app.simulations)
+    return nothing
+end
+
+
+function series_preview_anchor(
+    controller::QMLController,
+    perturbation::RD.SeriesPerturbation,
+)
+    panel = controller.app.plot_panel
+    x = panel.segment_x_observables[perturbation.segment][]
+    y = panel.segment_observables[perturbation.segment][perturbation.variable][]
+    index = RD.nearest_grid_index(x, perturbation.position)
+    return y[index]
+end
+
+
+function add_series_preview_box!(
+    controller::QMLController,
+    perturbation::RD.SeriesPerturbation,
+    width::Float64,
+    height::Float64;
+    color,
+    linewidth::Float64,
+)
+    panel = controller.app.plot_panel
+    axis = panel.segment_axes[perturbation.segment][perturbation.variable]
+    base = series_preview_anchor(controller, perturbation)
+    left = perturbation.position - width / 2
+    right = perturbation.position + width / 2
+    top = base + height
+    x = [left, right, right, left, left]
+    y = [base, base, top, top, base]
+    outline = lines!(axis, x, y; color = color, linestyle = :dash, linewidth = linewidth)
+    push!(controller.series.preview_items, outline)
+    return nothing
+end
+
+
+function show_series_previews!(controller::QMLController)
+    series = controller.series
+    clear_series_previews!(controller)
+
+    for perturbation in series.perturbations
+        clamp_series_perturbation!(controller.app, perturbation) || continue
+        add_series_preview_box!(
+            controller,
+            perturbation,
+            perturbation.width_max,
+            perturbation.height_max;
+            color = (:gray, 0.40),
+            linewidth = 1.5,
+        )
+        add_series_preview_box!(
+            controller,
+            perturbation,
+            perturbation.width_min,
+            perturbation.height_min;
+            color = (:gray, 0.80),
+            linewidth = 2.0,
+        )
+    end
+
+    rescale_series_preview_axes!(controller)
+
+    return nothing
+end
+
+
+function rescale_series_preview_axes!(controller::QMLController)
+    app = controller.app
+    panel = app.plot_panel
+    nvars = app.sim.model.nvars
+
+    for variable in 1:nvars
+        values = Float64[]
+        axes = Axis[]
+
+        for segment in eachindex(app.simulations)
+            append!(values, RD.finite_values(panel.segment_observables[segment][variable][]))
+            append!(
+                values,
+                RD.finite_values(panel.segment_preview_observables[segment][variable][]),
+            )
+
+            for perturbation in controller.series.perturbations
+                perturbation.segment == segment || continue
+                perturbation.variable == variable || continue
+                base = series_preview_anchor(controller, perturbation)
+                push!(values, base, base + perturbation.height_min, base + perturbation.height_max)
+            end
+
+            push!(axes, panel.segment_axes[segment][variable])
+        end
+
+        RD.set_axes_y_limits_from_values!(axes, values)
+    end
+
+    return nothing
+end
+
+
+function update_series_position_marker!(controller::QMLController)
+    series = controller.series
+    segment = series.selected_segment
+    1 <= segment <= length(controller.app.simulations) || return nothing
+    sim = controller.app.simulations[segment]
+    displayed_length = series_display_length(controller.app, segment)
+    displayed_length > 0.0 && sim.N >= 5 || return nothing
+    index = clamp(
+        round(Int, series.selected_position / displayed_length * sim.N),
+        2,
+        sim.N - 2,
+    )
+
+    # Reuse the established split-marker implementation verbatim.  It owns
+    # the persistent Makie plot, token-based fade and lifecycle handling.
+    RD.update_split_marker!(controller.app, segment, index)
+    controller.app.plot_panel.split_marker_color_observables[segment][] = :gold
+
+    return nothing
+end
+
+
+function clear_series_position_marker!(controller::QMLController)
+    RD.update_split_marker!(controller.app, 0, 0)
+    return nothing
+end
+
+
+function update_series_editor_selection!(controller::QMLController)
+    series = controller.series
+    perturbation = series_perturbation_by_id(series, series.selected_perturbation_id)
+
+    if perturbation !== nothing
+        series.selected_segment = perturbation.segment
+        series.selected_variable = perturbation.variable
+        series.selected_position = perturbation.position
+    end
+
+    series.selected_segment = clamp(series.selected_segment, 1, length(controller.app.simulations))
+    series.selected_variable = clamp(
+        series.selected_variable,
+        1,
+        controller.app.simulations[series.selected_segment].model.nvars,
+    )
+    series.selected_position = clamp(
+        series.selected_position,
+        0.0,
+        series_display_length(controller.app, series.selected_segment),
+    )
+    return nothing
+end
+
+
+function open_series_editor!(controller::QMLController)
+    series = controller.series
+    series.running[] && return nothing
+    RD.stop_worker!(controller.app; wait = true)
+    series.editor_open = true
+    update_series_editor_selection!(controller)
+    series.status = isempty(series.perturbations) ?
+        "Add at least one perturbation" :
+        "Ready to run"
+    controller.series.editor_open && show_series_previews!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function close_series_editor!(controller::QMLController)
+    controller.series.editor_open = false
+    clear_series_previews!(controller)
+    clear_series_position_marker!(controller)
+    return nothing
+end
+
+
+function select_series_segment!(controller::QMLController, segment_value)
+    series = controller.series
+    series.running[] && return nothing
+    series.selected_segment = clamp(Int(segment_value), 1, length(controller.app.simulations))
+    series.selected_variable = clamp(
+        series.selected_variable,
+        1,
+        controller.app.simulations[series.selected_segment].model.nvars,
+    )
+    series.selected_position = clamp(
+        series.selected_position,
+        0.0,
+        series_display_length(controller.app, series.selected_segment),
+    )
+    update_series_position_marker!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function select_series_variable!(controller::QMLController, variable_value)
+    series = controller.series
+    series.running[] && return nothing
+    nvars = controller.app.simulations[series.selected_segment].model.nvars
+    series.selected_variable = clamp(Int(variable_value), 1, nvars)
+    update_series_position_marker!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function set_series_position!(controller::QMLController, value)
+    return guarded_action(controller, "Series-position change failed") do
+        series = controller.series
+        series.running[] && return nothing
+        displayed_length = series_display_length(
+            controller.app,
+            series.selected_segment,
+        )
+        series.selected_position = clamp(
+            parse_finite_qml_number(value, "Series position"),
+            0.0,
+            displayed_length,
+        )
+
+        # The slider only chooses the centre for the *next* perturbation.
+        # Existing perturbations and their dashed preview boxes are never
+        # moved or recreated while the user drags it.
+        update_series_position_marker!(controller)
+        refresh_series_bindings!(controller)
+    end
+end
+
+
+function add_series_perturbation!(controller::QMLController)
+    series = controller.series
+    series.running[] && return nothing
+    segment = series.selected_segment
+    variable = series.selected_variable
+    displayed_length = series_display_length(controller.app, segment)
+    perturbation = RD.SeriesPerturbation(
+        id = series.next_perturbation_id,
+        segment = segment,
+        variable = variable,
+        position = series.selected_position,
+        width_min = 0.05 * displayed_length,
+        width_max = 0.10 * displayed_length,
+        height_min = 1.0,
+        height_max = 2.0,
+    )
+    clamp_series_perturbation!(controller.app, perturbation)
+    push!(series.perturbations, perturbation)
+    series.next_perturbation_id += 1
+    series.selected_perturbation_id = perturbation.id
+    series.status = "Ready to run"
+    series.editor_open && show_series_previews!(controller)
+    clear_series_position_marker!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function select_series_perturbation!(controller::QMLController, id_value)
+    series = controller.series
+    series.running[] && return nothing
+    perturbation = series_perturbation_by_id(series, Int(id_value))
+    perturbation === nothing && return nothing
+    series.selected_perturbation_id = perturbation.id
+    update_series_editor_selection!(controller)
+    update_series_position_marker!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function delete_series_perturbation!(controller::QMLController, id_value)
+    series = controller.series
+    series.running[] && return nothing
+    id = Int(id_value)
+    filter!(perturbation -> perturbation.id != id, series.perturbations)
+    series.selected_perturbation_id == id && (series.selected_perturbation_id = 0)
+    series.status = isempty(series.perturbations) ? "Add at least one perturbation" : "Ready to run"
+    series.editor_open && show_series_previews!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function update_series_perturbation!(controller::QMLController, id_value, field_value, value)
+    series = controller.series
+    series.running[] && return nothing
+    perturbation = series_perturbation_by_id(series, Int(id_value))
+    perturbation === nothing && return nothing
+    field = String(field_value)
+
+    if field == "panel"
+        old_length = series_display_length(controller.app, perturbation.segment)
+        perturbation.segment = clamp(Int(value), 1, length(controller.app.simulations))
+        new_length = series_display_length(controller.app, perturbation.segment)
+        scale = old_length > 0.0 ? new_length / old_length : 1.0
+        perturbation.position *= scale
+        perturbation.width_min *= scale
+        perturbation.width_max *= scale
+    elseif field == "variable"
+        perturbation.variable = Int(value)
+    elseif field == "position"
+        perturbation.position = parse_finite_qml_number(value, "Position")
+    elseif field == "widthMin"
+        perturbation.width_min = parse_finite_qml_number(value, "Width minimum")
+    elseif field == "widthMax"
+        perturbation.width_max = parse_finite_qml_number(value, "Width maximum")
+    elseif field == "heightMin"
+        perturbation.height_min = parse_finite_qml_number(value, "Height minimum")
+    elseif field == "heightMax"
+        perturbation.height_max = parse_finite_qml_number(value, "Height maximum")
+    else
+        error("Unknown series-perturbation field: $field")
+    end
+
+    clamp_series_perturbation!(controller.app, perturbation)
+    perturbation.width_min <= perturbation.width_max ||
+        error("Width minimum cannot exceed width maximum.")
+    perturbation.height_min <= perturbation.height_max ||
+        error("Height minimum cannot exceed height maximum.")
+    series.selected_perturbation_id = perturbation.id
+    update_series_editor_selection!(controller)
+    series.editor_open && show_series_previews!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function set_series_integer_setting!(controller::QMLController, field::Symbol, value)
+    series = controller.series
+    series.running[] && return nothing
+    integer = Int(round(parse_finite_qml_number(value, String(field))))
+    integer >= 1 || error("$(field) must be at least one.")
+
+    if field == :run_count
+        series.settings.run_count = integer
+    elseif field == :maximum_steps
+        series.settings.maximum_steps_per_panel = integer
+    elseif field == :head_variable
+        nvars = controller.app.sim.model.nvars
+        series.settings.head_variable = clamp(integer, 1, nvars)
+    else
+        error("Unknown series integer setting: $field")
+    end
+
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function set_series_float_setting!(controller::QMLController, field::Symbol, value)
+    series = controller.series
+    series.running[] && return nothing
+    number = parse_finite_qml_number(value, String(field))
+    number > 0.0 || error("$(field) must be positive.")
+
+    if field == :check_interval
+        series.settings.check_interval = number
+    elseif field == :tolerance
+        series.settings.tolerance = number
+    else
+        error("Unknown series floating-point setting: $field")
+    end
+
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function set_series_seed!(controller::QMLController, value)
+    series = controller.series
+    series.running[] && return nothing
+    parsed = tryparse(UInt64, strip(String(value)))
+    parsed === nothing && error("Random seed must be a non-negative integer.")
+    series.settings.seed = parsed
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function set_series_live_preview!(controller::QMLController, enabled)
+    controller.series.running[] && return nothing
+    controller.series.settings.live_preview = Bool(enabled)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function series_runtime_perturbations(
+    controller::QMLController,
+    templates::Vector{RD.SeriesSegmentTemplate},
+)
+    runtime_perturbations = RD.SeriesPerturbation[]
+
+    for perturbation in controller.series.perturbations
+        template = templates[perturbation.segment]
+        display_length = series_display_length(controller.app, perturbation.segment)
+        display_length > 0.0 || error("Selected panel has zero displayed length.")
+        solver_length = template.boundary_condition == :periodic ?
+            last(template.x) - first(template.x) + template.dx :
+            max(last(template.x) - first(template.x), 0.0)
+        scale = solver_length / display_length
+        push!(
+            runtime_perturbations,
+            RD.SeriesPerturbation(
+                id = perturbation.id,
+                segment = perturbation.segment,
+                variable = perturbation.variable,
+                position = first(template.x) + perturbation.position * scale,
+                width_min = perturbation.width_min * scale,
+                width_max = perturbation.width_max * scale,
+                height_min = perturbation.height_min,
+                height_max = perturbation.height_max,
+            ),
+        )
+    end
+
+    return runtime_perturbations
+end
+
+
+function capture_series_base!(controller::QMLController)
+    app = controller.app
+    RD.stop_worker!(app; wait = true)
+    templates = RD.SeriesSegmentTemplate[]
+    snapshots = RD.SimulationSnapshot[]
+
+    lock(app.simlock)
+    try
+        app.generation[] += 1
+        RD.clear_snapshot_buffer!(app.snapshot_buffer)
+        generation = app.generation[]
+
+        for segment in eachindex(app.simulations)
+            runtime = app.segment_runtimes[segment]
+            lock(runtime.lock)
+            try
+                push!(templates, RD.make_series_template(app.simulations[segment]))
+                push!(snapshots, RD.make_snapshot(app.simulations[segment], generation))
+            finally
+                unlock(runtime.lock)
+            end
+        end
+
+        return templates, snapshots, generation
+    finally
+        unlock(app.simlock)
+    end
+end
+
+
+function record_series_outcomes!(
+    controller::QMLController,
+    outcomes::Vector{RD.SeriesPanelOutcome},
+    templates::Vector{RD.SeriesSegmentTemplate},
+)
+    series = controller.series
+
+    lock(series.lock)
+    try
+        for segment in eachindex(outcomes)
+            outcome = outcomes[segment]
+            outcome.converged || begin
+                series.not_converged_counts[segment] += 1
+                continue
+            end
+            head_count = length(outcome.heads)
+            counts = series.head_count_counts[segment]
+            counts[head_count] = get(counts, head_count, 0) + 1
+
+            for head in outcome.heads
+                index = RD.nearest_grid_index(templates[segment].x, head.position)
+                series.location_counts[segment][index] += 1
+            end
+        end
+
+        series.completed_runs += 1
+        series.status = "Run $(series.completed_runs)/$(series.settings.run_count) complete"
+        series.results_revision += 1
+    finally
+        unlock(series.lock)
+    end
+
+    return nothing
+end
+
+
+function start_series!(controller::QMLController)
+    series = controller.series
+    series.running[] && return nothing
+    isempty(series.perturbations) && error("Add at least one perturbation before starting a series.")
+    RD.validate_series_settings(series.settings, controller.app.sim.model.nvars)
+
+    for perturbation in series.perturbations
+        clamp_series_perturbation!(controller.app, perturbation) ||
+            error("A perturbation points to an unavailable panel.")
+    end
+
+    templates, base_snapshots, generation = capture_series_base!(controller)
+    runtime_perturbations = series_runtime_perturbations(controller, templates)
+    clear_series_previews!(controller)
+
+    lock(series.lock)
+    try
+        series.templates = templates
+        series.base_snapshots = base_snapshots
+        series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[base_snapshots...]
+        series.snapshot_revision += 1
+        series.published_snapshot_revision = -1
+        series.generation = generation
+        series.completed_runs = 0
+        series.status = "Running 0/$(series.settings.run_count)"
+        series.location_counts = [zeros(Int, length(template.x)) for template in templates]
+        series.head_count_counts = [Dict{Int, Int}() for _ in templates]
+        series.not_converged_counts = zeros(Int, length(templates))
+        series.results_revision += 1
+        series.finish_restores_base = false
+        series.stop_requested[] = false
+        series.running[] = true
+    finally
+        unlock(series.lock)
+    end
+
+    controller.bindings.series_results_window_visible[] = true
+    controller.graphics_busy[] = true
+    refresh_series_bindings!(controller)
+    settings = deepcopy(series.settings)
+    perturbations = deepcopy(runtime_perturbations)
+
+    series.task_ref[] = Threads.@spawn begin
+        stopped = false
+
+        try
+            for run_index in 1:settings.run_count
+                series.stop_requested[] && (stopped = true; break)
+                outcomes = RD.run_series_realization!(
+                    templates,
+                    perturbations,
+                    settings,
+                    generation,
+                    run_index;
+                    cancelled = () -> series.stop_requested[],
+                    on_snapshot = (segment, snapshot) -> begin
+                        lock(series.lock)
+                        try
+                            series.latest_snapshots[segment] = snapshot
+                            series.snapshot_revision += 1
+                        finally
+                            unlock(series.lock)
+                        end
+                    end,
+                )
+                series.stop_requested[] && (stopped = true; break)
+                record_series_outcomes!(controller, outcomes, templates)
+            end
+        catch error
+            lock(series.lock)
+            try
+                series.status = "Series failed: $(sprint(showerror, error))"
+            finally
+                unlock(series.lock)
+            end
+            @error "Series worker failed." exception = (error, catch_backtrace())
+        finally
+            lock(series.lock)
+            try
+                if stopped
+                    series.status = "Stopped after $(series.completed_runs)/$(settings.run_count) runs"
+                elseif series.completed_runs == settings.run_count
+                    series.status = "Completed $(settings.run_count) runs"
+                    series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[series.base_snapshots...]
+                    series.snapshot_revision += 1
+                    series.finish_restores_base = true
+                end
+                series.running[] = false
+                series.results_revision += 1
+            finally
+                unlock(series.lock)
+            end
+        end
+    end
+
+    return nothing
+end
+
+
+function stop_series!(controller::QMLController)
+    series = controller.series
+    series.running[] || return nothing
+    series.stop_requested[] = true
+    series.status = "Stopping after the current safe solver step..."
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function clear_series_perturbations!(controller::QMLController)
+    series = controller.series
+    empty!(series.perturbations)
+    series.selected_perturbation_id = 0
+    series.selected_segment = 1
+    series.selected_variable = 1
+    series.selected_position = series_default_position(controller.app, 1)
+    series.status = "Add at least one perturbation"
+    clear_series_previews!(controller)
+    clear_series_position_marker!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function clamp_all_series_perturbations!(controller::QMLController)
+    series = controller.series
+    filter!(perturbation -> clamp_series_perturbation!(controller.app, perturbation), series.perturbations)
+    update_series_editor_selection!(controller)
+    return nothing
+end
+
+
+function remap_series_after_split!(
+    controller::QMLController,
+    split_segment::Int,
+    split_position::Float64,
+)
+    for perturbation in controller.series.perturbations
+        if perturbation.segment > split_segment
+            perturbation.segment += 1
+        elseif perturbation.segment == split_segment && perturbation.position > split_position
+            perturbation.segment += 1
+            perturbation.position -= split_position
+        end
+    end
+
+    clamp_all_series_perturbations!(controller)
+    controller.series.editor_open && show_series_previews!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function remap_series_after_merge!(
+    controller::QMLController,
+    left_segment::Int,
+    left_display_length::Float64,
+)
+    right_segment = left_segment + 1
+
+    for perturbation in controller.series.perturbations
+        if perturbation.segment == right_segment
+            perturbation.segment = left_segment
+            perturbation.position += left_display_length
+        elseif perturbation.segment > right_segment
+            perturbation.segment -= 1
+        end
+    end
+
+    clamp_all_series_perturbations!(controller)
+    controller.series.editor_open && show_series_previews!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function remap_series_after_swap!(controller::QMLController, left_segment::Int)
+    right_segment = left_segment + 1
+
+    for perturbation in controller.series.perturbations
+        if perturbation.segment == left_segment
+            perturbation.segment = right_segment
+        elseif perturbation.segment == right_segment
+            perturbation.segment = left_segment
+        end
+    end
+
+    clamp_all_series_perturbations!(controller)
+    controller.series.editor_open && show_series_previews!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function remap_series_after_delete!(controller::QMLController, deleted_segment::Int)
+    filter!(perturbation -> perturbation.segment != deleted_segment, controller.series.perturbations)
+
+    for perturbation in controller.series.perturbations
+        perturbation.segment > deleted_segment && (perturbation.segment -= 1)
+    end
+
+    clamp_all_series_perturbations!(controller)
+    controller.series.editor_open && show_series_previews!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function rescale_series_perturbations!(controller::QMLController, factor::Float64)
+    for perturbation in controller.series.perturbations
+        perturbation.position *= factor
+        perturbation.width_min *= factor
+        perturbation.width_max *= factor
+    end
+
+    controller.series.selected_position *= factor
+    clamp_all_series_perturbations!(controller)
+    controller.series.editor_open && show_series_previews!(controller)
+    controller.series.editor_open && update_series_position_marker!(controller)
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
 function toggle_running!(controller::QMLController)
     return guarded_action(controller, "Simulation control failed") do
         app = controller.app
@@ -438,6 +1500,7 @@ function reset_simulation!(controller::QMLController)
         )
         controller.selected_segment = 1
         update_partition_bindings!(controller; reset_index = true)
+        clear_series_perturbations!(controller)
     end
 end
 
@@ -466,6 +1529,7 @@ function restore_saved_state!(controller::QMLController)
         )
         controller.selected_segment = 1
         update_partition_bindings!(controller; reset_index = true)
+        clear_series_perturbations!(controller)
     end
 end
 
@@ -498,6 +1562,7 @@ function select_model!(controller::QMLController, key)
         controller.selected_segment = 1
         update_model_bindings!(controller)
         update_partition_bindings!(controller; reset_index = true)
+        clear_series_perturbations!(controller)
     end
 end
 
@@ -526,6 +1591,7 @@ function select_boundary_condition!(controller::QMLController, label)
         )
         controller.selected_segment = 1
         update_partition_bindings!(controller; reset_index = true)
+        clear_series_perturbations!(controller)
     end
 end
 
@@ -539,6 +1605,7 @@ end
 
 function set_domain_exponent!(controller::QMLController, exponent)
     return guarded_action(controller, "Domain rescale failed") do
+        previous_display_scale = controller.app.plot_panel.domain_length_scale
         controller.diffusion_scale = 10.0^Float64(exponent)
         RD.set_diffusion_scale_app!(
             controller.app,
@@ -546,6 +1613,12 @@ function set_domain_exponent!(controller::QMLController, exponent)
             steps_per_frame = controller.steps_per_frame,
             worker_sleep_time = controller.worker_sleep_time,
         )
+        current_display_scale = controller.app.plot_panel.domain_length_scale
+        previous_display_scale > 0.0 &&
+            rescale_series_perturbations!(
+                controller,
+                current_display_scale / previous_display_scale,
+            )
     end
 end
 
@@ -641,15 +1714,21 @@ end
 
 function split_selected_segment!(controller::QMLController)
     return guarded_action(controller, "Domain split failed") do
+        split_segment = controller.selected_segment
+        old_display_length = series_display_length(controller.app, split_segment)
+        old_point_count = controller.app.simulations[split_segment].N
+        split_position = old_display_length * controller.split_index / old_point_count
+        clear_series_position_marker!(controller)
         success = RD.split_domain_segment_app!(
             controller.app,
             controller.plot_grid,
-            controller.selected_segment,
+            split_segment,
             controller.split_index;
             title_obs = controller.title_obs,
         )
         success || error("The selected split point is not valid.")
         update_partition_bindings!(controller; reset_index = true)
+        remap_series_after_split!(controller, split_segment, split_position)
     end
 end
 
@@ -657,6 +1736,8 @@ end
 function merge_boundary!(controller::QMLController, one_based_boundary)
     return guarded_action(controller, "Domain merge failed") do
         boundary = Int(one_based_boundary)
+        left_display_length = series_display_length(controller.app, boundary)
+        clear_series_position_marker!(controller)
         success = RD.merge_domain_segments_app!(
             controller.app,
             controller.plot_grid,
@@ -670,6 +1751,7 @@ function merge_boundary!(controller::QMLController, one_based_boundary)
             length(controller.app.simulations),
         )
         update_partition_bindings!(controller; reset_index = true)
+        remap_series_after_merge!(controller, boundary, left_display_length)
     end
 end
 
@@ -678,6 +1760,7 @@ function swap_boundary!(controller::QMLController, one_based_boundary)
     return guarded_action(controller, "Domain swap failed") do
         boundary = Int(one_based_boundary)
         selected_before_swap = controller.selected_segment
+        clear_series_position_marker!(controller)
         success = RD.swap_adjacent_domain_segments_app!(
             controller.app,
             controller.plot_grid,
@@ -695,6 +1778,7 @@ function swap_boundary!(controller::QMLController, one_based_boundary)
             selected_before_swap
         end
         update_partition_bindings!(controller; reset_index = true)
+        remap_series_after_swap!(controller, boundary)
     end
 end
 
@@ -702,6 +1786,7 @@ end
 function delete_selected_segment!(controller::QMLController)
     return guarded_action(controller, "Domain deletion failed") do
         deleted_segment = controller.selected_segment
+        clear_series_position_marker!(controller)
         success = RD.delete_domain_segment_app!(
             controller.app,
             controller.plot_grid,
@@ -717,6 +1802,7 @@ function delete_selected_segment!(controller::QMLController)
             length(controller.app.simulations),
         )
         update_partition_bindings!(controller; reset_index = true)
+        remap_series_after_delete!(controller, deleted_segment)
     end
 end
 
@@ -777,6 +1863,13 @@ end
 
 
 function shutdown!(controller::QMLController)
+    stop_series!(controller)
+    series_task = controller.series.task_ref[]
+    if series_task !== nothing && series_task !== current_task() && !istaskdone(series_task)
+        wait(series_task)
+    end
+    clear_series_previews!(controller)
+    clear_series_position_marker!(controller)
     RD.stop_worker!(controller.app; wait = true)
 
     return nothing
@@ -822,6 +1915,7 @@ function run_qml_event_loop!(
     while !controller.close_requested[]
         QML.process_eventloop_updates()
         QML.process_events()
+        refresh_series_runtime!(controller)
         controller.close_requested[] && break
 
         yield()
@@ -937,6 +2031,49 @@ function register_qml_functions!(controller::QMLController)
         "setPerturbationHeight",
         value -> set_perturbation_height!(controller, value),
     )
+    QML.qmlfunction("openSeriesEditor", () -> open_series_editor!(controller))
+    QML.qmlfunction("closeSeriesEditor", () -> close_series_editor!(controller))
+    QML.qmlfunction("selectSeriesSegment", value -> select_series_segment!(controller, value))
+    QML.qmlfunction("selectSeriesVariable", value -> select_series_variable!(controller, value))
+    QML.qmlfunction("setSeriesPosition", value -> set_series_position!(controller, value))
+    QML.qmlfunction("addSeriesPerturbation", () -> add_series_perturbation!(controller))
+    QML.qmlfunction("selectSeriesPerturbation", value -> select_series_perturbation!(controller, value))
+    QML.qmlfunction("deleteSeriesPerturbation", value -> delete_series_perturbation!(controller, value))
+    QML.qmlfunction(
+        "updateSeriesPerturbation",
+        (id, field, value) -> update_series_perturbation!(controller, id, field, value),
+    )
+    QML.qmlfunction(
+        "setSeriesRunCount",
+        value -> set_series_integer_setting!(controller, :run_count, value),
+    )
+    QML.qmlfunction(
+        "setSeriesMaximumSteps",
+        value -> set_series_integer_setting!(controller, :maximum_steps, value),
+    )
+    QML.qmlfunction(
+        "setSeriesCheckInterval",
+        value -> set_series_float_setting!(controller, :check_interval, value),
+    )
+    QML.qmlfunction(
+        "setSeriesTolerance",
+        value -> set_series_float_setting!(controller, :tolerance, value),
+    )
+    QML.qmlfunction("setSeriesSeed", value -> set_series_seed!(controller, value))
+    QML.qmlfunction(
+        "setSeriesHeadVariable",
+        value -> set_series_integer_setting!(controller, :head_variable, value),
+    )
+    QML.qmlfunction(
+        "setSeriesLivePreview",
+        value -> set_series_live_preview!(controller, value),
+    )
+    QML.qmlfunction("startSeries", () -> start_series!(controller))
+    QML.qmlfunction("stopSeries", () -> stop_series!(controller))
+    QML.qmlfunction(
+        "setSeriesResultsWindowVisible",
+        value -> (controller.bindings.series_results_window_visible[] = Bool(value)),
+    )
     QML.qmlfunction("requestClose", () -> request_close!(controller))
 
     return nothing
@@ -974,6 +2111,24 @@ function qml_property_map(
         "modelCatalogJson" => Observable(catalog_json),
         "message" => bindings.message,
         "graphicsBusy" => controller.graphics_busy,
+        "seriesRunning" => bindings.series_running,
+        "seriesCompletedRuns" => bindings.series_completed_runs,
+        "seriesTotalRuns" => bindings.series_total_runs,
+        "seriesStatus" => bindings.series_status,
+        "seriesRunCount" => bindings.series_run_count,
+        "seriesMaximumSteps" => bindings.series_maximum_steps,
+        "seriesCheckInterval" => bindings.series_check_interval,
+        "seriesTolerance" => bindings.series_tolerance,
+        "seriesSeed" => bindings.series_seed,
+        "seriesHeadVariable" => bindings.series_head_variable,
+        "seriesLivePreview" => bindings.series_live_preview,
+        "seriesSelectedSegment" => bindings.series_selected_segment,
+        "seriesSelectedVariable" => bindings.series_selected_variable,
+        "seriesPosition" => bindings.series_position,
+        "seriesSelectedPanelLength" => bindings.series_selected_panel_length,
+        "seriesPerturbationsJson" => bindings.series_perturbations_json,
+        "seriesResultsJson" => bindings.series_results_json,
+        "seriesResultsWindowVisible" => bindings.series_results_window_visible,
         "autoCloseMs" => Observable(auto_close_ms),
     )
 end
@@ -1073,6 +2228,24 @@ function create_qml_controller(;
         Observable(0.0),
         Observable(false),
         Observable(""),
+        Observable(false),
+        Observable(0),
+        Observable(100),
+        Observable("Configure perturbations"),
+        Observable(100),
+        Observable(1000),
+        Observable(1.0),
+        Observable(1e-8),
+        Observable("12345"),
+        Observable(1),
+        Observable(false),
+        Observable(1),
+        Observable(1),
+        Observable(0.5),
+        Observable(1.0),
+        Observable("[]"),
+        Observable("[]"),
+        Observable(false),
     )
     controller = QMLController(
         app,
@@ -1084,6 +2257,7 @@ function create_qml_controller(;
         equation_images_by_model,
         equation_widths_by_model,
         bindings,
+        empty_series_controller(),
         1.0,
         1,
         bindings.split_index[],
@@ -1096,6 +2270,8 @@ function create_qml_controller(;
         Observable(false),
         Threads.Atomic{Bool}(false),
     )
+    controller.series.selected_position = series_default_position(controller.app, 1)
+    refresh_series_bindings!(controller)
     report_startup_stage("Create QML controller", stage_started_ns)
 
     return controller, figure
