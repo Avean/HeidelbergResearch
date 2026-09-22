@@ -225,12 +225,14 @@ function run_series_panel!(
     generation::Int;
     cancelled::Function = () -> false,
     on_snapshot::Function = _ -> nothing,
+    on_residual::Function = _ -> nothing,
 )
     validate_series_settings(settings, sim.model.nvars)
     stable_checks = 0
     integrator = sim.integrator_ref[]
     converged = false
     residual = NaN
+    last_residual_report_ns = UInt64(0)
 
     while integrator.t < settings.maximum_time
         cancelled() && break
@@ -243,11 +245,22 @@ function run_series_panel!(
             sim.step_counter[] >= settings.maximum_steps_per_panel && break
             step_series_panel!(sim)
             settings.live_preview && on_snapshot(make_snapshot(sim, generation))
+            # Display-only sampling; the convergence decision is still made
+            # exclusively at the configured simulation-time checkpoints.
+            now_ns = time_ns()
+            if now_ns - last_residual_report_ns >= UInt64(500_000_000)
+                settings.live_preview || on_snapshot(make_snapshot(sim, generation))
+                on_residual(series_stationarity_residual(sim))
+                last_residual_report_ns = now_ns
+            end
         end
 
         integrator.t < checkpoint && break
 
         residual = series_stationarity_residual(sim)
+        settings.live_preview || on_snapshot(make_snapshot(sim, generation))
+        on_residual(residual)
+        last_residual_report_ns = time_ns()
         stable_checks = residual < settings.tolerance ? stable_checks + 1 : 0
 
         if stable_checks >= settings.required_consecutive_checks
@@ -256,6 +269,8 @@ function run_series_panel!(
         end
     end
 
+    residual = series_stationarity_residual(sim)
+    on_residual(residual)
     heads = DetectedHead[]
 
     if converged
@@ -289,6 +304,7 @@ function run_series_realization!(
     run_index::Int;
     cancelled::Function = () -> false,
     on_snapshot::Function = (_, _) -> nothing,
+    on_residual::Function = (_, _) -> nothing,
 )
     isempty(templates) && error("A series realization needs at least one panel.")
     validate_series_settings(settings, first(templates).model.nvars)
@@ -311,6 +327,7 @@ function run_series_realization!(
             generation;
             cancelled = cancelled,
             on_snapshot = snapshot -> on_snapshot(segment, snapshot),
+            on_residual = residual -> on_residual(segment, residual),
         )
         push!(tasks, task)
     end

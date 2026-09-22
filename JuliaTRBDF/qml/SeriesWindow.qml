@@ -138,8 +138,8 @@ Window {
                             }
                         }
 
-                        // Diagnostics: one more realization, added to the
-                        // statistics, whose final state stays on the main plots.
+                        // Diagnostics: add one realization to the statistics,
+                        // then restore the state captured on entering Series.
                         Rectangle {
                             id: runOneButton
                             property bool active: !ui.seriesRunning && seriesWindow.perturbations.length > 0
@@ -170,7 +170,7 @@ Window {
                             }
 
                             ToolTip.visible: runOneMouse.containsMouse
-                            ToolTip.text: "Run one realization, add it to the statistics and keep its final state on the main plots"
+                            ToolTip.text: "Run one realization, add it to the statistics, then restore the original state on the main plots"
                         }
 
                         Label {
@@ -249,60 +249,100 @@ Window {
                                 columnSpacing: 8
                                 rowSpacing: 7
 
+                                // Every field keeps showing the value Julia
+                                // actually stores: typing breaks a plain text
+                                // binding, so the value is restored through an
+                                // explicit Binding once the field loses focus.
+                                // All of them accept scientific notation.
                                 Label { text: "Number of runs" }
                                 TextField {
+                                    id: runCountField
                                     selectByMouse: true
-                                    validator: IntValidator { bottom: 1 }
-                                    text: String(ui.seriesRunCount)
+                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
                                     onEditingFinished: Julia.setSeriesRunCount(text)
+                                    Binding on text {
+                                        value: String(ui.seriesRunCount)
+                                        when: !runCountField.activeFocus
+                                        restoreMode: Binding.RestoreBindingOrValue
+                                    }
                                 }
 
                                 Label { text: "Maximum time / panel" }
                                 TextField {
+                                    id: maximumTimeField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
-                                    text: Number(ui.seriesMaximumTime).toString()
                                     onEditingFinished: Julia.setSeriesMaximumTime(text)
+                                    Binding on text {
+                                        value: Number(ui.seriesMaximumTime).toExponential()
+                                        when: !maximumTimeField.activeFocus
+                                        restoreMode: Binding.RestoreBindingOrValue
+                                    }
                                 }
 
                                 Label { text: "Check interval (time)" }
                                 TextField {
+                                    id: checkIntervalField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
-                                    text: Number(ui.seriesCheckInterval).toString()
                                     onEditingFinished: Julia.setSeriesCheckInterval(text)
+                                    Binding on text {
+                                        value: Number(ui.seriesCheckInterval).toExponential()
+                                        when: !checkIntervalField.activeFocus
+                                        restoreMode: Binding.RestoreBindingOrValue
+                                    }
                                 }
 
-                                Label { text: "Tolerance on |du/dt|" }
+                                Label { text: "Tolerance on R" }
                                 TextField {
+                                    id: toleranceField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.000000000000000001; notation: DoubleValidator.ScientificNotation }
-                                    text: Number(ui.seriesTolerance).toExponential()
                                     onEditingFinished: Julia.setSeriesTolerance(text)
+                                    Binding on text {
+                                        value: Number(ui.seriesTolerance).toExponential()
+                                        when: !toleranceField.activeFocus
+                                        restoreMode: Binding.RestoreBindingOrValue
+                                    }
                                 }
 
                                 Label { text: "Consecutive passed checks" }
                                 TextField {
+                                    id: requiredChecksField
                                     selectByMouse: true
-                                    validator: IntValidator { bottom: 1 }
-                                    text: String(ui.seriesRequiredChecks)
+                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
                                     onEditingFinished: Julia.setSeriesRequiredChecks(text)
+                                    Binding on text {
+                                        value: String(ui.seriesRequiredChecks)
+                                        when: !requiredChecksField.activeFocus
+                                        restoreMode: Binding.RestoreBindingOrValue
+                                    }
                                 }
 
                                 Label { text: "Series dtmax" }
                                 TextField {
+                                    id: dtmaxField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
-                                    text: Number(ui.seriesDtmax).toString()
                                     onEditingFinished: Julia.setSeriesDtmax(text)
+                                    Binding on text {
+                                        value: Number(ui.seriesDtmax).toExponential()
+                                        when: !dtmaxField.activeFocus
+                                        restoreMode: Binding.RestoreBindingOrValue
+                                    }
                                 }
 
                                 Label { text: "Safety step limit / panel" }
                                 TextField {
+                                    id: maximumStepsField
                                     selectByMouse: true
-                                    validator: IntValidator { bottom: 1 }
-                                    text: String(ui.seriesMaximumSteps)
+                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
                                     onEditingFinished: Julia.setSeriesMaximumSteps(text)
+                                    Binding on text {
+                                        value: Number(ui.seriesMaximumSteps).toExponential()
+                                        when: !maximumStepsField.activeFocus
+                                        restoreMode: Binding.RestoreBindingOrValue
+                                    }
                                 }
 
                                 Label { text: "Random seed" }

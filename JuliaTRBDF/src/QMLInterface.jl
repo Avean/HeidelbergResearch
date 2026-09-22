@@ -78,6 +78,7 @@ mutable struct SeriesController
     lock::ReentrantLock
     templates::Vector{RD.SeriesSegmentTemplate}
     base_snapshots::Vector{RD.SimulationSnapshot}
+    # Fixed entry state for this series session; never replaced by a run.
     latest_snapshots::Vector{Union{Nothing, RD.SimulationSnapshot}}
     snapshot_revision::Int
     published_snapshot_revision::Int
@@ -98,13 +99,12 @@ mutable struct SeriesController
     # Final head-variable profile of every realization, per panel.
     pattern_converged::Vector{Vector{Bool}}
     results_panel::Int
-    head_marker_indices::Vector{Vector{Int}}
-    # Grid indices of the heads found by the last "Run one", per panel.
-    showing_run_result::Bool
-    # The main plots show the final state of "Run one" instead of the base.
     single_run::Bool
     configuration_groups::Vector{Vector{RD.HeadConfigurationGroup}}
     # Head configurations of the converged realizations, per panel.
+    latest_residuals::Vector{Float64}
+    residual_revision::Int
+    published_residual_revision::Int
 end
 
 
@@ -223,10 +223,11 @@ function empty_series_controller()
         Vector{Vector{Float64}}[],
         Vector{Bool}[],
         1,
-        Vector{Int}[],
-        false,
         false,
         Vector{RD.HeadConfigurationGroup}[],
+        Float64[],
+        0,
+        -1,
     )
 end
 
@@ -744,16 +745,63 @@ function refresh_series_bindings!(controller::QMLController)
 end
 
 
+function refresh_series_residual_status!(controller::QMLController, running::Bool)
+    series = controller.series
+    panel = controller.app.plot_panel
+    status_snapshots = RD.SimulationSnapshot[]
+    residuals = Float64[]
+
+    lock(series.lock)
+    try
+        length(series.base_snapshots) == length(panel.segment_status_observables) ||
+            return nothing
+        residuals = copy(series.latest_residuals)
+        for segment in eachindex(series.base_snapshots)
+            candidate = running ?
+                series.latest_snapshots[segment] : series.base_snapshots[segment]
+            push!(
+                status_snapshots,
+                candidate === nothing ? series.base_snapshots[segment] : candidate,
+            )
+        end
+    finally
+        unlock(series.lock)
+    end
+
+    length(residuals) == length(status_snapshots) || return nothing
+    label = running ? "R" : any(isfinite, residuals) ? "R(last)" : "R"
+    for segment in eachindex(status_snapshots)
+        value = residuals[segment]
+        formatted = isfinite(value) ? @sprintf("%.2e", value) : "--"
+        status = RD.compact_segment_status(status_snapshots[segment]) *
+                 "\n" * label * "=" * formatted
+        set_if_changed!(panel.segment_status_observables[segment], status)
+    end
+
+    return nothing
+end
+
+
 function refresh_series_runtime!(controller::QMLController)
+    controller.bindings.series_mode[] || return nothing
     series = controller.series
     snapshots = RD.SimulationSnapshot[]
     running = series.running[]
     task = series.task_ref[]
     publish_snapshots = false
-    commit_partial_state = false
+    publish_residuals = false
 
     lock(series.lock)
     try
+        if !running && task !== nothing && istaskdone(task) &&
+           !series.finish_restores_base
+            series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[
+                series.base_snapshots...
+            ]
+            series.snapshot_revision += 1
+            series.finish_restores_base = true
+        end
+
         if (series.settings.live_preview || !running) &&
            series.snapshot_revision != series.published_snapshot_revision &&
            length(series.latest_snapshots) == length(controller.app.simulations) &&
@@ -765,30 +813,13 @@ function refresh_series_runtime!(controller::QMLController)
             publish_snapshots = true
         end
 
-        commit_partial_state = !running &&
-                               task !== nothing &&
-                               istaskdone(task) &&
-                               series.stop_requested[] &&
-                               !series.finish_restores_base &&
-                               length(series.latest_snapshots) ==
-                               length(controller.app.simulations) &&
-                               all(snapshot -> snapshot !== nothing, series.latest_snapshots)
-
-        if commit_partial_state && isempty(snapshots)
-            snapshots = RD.SimulationSnapshot[
-                snapshot::RD.SimulationSnapshot for snapshot in series.latest_snapshots
-            ]
+        if series.residual_revision != series.published_residual_revision
+            series.published_residual_revision = series.residual_revision
+            publish_residuals = true
         end
-
-        # This flag means that a terminal state has already been handled:
-        # either the base state after a normal finish or the partial state
-        # after a user stop.
-        commit_partial_state && (series.finish_restores_base = true)
     finally
         unlock(series.lock)
     end
-
-    commit_partial_state && commit_series_partial_state!(controller, snapshots)
 
     if publish_snapshots &&
        length(snapshots) == length(controller.app.simulations) &&
@@ -798,6 +829,14 @@ function refresh_series_runtime!(controller::QMLController)
             RD.refresh_app_from_snapshot!(controller.app, snapshot)
         catch error
             report_error!(controller, "Series display refresh failed", error)
+        end
+    end
+
+    if publish_snapshots || publish_residuals
+        try
+            refresh_series_residual_status!(controller, running)
+        catch error
+            report_error!(controller, "Series residual display failed", error)
         end
     end
 
@@ -812,44 +851,6 @@ function refresh_series_runtime!(controller::QMLController)
         end
 
         refresh_qml_state!(controller)
-    end
-
-    return nothing
-end
-
-
-function commit_series_partial_state!(
-    controller::QMLController,
-    snapshots::Vector{RD.SimulationSnapshot},
-)
-    app = controller.app
-    length(snapshots) == length(app.simulations) || return nothing
-
-    lock(app.simlock)
-    try
-        for segment in eachindex(app.simulations)
-            sim = app.simulations[segment]
-            snapshot = snapshots[segment]
-            runtime = app.segment_runtimes[segment]
-
-            lock(runtime.lock)
-            try
-                RD.restart_after_manual_change!(
-                    sim,
-                    copy(snapshot.y);
-                    reltol = controller.reltol,
-                    abstol = controller.abstol,
-                )
-                sim.time_offset[] = snapshot.t
-                sim.step_counter[] = snapshot.steps
-            finally
-                unlock(runtime.lock)
-            end
-        end
-
-        RD.clear_snapshot_buffer!(app.snapshot_buffer)
-    finally
-        unlock(app.simlock)
     end
 
     return nothing
@@ -936,36 +937,9 @@ function add_series_preview_box!(
 end
 
 
-function add_series_head_markers!(controller::QMLController)
-    series = controller.series
-    panel = controller.app.plot_panel
-    variable = series.settings.head_variable
-
-    for (segment, indices) in enumerate(series.head_marker_indices)
-        isempty(indices) && continue
-        segment <= length(panel.segment_axes) || continue
-        variable <= length(panel.segment_axes[segment]) || continue
-        x = panel.segment_x_observables[segment][]
-        positions = [x[index] for index in indices if 1 <= index <= length(x)]
-        isempty(positions) && continue
-        marker = vlines!(
-            panel.segment_axes[segment][variable],
-            positions;
-            color = (:red, 0.75),
-            linestyle = :dot,
-            linewidth = 2.0,
-        )
-        push!(series.preview_items, marker)
-    end
-
-    return nothing
-end
-
-
 function show_series_previews_now!(controller::QMLController)
     series = controller.series
     clear_series_previews_now!(controller)
-    add_series_head_markers!(controller)
 
     for perturbation in series.perturbations
         clamp_series_perturbation!(controller.app, perturbation) || continue
@@ -1082,7 +1056,6 @@ end
 function open_series_editor!(controller::QMLController)
     series = controller.series
     series.running[] && return nothing
-    RD.stop_worker!(controller.app; wait = true)
     series.editor_open = true
     update_series_editor_selection!(controller)
     series.status = isempty(series.perturbations) ?
@@ -1110,6 +1083,27 @@ function set_series_mode!(controller::QMLController, enabled)
         enabled == controller.bindings.series_mode[] && return nothing
 
         if enabled
+            templates, base_snapshots, generation = capture_series_base!(controller)
+            lock(series.lock)
+            try
+                series.templates = templates
+                series.base_snapshots = base_snapshots
+                series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[
+                    base_snapshots...
+                ]
+                series.snapshot_revision += 1
+                series.published_snapshot_revision = -1
+                series.generation = generation
+                series.task_ref[] = nothing
+                series.stop_requested[] = false
+                series.finish_restores_base = true
+                series.latest_residuals = fill(NaN, length(templates))
+                series.residual_revision += 1
+                series.published_residual_revision = -1
+                reset_series_results_locked!(series, templates)
+            finally
+                unlock(series.lock)
+            end
             app.mouse_perturbations_enabled[] = false
             RD.clear_perturbation_previews!(app.plot_panel)
             controller.bindings.series_mode[] = true
@@ -1117,21 +1111,19 @@ function set_series_mode!(controller::QMLController, enabled)
         else
             # Leaving series mode is blocked until the running series is stopped.
             series.running[] && return nothing
+            task = series.task_ref[]
+            task !== nothing && !istaskdone(task) && wait(task)
+            restore_series_base_display!(controller)
             controller.bindings.series_mode[] = false
-            series.showing_run_result = false
-            empty!(series.head_marker_indices)
             close_series_editor!(controller)
             app.mouse_perturbations_enabled[] = true
 
-            # A stopped series may have committed its partial state to the
-            # simulations; publish that live state instead of the snapshots
-            # the main workers left before series mode.
-            lock(app.simlock)
-            try
-                RD.store_runtime_snapshots!(app, RD.make_locked_snapshot(app).segments)
-            finally
-                unlock(app.simlock)
-            end
+            # The main solver never adopts a series realization.  Publish the
+            # entry snapshots so ordinary UI refreshes keep showing the base.
+            RD.store_runtime_snapshots!(app, series.base_snapshots)
+            controller.graphics_busy[] = false
+            refresh_series_bindings!(controller)
+            refresh_qml_state!(controller)
         end
 
         return nothing
@@ -1295,7 +1287,16 @@ end
 
 
 function set_series_integer_setting!(controller::QMLController, field::Symbol, value)
+    return guarded_action(controller, "Series setting change failed") do
+        _set_series_integer_setting!(controller, field, value)
+    end
+end
+
+
+function _set_series_integer_setting!(controller::QMLController, field::Symbol, value)
     series = controller.series
+    # Starting a series moves focus out of a settings field, which makes Qt
+    # emit editingFinished: ignore such a late write instead of reporting it.
     series.running[] && return nothing
     integer = Int(round(parse_finite_qml_number(value, String(field))))
     integer >= 1 || error("$(field) must be at least one.")
@@ -1319,7 +1320,16 @@ end
 
 
 function set_series_float_setting!(controller::QMLController, field::Symbol, value)
+    return guarded_action(controller, "Series setting change failed") do
+        _set_series_float_setting!(controller, field, value)
+    end
+end
+
+
+function _set_series_float_setting!(controller::QMLController, field::Symbol, value)
     series = controller.series
+    # Starting a series moves focus out of a settings field, which makes Qt
+    # emit editingFinished: ignore such a late write instead of reporting it.
     series.running[] && return nothing
     number = parse_finite_qml_number(value, String(field))
     number > 0.0 || error("$(field) must be positive.")
@@ -1512,31 +1522,31 @@ function clear_series_results!(controller::QMLController)
     try
         reset_series_results_locked!(series, RD.SeriesSegmentTemplate[])
         series.results_panel = 1
+        fill!(series.latest_residuals, NaN)
+        series.residual_revision += 1
     finally
         unlock(series.lock)
     end
 
-    series.showing_run_result = false
-    empty!(series.head_marker_indices)
     refresh_series_bindings!(controller)
     return nothing
 end
 
 
 function restore_series_base_display!(controller::QMLController)
-    # After "Run one" the main plots show its final state. Put the base state
-    # back before perturbations are edited or another run starts.
+    # Every series action returns the main plots to the state captured when
+    # series mode was opened, independently of the last realization.
     series = controller.series
-    series.showing_run_result || return nothing
-    series.showing_run_result = false
-    empty!(series.head_marker_indices)
-    length(series.base_snapshots) == length(controller.app.simulations) || return nothing
+    length(series.base_snapshots) == length(controller.app.simulations) &&
+        series.generation == controller.app.generation[] ||
+        error("Series entry state is unavailable; reopen series mode.")
 
     lock(series.lock)
     try
         series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[series.base_snapshots...]
         series.snapshot_revision += 1
         series.published_snapshot_revision = series.snapshot_revision
+        series.published_residual_revision = -1
     finally
         unlock(series.lock)
     end
@@ -1557,7 +1567,7 @@ function run_one_summary(run_index::Int, outcomes::Vector{RD.SeriesPanelOutcome}
             parts,
             prefix * state *
             @sprintf(
-                " at t = %.4g, %d steps, %d heads, |du/dt| = %.3g",
+                " at t = %.4g, %d steps, %d heads, R = %.3g",
                 outcome.time,
                 outcome.steps,
                 length(outcome.heads),
@@ -1583,6 +1593,8 @@ end
 function launch_series!(controller::QMLController; single_run::Bool)
     series = controller.series
     series.running[] && return nothing
+    previous_task = series.task_ref[]
+    previous_task !== nothing && !istaskdone(previous_task) && wait(previous_task)
     isempty(series.perturbations) && error("Add at least one perturbation before starting a series.")
     RD.validate_series_settings(series.settings, controller.app.sim.model.nvars)
 
@@ -1592,7 +1604,12 @@ function launch_series!(controller::QMLController; single_run::Bool)
     end
 
     restore_series_base_display!(controller)
-    templates, base_snapshots, generation = capture_series_base!(controller)
+    templates = series.templates
+    base_snapshots = series.base_snapshots
+    generation = series.generation
+    length(templates) == length(controller.app.simulations) &&
+        length(base_snapshots) == length(templates) ||
+        error("Series entry state is unavailable; reopen series mode.")
     runtime_perturbations = series_runtime_perturbations(controller, templates)
     clear_series_previews!(controller)
     clear_series_position_marker!(controller)
@@ -1605,8 +1622,6 @@ function launch_series!(controller::QMLController; single_run::Bool)
 
     lock(series.lock)
     try
-        series.templates = templates
-        series.base_snapshots = base_snapshots
         series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[base_snapshots...]
         series.snapshot_revision += 1
         series.published_snapshot_revision = -1
@@ -1619,6 +1634,8 @@ function launch_series!(controller::QMLController; single_run::Bool)
         series.finish_restores_base = false
         series.stop_requested[] = false
         series.running[] = true
+        series.latest_residuals = fill(NaN, length(templates))
+        series.residual_revision += 1
     finally
         unlock(series.lock)
     end
@@ -1635,6 +1652,13 @@ function launch_series!(controller::QMLController; single_run::Bool)
         try
             for run_index in run_indices
                 series.stop_requested[] && (stopped = true; break)
+                lock(series.lock)
+                try
+                    fill!(series.latest_residuals, NaN)
+                    series.residual_revision += 1
+                finally
+                    unlock(series.lock)
+                end
                 outcomes = RD.run_series_realization!(
                     templates,
                     perturbations,
@@ -1647,6 +1671,15 @@ function launch_series!(controller::QMLController; single_run::Bool)
                         try
                             series.latest_snapshots[segment] = snapshot
                             series.snapshot_revision += 1
+                        finally
+                            unlock(series.lock)
+                        end
+                    end,
+                    on_residual = (segment, residual) -> begin
+                        lock(series.lock)
+                        try
+                            series.latest_residuals[segment] = residual
+                            series.residual_revision += 1
                         finally
                             unlock(series.lock)
                         end
@@ -1672,22 +1705,9 @@ function launch_series!(controller::QMLController; single_run::Bool)
                         "Run one stopped" :
                         "Stopped after $(series.completed_runs)/$(settings.run_count) runs"
                 elseif single_run && last_outcomes !== nothing
-                    # Keep the final state on the main plots and mark its heads.
                     series.status = run_one_summary(first(run_indices), last_outcomes)
-                    series.head_marker_indices = [
-                        [
-                            RD.nearest_grid_index(templates[segment].x, head.position)
-                            for head in last_outcomes[segment].heads
-                        ]
-                        for segment in eachindex(last_outcomes)
-                    ]
-                    series.showing_run_result = true
-                    series.finish_restores_base = true
                 elseif !single_run && series.completed_runs == settings.run_count
                     series.status = "Completed $(settings.run_count) runs"
-                    series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[series.base_snapshots...]
-                    series.snapshot_revision += 1
-                    series.finish_restores_base = true
                 end
                 series.running[] = false
                 series.single_run = false
