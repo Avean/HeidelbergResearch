@@ -56,7 +56,7 @@ mutable struct QMLBindings
     series_selected_panel_length::Observable{Float64}
     series_perturbations_json::Observable{String}
     series_results_json::Observable{String}
-    series_results_window_visible::Observable{Bool}
+    series_mode::Observable{Bool}
 end
 
 
@@ -289,12 +289,30 @@ function series_default_position(app::RD.AppState, segment::Int)
 end
 
 
+const SERIES_WIDTH_DIGITS = 2
+const SERIES_WIDTH_STEP = 10.0^-SERIES_WIDTH_DIGITS
+const SERIES_HEIGHT_DIGITS = 1
+
+
 function clamp_series_perturbation!(app::RD.AppState, perturbation::RD.SeriesPerturbation)
     1 <= perturbation.segment <= length(app.simulations) || return false
     displayed_length = series_display_length(app, perturbation.segment)
     perturbation.position = clamp(perturbation.position, 0.0, displayed_length)
     perturbation.width_max = clamp(perturbation.width_max, eps(Float64), displayed_length)
     perturbation.width_min = clamp(perturbation.width_min, eps(Float64), perturbation.width_max)
+    # Keep the stored values at the precision shown in the series window, so
+    # that focusing and leaving a field never changes a perturbation silently.
+    perturbation.width_max = max(
+        SERIES_WIDTH_STEP,
+        round(perturbation.width_max; digits = SERIES_WIDTH_DIGITS),
+    )
+    perturbation.width_min = clamp(
+        round(perturbation.width_min; digits = SERIES_WIDTH_DIGITS),
+        SERIES_WIDTH_STEP,
+        perturbation.width_max,
+    )
+    perturbation.height_min = round(perturbation.height_min; digits = SERIES_HEIGHT_DIGITS)
+    perturbation.height_max = round(perturbation.height_max; digits = SERIES_HEIGHT_DIGITS)
     perturbation.variable = clamp(
         perturbation.variable,
         1,
@@ -710,6 +728,12 @@ function refresh_series_runtime!(controller::QMLController)
 
     if !running && task !== nothing && istaskdone(task) && controller.graphics_busy[]
         controller.graphics_busy[] = false
+
+        if series.editor_open
+            show_series_previews!(controller)
+            update_series_position_marker!(controller)
+        end
+
         refresh_qml_state!(controller)
     end
 
@@ -942,6 +966,31 @@ function close_series_editor!(controller::QMLController)
     clear_series_previews!(controller)
     clear_series_position_marker!(controller)
     return nothing
+end
+
+
+function set_series_mode!(controller::QMLController, enabled)
+    return guarded_action(controller, "Series mode change failed") do
+        app = controller.app
+        series = controller.series
+        enabled = Bool(enabled)
+        enabled == controller.bindings.series_mode[] && return nothing
+
+        if enabled
+            app.mouse_perturbations_enabled[] = false
+            RD.clear_perturbation_previews!(app.plot_panel)
+            controller.bindings.series_mode[] = true
+            open_series_editor!(controller)
+        else
+            # Leaving series mode is blocked until the running series is stopped.
+            series.running[] && return nothing
+            controller.bindings.series_mode[] = false
+            close_series_editor!(controller)
+            app.mouse_perturbations_enabled[] = true
+        end
+
+        return nothing
+    end
 end
 
 
@@ -1276,6 +1325,7 @@ function start_series!(controller::QMLController)
     templates, base_snapshots, generation = capture_series_base!(controller)
     runtime_perturbations = series_runtime_perturbations(controller, templates)
     clear_series_previews!(controller)
+    clear_series_position_marker!(controller)
 
     lock(series.lock)
     try
@@ -1298,7 +1348,6 @@ function start_series!(controller::QMLController)
         unlock(series.lock)
     end
 
-    controller.bindings.series_results_window_visible[] = true
     controller.graphics_busy[] = true
     refresh_series_bindings!(controller)
     settings = deepcopy(series.settings)
@@ -2046,8 +2095,7 @@ function register_qml_functions!(controller::QMLController)
         "setPerturbationHeight",
         value -> set_perturbation_height!(controller, value),
     )
-    QML.qmlfunction("openSeriesEditor", () -> open_series_editor!(controller))
-    QML.qmlfunction("closeSeriesEditor", () -> close_series_editor!(controller))
+    QML.qmlfunction("setSeriesMode", value -> set_series_mode!(controller, value))
     QML.qmlfunction("selectSeriesSegment", value -> select_series_segment!(controller, value))
     QML.qmlfunction("selectSeriesVariable", value -> select_series_variable!(controller, value))
     QML.qmlfunction("setSeriesPosition", value -> set_series_position!(controller, value))
@@ -2097,10 +2145,6 @@ function register_qml_functions!(controller::QMLController)
     )
     QML.qmlfunction("startSeries", () -> start_series!(controller))
     QML.qmlfunction("stopSeries", () -> stop_series!(controller))
-    QML.qmlfunction(
-        "setSeriesResultsWindowVisible",
-        value -> (controller.bindings.series_results_window_visible[] = Bool(value)),
-    )
     QML.qmlfunction("requestClose", () -> request_close!(controller))
 
     return nothing
@@ -2158,7 +2202,7 @@ function qml_property_map(
         "seriesSelectedPanelLength" => bindings.series_selected_panel_length,
         "seriesPerturbationsJson" => bindings.series_perturbations_json,
         "seriesResultsJson" => bindings.series_results_json,
-        "seriesResultsWindowVisible" => bindings.series_results_window_visible,
+        "seriesMode" => bindings.series_mode,
         "autoCloseMs" => Observable(auto_close_ms),
     )
 end
@@ -2236,6 +2280,7 @@ function create_qml_controller(;
         Observable("Synchronized"),
         Ref{Union{Nothing, RD.SavedSimulationState}}(nothing),
         false,
+        Threads.Atomic{Bool}(true),
     )
     app.plot_panel = RD.build_plot_panel!(plot_grid, app; title_obs = title)
     report_startup_stage("Create application and plots", stage_started_ns)
