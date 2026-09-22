@@ -103,6 +103,8 @@ mutable struct SeriesController
     showing_run_result::Bool
     # The main plots show the final state of "Run one" instead of the base.
     single_run::Bool
+    configuration_groups::Vector{Vector{RD.HeadConfigurationGroup}}
+    # Head configurations of the converged realizations, per panel.
 end
 
 
@@ -224,6 +226,7 @@ function empty_series_controller()
         Vector{Int}[],
         false,
         false,
+        Vector{RD.HeadConfigurationGroup}[],
     )
 end
 
@@ -302,6 +305,14 @@ function series_results_json(controller)
                 series_display_length(app, segment) :
                 1.0
 
+            groups = series.configuration_groups[segment]
+            periodic = segment <= length(series.templates) &&
+                       series.templates[segment].boundary_condition == :periodic
+            order = RD.head_configuration_order(groups)
+            config_labels = RD.head_configuration_labels(groups, periodic)[order]
+            config_counts = [groups[index].count for index in order]
+            config_heads = [length(groups[index].reference) for index in order]
+
             # Only the displayed panel carries its (large) pattern data.
             patterns_json = segment == series.results_panel ?
                 series_patterns_json(controller, segment) :
@@ -316,6 +327,10 @@ function series_results_json(controller)
                 "\"xMax\":" * json_number(xmax) * "," *
                 "\"headLabels\":[" * join(head_labels, ",") * "]," *
                 "\"headCounts\":[" * join(head_values, ",") * "]," *
+                "\"configLabels\":[" * join(json_string.(config_labels), ",") * "]," *
+                "\"configCounts\":[" * join(string.(config_counts), ",") * "]," *
+                "\"configHeads\":[" * join(string.(config_heads), ",") * "]," *
+                "\"notConverged\":" * string(series.not_converged_counts[segment]) * "," *
                 patterns_json *
                 "}",
             )
@@ -1429,6 +1444,13 @@ function record_series_outcomes!(
                 series.not_converged_counts[segment] += 1
                 continue
             end
+            template = templates[segment]
+            RD.assign_head_configuration!(
+                series.configuration_groups[segment],
+                RD.normalized_head_positions(outcome.heads, template.x, template.boundary_condition),
+                template.boundary_condition == :periodic,
+            )
+
             head_count = length(outcome.heads)
             counts = series.head_count_counts[segment]
             counts[head_count] = get(counts, head_count, 0) + 1
@@ -1463,6 +1485,7 @@ function reset_series_results_locked!(
     series.not_converged_counts = zeros(Int, length(templates))
     series.patterns = [Vector{Float64}[] for _ in templates]
     series.pattern_converged = [Bool[] for _ in templates]
+    series.configuration_groups = [RD.HeadConfigurationGroup[] for _ in templates]
     series.results_panel = clamp(series.results_panel, 1, max(1, length(templates)))
     series.results_revision += 1
     return nothing

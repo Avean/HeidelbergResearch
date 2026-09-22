@@ -503,54 +503,55 @@ Window {
                     Item { Layout.fillWidth: true }
                 }
 
-                Rectangle {
+                // Plain column, no scroll container: sizing charts from a
+                // ScrollView's height feeds the content height back into its
+                // implicit height and loops the layout once the content is
+                // tall enough for a scrollbar.
+                SeriesBarChart {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: resultsColumn.current !== null
-                    color: "#ffffff"
-                    border.color: "#c4ccd7"
-                    border.width: 1
-                    radius: 6
+                    title: "Head locations"
+                    values: resultsColumn.current === null ? [] : resultsColumn.current.locationCounts
+                    labels: []
+                    xMinimum: resultsColumn.current === null ? NaN : Number(resultsColumn.current.xMin)
+                    xMaximum: resultsColumn.current === null ? NaN : Number(resultsColumn.current.xMax)
+                    barColor: "#2563eb"
+                }
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 8
+                SeriesBarChart {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: resultsColumn.current !== null
+                    title: "Number of heads"
+                    values: resultsColumn.current === null ? [] : resultsColumn.current.headCounts
+                    labels: resultsColumn.current === null ? [] : resultsColumn.current.headLabels
+                    barColor: "#7c3aed"
+                }
 
-                        SeriesBarChart {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            title: "Head locations"
-                            values: resultsColumn.current === null ? [] : resultsColumn.current.locationCounts
-                            labels: []
-                            xMinimum: resultsColumn.current === null ? NaN : Number(resultsColumn.current.xMin)
-                            xMaximum: resultsColumn.current === null ? NaN : Number(resultsColumn.current.xMax)
-                            barColor: "#2563eb"
-                        }
+                SeriesConfigurationChart {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: resultsColumn.current !== null
+                    title: "Head configurations"
+                    labels: resultsColumn.current === null ? [] : resultsColumn.current.configLabels
+                    counts: resultsColumn.current === null ? [] : resultsColumn.current.configCounts
+                    heads: resultsColumn.current === null ? [] : resultsColumn.current.configHeads
+                    notConverged: resultsColumn.current === null ? 0 : resultsColumn.current.notConverged
+                }
 
-                        SeriesBarChart {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            title: "Number of heads"
-                            values: resultsColumn.current === null ? [] : resultsColumn.current.headCounts
-                            labels: resultsColumn.current === null ? [] : resultsColumn.current.headLabels
-                            barColor: "#7c3aed"
-                        }
-
-                        SeriesLineChart {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            title: "Patterns"
-                            xValues: resultsColumn.current === null ? [] : resultsColumn.current.patternX
-                            profiles: resultsColumn.current === null ? [] : resultsColumn.current.patterns
-                            converged: resultsColumn.current === null ? [] : resultsColumn.current.patternConverged
-                        }
-                    }
+                SeriesLineChart {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: resultsColumn.current !== null
+                    title: "Patterns"
+                    xValues: resultsColumn.current === null ? [] : resultsColumn.current.patternX
+                    profiles: resultsColumn.current === null ? [] : resultsColumn.current.patterns
+                    converged: resultsColumn.current === null ? [] : resultsColumn.current.patternConverged
                 }
 
                 Label {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     visible: resultsColumn.current === null
                     text: "Results will appear after the first completed realization."
                     color: "#68717d"
