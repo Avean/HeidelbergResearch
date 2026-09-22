@@ -41,9 +41,12 @@ mutable struct QMLBindings
     series_total_runs::Observable{Int}
     series_status::Observable{String}
     series_run_count::Observable{Int}
+    series_maximum_time::Observable{Float64}
     series_maximum_steps::Observable{Int}
     series_check_interval::Observable{Float64}
     series_tolerance::Observable{Float64}
+    series_required_checks::Observable{Int}
+    series_dtmax::Observable{Float64}
     series_seed::Observable{String}
     series_head_variable::Observable{Int}
     series_live_preview::Observable{Bool}
@@ -53,7 +56,9 @@ mutable struct QMLBindings
     series_selected_panel_length::Observable{Float64}
     series_perturbations_json::Observable{String}
     series_results_json::Observable{String}
-    series_results_window_visible::Observable{Bool}
+    series_mode::Observable{Bool}
+    series_results_panel::Observable{Int}
+    series_single_run::Observable{Bool}
 end
 
 
@@ -73,6 +78,7 @@ mutable struct SeriesController
     lock::ReentrantLock
     templates::Vector{RD.SeriesSegmentTemplate}
     base_snapshots::Vector{RD.SimulationSnapshot}
+    # Fixed entry state for this series session; never replaced by a run.
     latest_snapshots::Vector{Union{Nothing, RD.SimulationSnapshot}}
     snapshot_revision::Int
     published_snapshot_revision::Int
@@ -85,6 +91,20 @@ mutable struct SeriesController
     results_revision::Int
     published_results_revision::Int
     finish_restores_base::Bool
+    pending_preview_update::Symbol
+    # :none, :show or :clear. Series preview boxes are Makie plots, so they
+    # may only be created or deleted inside the Makie window's render function,
+    # where its OpenGL context is current (the series window has its own).
+    patterns::Vector{Vector{Vector{Float64}}}
+    # Final head-variable profile of every realization, per panel.
+    pattern_converged::Vector{Vector{Bool}}
+    results_panel::Int
+    single_run::Bool
+    configuration_groups::Vector{Vector{RD.HeadConfigurationGroup}}
+    # Head configurations of the converged realizations, per panel.
+    latest_residuals::Vector{Float64}
+    residual_revision::Int
+    published_residual_revision::Int
 end
 
 
@@ -199,6 +219,15 @@ function empty_series_controller()
         0,
         -1,
         false,
+        :none,
+        Vector{Vector{Float64}}[],
+        Vector{Bool}[],
+        1,
+        false,
+        Vector{RD.HeadConfigurationGroup}[],
+        Float64[],
+        0,
+        -1,
     )
 end
 
@@ -226,6 +255,33 @@ function series_perturbations_json(series::SeriesController)
 end
 
 
+const SERIES_PATTERN_DISPLAY_LIMIT = 300
+
+
+compact_json_number(value::Real) =
+    isfinite(value) ? @sprintf("%.6g", Float64(value)) : "null"
+
+
+function series_patterns_json(controller, segment::Int)
+    # The caller holds series.lock.
+    series = controller.series
+    panel = controller.app.plot_panel
+    segment <= length(series.patterns) || return "\"patternX\":[],\"patterns\":[],\"patternConverged\":[]"
+    x = segment <= length(panel.segment_x_observables) ?
+        panel.segment_x_observables[segment][] :
+        Float64[]
+    profiles = series.patterns[segment]
+    converged = series.pattern_converged[segment]
+    shown = max(1, length(profiles) - SERIES_PATTERN_DISPLAY_LIMIT + 1):length(profiles)
+
+    return "\"patternX\":[" * join(compact_json_number.(x), ",") * "]," *
+           "\"patterns\":[" *
+           join(("[" * join(compact_json_number.(profiles[index]), ",") * "]" for index in shown), ",") *
+           "]," *
+           "\"patternConverged\":[" * join(string.(converged[shown]), ",") * "]"
+end
+
+
 function series_results_json(controller)
     series = controller.series
     app = controller.app
@@ -250,6 +306,19 @@ function series_results_json(controller)
                 series_display_length(app, segment) :
                 1.0
 
+            groups = series.configuration_groups[segment]
+            periodic = segment <= length(series.templates) &&
+                       series.templates[segment].boundary_condition == :periodic
+            order = RD.head_configuration_order(groups)
+            config_labels = RD.head_configuration_labels(groups, periodic)[order]
+            config_counts = [groups[index].count for index in order]
+            config_heads = [length(groups[index].reference) for index in order]
+
+            # Only the displayed panel carries its (large) pattern data.
+            patterns_json = segment == series.results_panel ?
+                series_patterns_json(controller, segment) :
+                "\"patternX\":[],\"patterns\":[],\"patternConverged\":[]"
+
             push!(
                 entries,
                 "{" *
@@ -258,7 +327,12 @@ function series_results_json(controller)
                 "\"xMin\":" * json_number(xmin) * "," *
                 "\"xMax\":" * json_number(xmax) * "," *
                 "\"headLabels\":[" * join(head_labels, ",") * "]," *
-                "\"headCounts\":[" * join(head_values, ",") * "]" *
+                "\"headCounts\":[" * join(head_values, ",") * "]," *
+                "\"configLabels\":[" * join(json_string.(config_labels), ",") * "]," *
+                "\"configCounts\":[" * join(string.(config_counts), ",") * "]," *
+                "\"configHeads\":[" * join(string.(config_heads), ",") * "]," *
+                "\"notConverged\":" * string(series.not_converged_counts[segment]) * "," *
+                patterns_json *
                 "}",
             )
         end
@@ -286,12 +360,30 @@ function series_default_position(app::RD.AppState, segment::Int)
 end
 
 
+const SERIES_WIDTH_DIGITS = 2
+const SERIES_WIDTH_STEP = 10.0^-SERIES_WIDTH_DIGITS
+const SERIES_HEIGHT_DIGITS = 1
+
+
 function clamp_series_perturbation!(app::RD.AppState, perturbation::RD.SeriesPerturbation)
     1 <= perturbation.segment <= length(app.simulations) || return false
     displayed_length = series_display_length(app, perturbation.segment)
     perturbation.position = clamp(perturbation.position, 0.0, displayed_length)
     perturbation.width_max = clamp(perturbation.width_max, eps(Float64), displayed_length)
     perturbation.width_min = clamp(perturbation.width_min, eps(Float64), perturbation.width_max)
+    # Keep the stored values at the precision shown in the series window, so
+    # that focusing and leaving a field never changes a perturbation silently.
+    perturbation.width_max = max(
+        SERIES_WIDTH_STEP,
+        round(perturbation.width_max; digits = SERIES_WIDTH_DIGITS),
+    )
+    perturbation.width_min = clamp(
+        round(perturbation.width_min; digits = SERIES_WIDTH_DIGITS),
+        SERIES_WIDTH_STEP,
+        perturbation.width_max,
+    )
+    perturbation.height_min = round(perturbation.height_min; digits = SERIES_HEIGHT_DIGITS)
+    perturbation.height_max = round(perturbation.height_max; digits = SERIES_HEIGHT_DIGITS)
     perturbation.variable = clamp(
         perturbation.variable,
         1,
@@ -472,7 +564,11 @@ end
 function refresh_qml_state!(controller::QMLController)
     controller.graphics_busy[] && return nothing
 
-    RD.refresh_ui_from_latest_snapshots!(controller.app)
+    # In series mode the series owns the plots: redrawing the stopped main
+    # simulation's last snapshot would also reset the y axes and drop the
+    # room reserved for the series perturbation previews.
+    controller.bindings.series_mode[] ||
+        RD.refresh_ui_from_latest_snapshots!(controller.app)
     random_mode, absolute_mode = current_perturbation_modes(controller.app)
     perturbation_values = RD.perturbation_control_values(controller.app)
     set_if_changed!(controller.bindings.random_mode, random_mode)
@@ -554,6 +650,7 @@ function qml_renderfunction(screen, scene_or_figure)
 
     if controller !== nothing
         process_graphics_actions!(controller)
+        apply_pending_series_preview_update!(controller)
     end
 
     QMLMakie.renderfunction(screen, scene_or_figure)
@@ -607,15 +704,23 @@ function refresh_series_bindings!(controller::QMLController)
     set_if_changed!(controller.bindings.series_total_runs, settings.run_count)
     set_if_changed!(controller.bindings.series_status, series.status)
     set_if_changed!(controller.bindings.series_run_count, settings.run_count)
+    set_if_changed!(controller.bindings.series_maximum_time, settings.maximum_time)
     set_if_changed!(
         controller.bindings.series_maximum_steps,
         settings.maximum_steps_per_panel,
     )
     set_if_changed!(controller.bindings.series_check_interval, settings.check_interval)
     set_if_changed!(controller.bindings.series_tolerance, settings.tolerance)
+    set_if_changed!(
+        controller.bindings.series_required_checks,
+        settings.required_consecutive_checks,
+    )
+    set_if_changed!(controller.bindings.series_dtmax, settings.dtmax)
     set_if_changed!(controller.bindings.series_seed, string(settings.seed))
     set_if_changed!(controller.bindings.series_head_variable, settings.head_variable)
     set_if_changed!(controller.bindings.series_live_preview, settings.live_preview)
+    set_if_changed!(controller.bindings.series_results_panel, series.results_panel)
+    set_if_changed!(controller.bindings.series_single_run, series.single_run)
     set_if_changed!(controller.bindings.series_selected_segment, series.selected_segment)
     set_if_changed!(controller.bindings.series_selected_variable, series.selected_variable)
     set_if_changed!(controller.bindings.series_position, series.selected_position)
@@ -640,16 +745,63 @@ function refresh_series_bindings!(controller::QMLController)
 end
 
 
+function refresh_series_residual_status!(controller::QMLController, running::Bool)
+    series = controller.series
+    panel = controller.app.plot_panel
+    status_snapshots = RD.SimulationSnapshot[]
+    residuals = Float64[]
+
+    lock(series.lock)
+    try
+        length(series.base_snapshots) == length(panel.segment_status_observables) ||
+            return nothing
+        residuals = copy(series.latest_residuals)
+        for segment in eachindex(series.base_snapshots)
+            candidate = running ?
+                series.latest_snapshots[segment] : series.base_snapshots[segment]
+            push!(
+                status_snapshots,
+                candidate === nothing ? series.base_snapshots[segment] : candidate,
+            )
+        end
+    finally
+        unlock(series.lock)
+    end
+
+    length(residuals) == length(status_snapshots) || return nothing
+    label = running ? "R" : any(isfinite, residuals) ? "R(last)" : "R"
+    for segment in eachindex(status_snapshots)
+        value = residuals[segment]
+        formatted = isfinite(value) ? @sprintf("%.2e", value) : "--"
+        status = RD.compact_segment_status(status_snapshots[segment]) *
+                 "\n" * label * "=" * formatted
+        set_if_changed!(panel.segment_status_observables[segment], status)
+    end
+
+    return nothing
+end
+
+
 function refresh_series_runtime!(controller::QMLController)
+    controller.bindings.series_mode[] || return nothing
     series = controller.series
     snapshots = RD.SimulationSnapshot[]
     running = series.running[]
     task = series.task_ref[]
     publish_snapshots = false
-    commit_partial_state = false
+    publish_residuals = false
 
     lock(series.lock)
     try
+        if !running && task !== nothing && istaskdone(task) &&
+           !series.finish_restores_base
+            series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[
+                series.base_snapshots...
+            ]
+            series.snapshot_revision += 1
+            series.finish_restores_base = true
+        end
+
         if (series.settings.live_preview || !running) &&
            series.snapshot_revision != series.published_snapshot_revision &&
            length(series.latest_snapshots) == length(controller.app.simulations) &&
@@ -661,30 +813,13 @@ function refresh_series_runtime!(controller::QMLController)
             publish_snapshots = true
         end
 
-        commit_partial_state = !running &&
-                               task !== nothing &&
-                               istaskdone(task) &&
-                               series.stop_requested[] &&
-                               !series.finish_restores_base &&
-                               length(series.latest_snapshots) ==
-                               length(controller.app.simulations) &&
-                               all(snapshot -> snapshot !== nothing, series.latest_snapshots)
-
-        if commit_partial_state && isempty(snapshots)
-            snapshots = RD.SimulationSnapshot[
-                snapshot::RD.SimulationSnapshot for snapshot in series.latest_snapshots
-            ]
+        if series.residual_revision != series.published_residual_revision
+            series.published_residual_revision = series.residual_revision
+            publish_residuals = true
         end
-
-        # This flag means that a terminal state has already been handled:
-        # either the base state after a normal finish or the partial state
-        # after a user stop.
-        commit_partial_state && (series.finish_restores_base = true)
     finally
         unlock(series.lock)
     end
-
-    commit_partial_state && commit_series_partial_state!(controller, snapshots)
 
     if publish_snapshots &&
        length(snapshots) == length(controller.app.simulations) &&
@@ -697,10 +832,24 @@ function refresh_series_runtime!(controller::QMLController)
         end
     end
 
+    if publish_snapshots || publish_residuals
+        try
+            refresh_series_residual_status!(controller, running)
+        catch error
+            report_error!(controller, "Series residual display failed", error)
+        end
+    end
+
     refresh_series_bindings!(controller)
 
     if !running && task !== nothing && istaskdone(task) && controller.graphics_busy[]
         controller.graphics_busy[] = false
+
+        if series.editor_open
+            show_series_previews!(controller)
+            update_series_position_marker!(controller)
+        end
+
         refresh_qml_state!(controller)
     end
 
@@ -708,45 +857,36 @@ function refresh_series_runtime!(controller::QMLController)
 end
 
 
-function commit_series_partial_state!(
-    controller::QMLController,
-    snapshots::Vector{RD.SimulationSnapshot},
-)
-    app = controller.app
-    length(snapshots) == length(app.simulations) || return nothing
+function clear_series_previews!(controller::QMLController)
+    controller.series.pending_preview_update = :clear
+    return nothing
+end
 
-    lock(app.simlock)
+
+function show_series_previews!(controller::QMLController)
+    controller.series.pending_preview_update = :show
+    return nothing
+end
+
+
+function apply_pending_series_preview_update!(controller::QMLController)
+    request = controller.series.pending_preview_update
+    request === :none && return nothing
+    controller.series.pending_preview_update = :none
+
     try
-        for segment in eachindex(app.simulations)
-            sim = app.simulations[segment]
-            snapshot = snapshots[segment]
-            runtime = app.segment_runtimes[segment]
-
-            lock(runtime.lock)
-            try
-                RD.restart_after_manual_change!(
-                    sim,
-                    copy(snapshot.y);
-                    reltol = controller.reltol,
-                    abstol = controller.abstol,
-                )
-                sim.time_offset[] = snapshot.t
-                sim.step_counter[] = snapshot.steps
-            finally
-                unlock(runtime.lock)
-            end
-        end
-
-        RD.clear_snapshot_buffer!(app.snapshot_buffer)
-    finally
-        unlock(app.simlock)
+        request === :show ?
+            show_series_previews_now!(controller) :
+            clear_series_previews_now!(controller)
+    catch error
+        report_error!(controller, "Series preview update failed", error)
     end
 
     return nothing
 end
 
 
-function clear_series_previews!(controller::QMLController)
+function clear_series_previews_now!(controller::QMLController)
     series = controller.series
 
     for item in series.preview_items
@@ -797,9 +937,9 @@ function add_series_preview_box!(
 end
 
 
-function show_series_previews!(controller::QMLController)
+function show_series_previews_now!(controller::QMLController)
     series = controller.series
-    clear_series_previews!(controller)
+    clear_series_previews_now!(controller)
 
     for perturbation in series.perturbations
         clamp_series_perturbation!(controller.app, perturbation) || continue
@@ -916,7 +1056,6 @@ end
 function open_series_editor!(controller::QMLController)
     series = controller.series
     series.running[] && return nothing
-    RD.stop_worker!(controller.app; wait = true)
     series.editor_open = true
     update_series_editor_selection!(controller)
     series.status = isempty(series.perturbations) ?
@@ -933,6 +1072,62 @@ function close_series_editor!(controller::QMLController)
     clear_series_previews!(controller)
     clear_series_position_marker!(controller)
     return nothing
+end
+
+
+function set_series_mode!(controller::QMLController, enabled)
+    return guarded_action(controller, "Series mode change failed") do
+        app = controller.app
+        series = controller.series
+        enabled = Bool(enabled)
+        enabled == controller.bindings.series_mode[] && return nothing
+
+        if enabled
+            templates, base_snapshots, generation = capture_series_base!(controller)
+            lock(series.lock)
+            try
+                series.templates = templates
+                series.base_snapshots = base_snapshots
+                series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[
+                    base_snapshots...
+                ]
+                series.snapshot_revision += 1
+                series.published_snapshot_revision = -1
+                series.generation = generation
+                series.task_ref[] = nothing
+                series.stop_requested[] = false
+                series.finish_restores_base = true
+                series.latest_residuals = fill(NaN, length(templates))
+                series.residual_revision += 1
+                series.published_residual_revision = -1
+                reset_series_results_locked!(series, templates)
+            finally
+                unlock(series.lock)
+            end
+            app.mouse_perturbations_enabled[] = false
+            RD.clear_perturbation_previews!(app.plot_panel)
+            controller.bindings.series_mode[] = true
+            open_series_editor!(controller)
+        else
+            # Leaving series mode is blocked until the running series is stopped.
+            series.running[] && return nothing
+            task = series.task_ref[]
+            task !== nothing && !istaskdone(task) && wait(task)
+            restore_series_base_display!(controller)
+            controller.bindings.series_mode[] = false
+            close_series_editor!(controller)
+            app.mouse_perturbations_enabled[] = true
+
+            # The main solver never adopts a series realization.  Publish the
+            # entry snapshots so ordinary UI refreshes keep showing the base.
+            RD.store_runtime_snapshots!(app, series.base_snapshots)
+            controller.graphics_busy[] = false
+            refresh_series_bindings!(controller)
+            refresh_qml_state!(controller)
+        end
+
+        return nothing
+    end
 end
 
 
@@ -993,6 +1188,7 @@ end
 function add_series_perturbation!(controller::QMLController)
     series = controller.series
     series.running[] && return nothing
+    restore_series_base_display!(controller)
     segment = series.selected_segment
     variable = series.selected_variable
     displayed_length = series_display_length(controller.app, segment)
@@ -1034,6 +1230,7 @@ end
 function delete_series_perturbation!(controller::QMLController, id_value)
     series = controller.series
     series.running[] && return nothing
+    restore_series_base_display!(controller)
     id = Int(id_value)
     filter!(perturbation -> perturbation.id != id, series.perturbations)
     series.selected_perturbation_id == id && (series.selected_perturbation_id = 0)
@@ -1047,6 +1244,7 @@ end
 function update_series_perturbation!(controller::QMLController, id_value, field_value, value)
     series = controller.series
     series.running[] && return nothing
+    restore_series_base_display!(controller)
     perturbation = series_perturbation_by_id(series, Int(id_value))
     perturbation === nothing && return nothing
     field = String(field_value)
@@ -1089,7 +1287,16 @@ end
 
 
 function set_series_integer_setting!(controller::QMLController, field::Symbol, value)
+    return guarded_action(controller, "Series setting change failed") do
+        _set_series_integer_setting!(controller, field, value)
+    end
+end
+
+
+function _set_series_integer_setting!(controller::QMLController, field::Symbol, value)
     series = controller.series
+    # Starting a series moves focus out of a settings field, which makes Qt
+    # emit editingFinished: ignore such a late write instead of reporting it.
     series.running[] && return nothing
     integer = Int(round(parse_finite_qml_number(value, String(field))))
     integer >= 1 || error("$(field) must be at least one.")
@@ -1098,6 +1305,8 @@ function set_series_integer_setting!(controller::QMLController, field::Symbol, v
         series.settings.run_count = integer
     elseif field == :maximum_steps
         series.settings.maximum_steps_per_panel = integer
+    elseif field == :required_checks
+        series.settings.required_consecutive_checks = integer
     elseif field == :head_variable
         nvars = controller.app.sim.model.nvars
         series.settings.head_variable = clamp(integer, 1, nvars)
@@ -1111,13 +1320,26 @@ end
 
 
 function set_series_float_setting!(controller::QMLController, field::Symbol, value)
+    return guarded_action(controller, "Series setting change failed") do
+        _set_series_float_setting!(controller, field, value)
+    end
+end
+
+
+function _set_series_float_setting!(controller::QMLController, field::Symbol, value)
     series = controller.series
+    # Starting a series moves focus out of a settings field, which makes Qt
+    # emit editingFinished: ignore such a late write instead of reporting it.
     series.running[] && return nothing
     number = parse_finite_qml_number(value, String(field))
     number > 0.0 || error("$(field) must be positive.")
 
-    if field == :check_interval
+    if field == :maximum_time
+        series.settings.maximum_time = number
+    elseif field == :check_interval
         series.settings.check_interval = number
+    elseif field == :dtmax
+        series.settings.dtmax = number
     elseif field == :tolerance
         series.settings.tolerance = number
     else
@@ -1215,6 +1437,7 @@ function record_series_outcomes!(
     controller::QMLController,
     outcomes::Vector{RD.SeriesPanelOutcome},
     templates::Vector{RD.SeriesSegmentTemplate},
+    head_variable::Int,
 )
     series = controller.series
 
@@ -1222,10 +1445,22 @@ function record_series_outcomes!(
     try
         for segment in eachindex(outcomes)
             outcome = outcomes[segment]
+            snapshot = outcome.final_snapshot
+            U = reshape(snapshot.y, snapshot.N, snapshot.nvars)
+            push!(series.patterns[segment], copy(U[:, head_variable]))
+            push!(series.pattern_converged[segment], outcome.converged)
+
             outcome.converged || begin
                 series.not_converged_counts[segment] += 1
                 continue
             end
+            template = templates[segment]
+            RD.assign_head_configuration!(
+                series.configuration_groups[segment],
+                RD.normalized_head_positions(outcome.heads, template.x, template.boundary_condition),
+                template.boundary_condition == :periodic,
+            )
+
             head_count = length(outcome.heads)
             counts = series.head_count_counts[segment]
             counts[head_count] = get(counts, head_count, 0) + 1
@@ -1237,7 +1472,9 @@ function record_series_outcomes!(
         end
 
         series.completed_runs += 1
-        series.status = "Run $(series.completed_runs)/$(series.settings.run_count) complete"
+        series.status = series.single_run ?
+            "Run one: realization $(series.completed_runs) finished" :
+            "Run $(series.completed_runs)/$(series.settings.run_count) complete"
         series.results_revision += 1
     finally
         unlock(series.lock)
@@ -1247,9 +1484,117 @@ function record_series_outcomes!(
 end
 
 
-function start_series!(controller::QMLController)
+function reset_series_results_locked!(
+    series::SeriesController,
+    templates::Vector{RD.SeriesSegmentTemplate},
+)
+    # The caller holds series.lock.
+    series.completed_runs = 0
+    series.location_counts = [zeros(Int, length(template.x)) for template in templates]
+    series.head_count_counts = [Dict{Int, Int}() for _ in templates]
+    series.not_converged_counts = zeros(Int, length(templates))
+    series.patterns = [Vector{Float64}[] for _ in templates]
+    series.pattern_converged = [Bool[] for _ in templates]
+    series.configuration_groups = [RD.HeadConfigurationGroup[] for _ in templates]
+    series.results_panel = clamp(series.results_panel, 1, max(1, length(templates)))
+    series.results_revision += 1
+    return nothing
+end
+
+
+function series_results_match_templates(
+    series::SeriesController,
+    templates::Vector{RD.SeriesSegmentTemplate},
+)
+    length(series.location_counts) == length(templates) || return false
+    return all(
+        length(series.location_counts[segment]) == length(templates[segment].x)
+        for segment in eachindex(templates)
+    )
+end
+
+
+function clear_series_results!(controller::QMLController)
     series = controller.series
     series.running[] && return nothing
+
+    lock(series.lock)
+    try
+        reset_series_results_locked!(series, RD.SeriesSegmentTemplate[])
+        series.results_panel = 1
+        fill!(series.latest_residuals, NaN)
+        series.residual_revision += 1
+    finally
+        unlock(series.lock)
+    end
+
+    refresh_series_bindings!(controller)
+    return nothing
+end
+
+
+function restore_series_base_display!(controller::QMLController)
+    # Every series action returns the main plots to the state captured when
+    # series mode was opened, independently of the last realization.
+    series = controller.series
+    length(series.base_snapshots) == length(controller.app.simulations) &&
+        series.generation == controller.app.generation[] ||
+        error("Series entry state is unavailable; reopen series mode.")
+
+    lock(series.lock)
+    try
+        series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[series.base_snapshots...]
+        series.snapshot_revision += 1
+        series.published_snapshot_revision = series.snapshot_revision
+        series.published_residual_revision = -1
+    finally
+        unlock(series.lock)
+    end
+
+    snapshot = RD.partition_snapshot_from_segments(series.base_snapshots, series.generation)
+    RD.refresh_app_from_snapshot!(controller.app, snapshot)
+    return nothing
+end
+
+
+function run_one_summary(run_index::Int, outcomes::Vector{RD.SeriesPanelOutcome})
+    parts = String[]
+
+    for (segment, outcome) in enumerate(outcomes)
+        state = outcome.converged ? "converged" : "NOT converged"
+        prefix = length(outcomes) > 1 ? "panel $segment: " : ""
+        push!(
+            parts,
+            prefix * state *
+            @sprintf(
+                " at t = %.4g, %d steps, %d heads, R = %.3g",
+                outcome.time,
+                outcome.steps,
+                length(outcome.heads),
+                outcome.residual,
+            ),
+        )
+    end
+
+    return "Run one (realization $run_index): " * join(parts, "; ")
+end
+
+
+function start_series!(controller::QMLController)
+    return launch_series!(controller; single_run = false)
+end
+
+
+function run_one_series!(controller::QMLController)
+    return launch_series!(controller; single_run = true)
+end
+
+
+function launch_series!(controller::QMLController; single_run::Bool)
+    series = controller.series
+    series.running[] && return nothing
+    previous_task = series.task_ref[]
+    previous_task !== nothing && !istaskdone(previous_task) && wait(previous_task)
     isempty(series.perturbations) && error("Add at least one perturbation before starting a series.")
     RD.validate_series_settings(series.settings, controller.app.sim.model.nvars)
 
@@ -1258,32 +1603,43 @@ function start_series!(controller::QMLController)
             error("A perturbation points to an unavailable panel.")
     end
 
-    templates, base_snapshots, generation = capture_series_base!(controller)
+    restore_series_base_display!(controller)
+    templates = series.templates
+    base_snapshots = series.base_snapshots
+    generation = series.generation
+    length(templates) == length(controller.app.simulations) &&
+        length(base_snapshots) == length(templates) ||
+        error("Series entry state is unavailable; reopen series mode.")
     runtime_perturbations = series_runtime_perturbations(controller, templates)
     clear_series_previews!(controller)
+    clear_series_position_marker!(controller)
+
+    # "Run one" adds one more realization to the current statistics; a full
+    # series starts them afresh.
+    reset_results = !single_run || !series_results_match_templates(series, templates)
+    first_run = reset_results ? 1 : series.completed_runs + 1
+    run_indices = single_run ? (first_run:first_run) : (1:series.settings.run_count)
 
     lock(series.lock)
     try
-        series.templates = templates
-        series.base_snapshots = base_snapshots
         series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[base_snapshots...]
         series.snapshot_revision += 1
         series.published_snapshot_revision = -1
         series.generation = generation
-        series.completed_runs = 0
-        series.status = "Running 0/$(series.settings.run_count)"
-        series.location_counts = [zeros(Int, length(template.x)) for template in templates]
-        series.head_count_counts = [Dict{Int, Int}() for _ in templates]
-        series.not_converged_counts = zeros(Int, length(templates))
-        series.results_revision += 1
+        reset_results && reset_series_results_locked!(series, templates)
+        series.single_run = single_run
+        series.status = single_run ?
+            "Run one: realization $first_run running..." :
+            "Running 0/$(series.settings.run_count)"
         series.finish_restores_base = false
         series.stop_requested[] = false
         series.running[] = true
+        series.latest_residuals = fill(NaN, length(templates))
+        series.residual_revision += 1
     finally
         unlock(series.lock)
     end
 
-    controller.bindings.series_results_window_visible[] = true
     controller.graphics_busy[] = true
     refresh_series_bindings!(controller)
     settings = deepcopy(series.settings)
@@ -1291,10 +1647,18 @@ function start_series!(controller::QMLController)
 
     series.task_ref[] = Threads.@spawn begin
         stopped = false
+        last_outcomes = nothing
 
         try
-            for run_index in 1:settings.run_count
+            for run_index in run_indices
                 series.stop_requested[] && (stopped = true; break)
+                lock(series.lock)
+                try
+                    fill!(series.latest_residuals, NaN)
+                    series.residual_revision += 1
+                finally
+                    unlock(series.lock)
+                end
                 outcomes = RD.run_series_realization!(
                     templates,
                     perturbations,
@@ -1311,9 +1675,19 @@ function start_series!(controller::QMLController)
                             unlock(series.lock)
                         end
                     end,
+                    on_residual = (segment, residual) -> begin
+                        lock(series.lock)
+                        try
+                            series.latest_residuals[segment] = residual
+                            series.residual_revision += 1
+                        finally
+                            unlock(series.lock)
+                        end
+                    end,
                 )
                 series.stop_requested[] && (stopped = true; break)
-                record_series_outcomes!(controller, outcomes, templates)
+                record_series_outcomes!(controller, outcomes, templates, settings.head_variable)
+                last_outcomes = outcomes
             end
         catch error
             lock(series.lock)
@@ -1327,14 +1701,16 @@ function start_series!(controller::QMLController)
             lock(series.lock)
             try
                 if stopped
-                    series.status = "Stopped after $(series.completed_runs)/$(settings.run_count) runs"
-                elseif series.completed_runs == settings.run_count
+                    series.status = single_run ?
+                        "Run one stopped" :
+                        "Stopped after $(series.completed_runs)/$(settings.run_count) runs"
+                elseif single_run && last_outcomes !== nothing
+                    series.status = run_one_summary(first(run_indices), last_outcomes)
+                elseif !single_run && series.completed_runs == settings.run_count
                     series.status = "Completed $(settings.run_count) runs"
-                    series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[series.base_snapshots...]
-                    series.snapshot_revision += 1
-                    series.finish_restores_base = true
                 end
                 series.running[] = false
+                series.single_run = false
                 series.results_revision += 1
             finally
                 unlock(series.lock)
@@ -1342,6 +1718,22 @@ function start_series!(controller::QMLController)
         end
     end
 
+    return nothing
+end
+
+
+function set_series_results_panel!(controller::QMLController, panel)
+    series = controller.series
+
+    lock(series.lock)
+    try
+        series.results_panel = clamp(Int(panel), 1, max(1, length(series.location_counts)))
+        series.results_revision += 1
+    finally
+        unlock(series.lock)
+    end
+
+    refresh_series_bindings!(controller)
     return nothing
 end
 
@@ -1366,7 +1758,7 @@ function clear_series_perturbations!(controller::QMLController)
     series.status = "Add at least one perturbation"
     clear_series_previews!(controller)
     clear_series_position_marker!(controller)
-    refresh_series_bindings!(controller)
+    clear_series_results!(controller)
     return nothing
 end
 
@@ -2031,8 +2423,7 @@ function register_qml_functions!(controller::QMLController)
         "setPerturbationHeight",
         value -> set_perturbation_height!(controller, value),
     )
-    QML.qmlfunction("openSeriesEditor", () -> open_series_editor!(controller))
-    QML.qmlfunction("closeSeriesEditor", () -> close_series_editor!(controller))
+    QML.qmlfunction("setSeriesMode", value -> set_series_mode!(controller, value))
     QML.qmlfunction("selectSeriesSegment", value -> select_series_segment!(controller, value))
     QML.qmlfunction("selectSeriesVariable", value -> select_series_variable!(controller, value))
     QML.qmlfunction("setSeriesPosition", value -> set_series_position!(controller, value))
@@ -2048,6 +2439,10 @@ function register_qml_functions!(controller::QMLController)
         value -> set_series_integer_setting!(controller, :run_count, value),
     )
     QML.qmlfunction(
+        "setSeriesMaximumTime",
+        value -> set_series_float_setting!(controller, :maximum_time, value),
+    )
+    QML.qmlfunction(
         "setSeriesMaximumSteps",
         value -> set_series_integer_setting!(controller, :maximum_steps, value),
     )
@@ -2059,6 +2454,14 @@ function register_qml_functions!(controller::QMLController)
         "setSeriesTolerance",
         value -> set_series_float_setting!(controller, :tolerance, value),
     )
+    QML.qmlfunction(
+        "setSeriesRequiredChecks",
+        value -> set_series_integer_setting!(controller, :required_checks, value),
+    )
+    QML.qmlfunction(
+        "setSeriesDtmax",
+        value -> set_series_float_setting!(controller, :dtmax, value),
+    )
     QML.qmlfunction("setSeriesSeed", value -> set_series_seed!(controller, value))
     QML.qmlfunction(
         "setSeriesHeadVariable",
@@ -2069,11 +2472,9 @@ function register_qml_functions!(controller::QMLController)
         value -> set_series_live_preview!(controller, value),
     )
     QML.qmlfunction("startSeries", () -> start_series!(controller))
+    QML.qmlfunction("runOneSeries", () -> run_one_series!(controller))
+    QML.qmlfunction("setSeriesResultsPanel", value -> set_series_results_panel!(controller, value))
     QML.qmlfunction("stopSeries", () -> stop_series!(controller))
-    QML.qmlfunction(
-        "setSeriesResultsWindowVisible",
-        value -> (controller.bindings.series_results_window_visible[] = Bool(value)),
-    )
     QML.qmlfunction("requestClose", () -> request_close!(controller))
 
     return nothing
@@ -2116,9 +2517,12 @@ function qml_property_map(
         "seriesTotalRuns" => bindings.series_total_runs,
         "seriesStatus" => bindings.series_status,
         "seriesRunCount" => bindings.series_run_count,
+        "seriesMaximumTime" => bindings.series_maximum_time,
         "seriesMaximumSteps" => bindings.series_maximum_steps,
         "seriesCheckInterval" => bindings.series_check_interval,
         "seriesTolerance" => bindings.series_tolerance,
+        "seriesRequiredChecks" => bindings.series_required_checks,
+        "seriesDtmax" => bindings.series_dtmax,
         "seriesSeed" => bindings.series_seed,
         "seriesHeadVariable" => bindings.series_head_variable,
         "seriesLivePreview" => bindings.series_live_preview,
@@ -2128,7 +2532,9 @@ function qml_property_map(
         "seriesSelectedPanelLength" => bindings.series_selected_panel_length,
         "seriesPerturbationsJson" => bindings.series_perturbations_json,
         "seriesResultsJson" => bindings.series_results_json,
-        "seriesResultsWindowVisible" => bindings.series_results_window_visible,
+        "seriesMode" => bindings.series_mode,
+        "seriesResultsPanel" => bindings.series_results_panel,
+        "seriesSingleRun" => bindings.series_single_run,
         "autoCloseMs" => Observable(auto_close_ms),
     )
 end
@@ -2206,11 +2612,13 @@ function create_qml_controller(;
         Observable("Synchronized"),
         Ref{Union{Nothing, RD.SavedSimulationState}}(nothing),
         false,
+        Threads.Atomic{Bool}(true),
     )
     app.plot_panel = RD.build_plot_panel!(plot_grid, app; title_obs = title)
     report_startup_stage("Create application and plots", stage_started_ns)
 
     stage_started_ns = time_ns()
+    series_defaults = RD.SeriesSettings()
     bindings = QMLBindings(
         Observable(first_key),
         Observable(active_model_menu_name(first_key)),
@@ -2232,19 +2640,24 @@ function create_qml_controller(;
         Observable(0),
         Observable(100),
         Observable("Configure perturbations"),
-        Observable(100),
-        Observable(1000),
-        Observable(1.0),
-        Observable(1e-8),
-        Observable("12345"),
+        Observable(series_defaults.run_count),
+        Observable(series_defaults.maximum_time),
+        Observable(series_defaults.maximum_steps_per_panel),
+        Observable(series_defaults.check_interval),
+        Observable(series_defaults.tolerance),
+        Observable(series_defaults.required_consecutive_checks),
+        Observable(series_defaults.dtmax),
+        Observable(string(series_defaults.seed)),
         Observable(1),
-        Observable(false),
+        Observable(series_defaults.live_preview),
         Observable(1),
         Observable(1),
         Observable(0.5),
         Observable(1.0),
         Observable("[]"),
         Observable("[]"),
+        Observable(false),
+        Observable(1),
         Observable(false),
     )
     controller = QMLController(

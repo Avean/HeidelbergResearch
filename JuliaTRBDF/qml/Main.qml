@@ -19,11 +19,13 @@ ApplicationWindow {
     property var modelCatalog: JSON.parse(ui.modelCatalogJson)
     property var variables: JSON.parse(ui.variablesJson)
     property var equationImages: JSON.parse(ui.equationImagesJson)
-    property var seriesPerturbations: JSON.parse(ui.seriesPerturbationsJson)
     property bool textEditorFocused: false
     property int selectedFamilyIndex: 0
     property int activeFamilyIndex: findFamilyIndex(ui.activeModelKey)
     property string bottomPanel: ""
+    // In series mode every main-window control except the Series toggle is
+    // disabled; the series window owns all interaction.
+    property bool controlsEnabled: !ui.graphicsBusy && !ui.seriesMode
 
     ButtonGroup {
         id: splitSegmentButtonGroup
@@ -79,17 +81,17 @@ ApplicationWindow {
         controlDrawer.open()
     }
 
-    function openSeriesDrawer() {
+    function toggleSeriesMode() {
+        if (ui.seriesMode) {
+            if (!ui.seriesRunning)
+                Julia.setSeriesMode(false)
+            return
+        }
+
         modelDrawer.close()
         controlDrawer.close()
-        bottomDrawer.close()
-        seriesDrawer.open()
-        Julia.openSeriesEditor()
-    }
-
-    function closeSeriesDrawer() {
-        seriesDrawer.close()
-        Julia.closeSeriesEditor()
+        closeBottomPanel()
+        Julia.setSeriesMode(true)
     }
 
     function toggleBottomPanel(panelName) {
@@ -140,7 +142,8 @@ ApplicationWindow {
             ToolButton {
                 text: "Models: " + ui.modelName
                 Layout.maximumWidth: Math.min(390, window.width * 0.30)
-                enabled: !ui.graphicsBusy
+                enabled: window.controlsEnabled
+                opacity: enabled ? 1.0 : 0.45
                 palette.buttonText: "white"
                 onClicked: modelDrawer.opened ? modelDrawer.close() : window.openModelDrawer()
             }
@@ -148,7 +151,8 @@ ApplicationWindow {
             ToolButton {
                 id: stateButton
                 text: ui.checkpointAvailable ? "State  •" : "State"
-                enabled: !ui.graphicsBusy
+                enabled: window.controlsEnabled
+                opacity: enabled ? 1.0 : 0.45
                 palette.buttonText: "white"
                 onClicked: stateMenu.open()
 
@@ -158,26 +162,53 @@ ApplicationWindow {
 
                     MenuItem {
                         text: "Save current state"
-                        enabled: !ui.graphicsBusy
+                        enabled: window.controlsEnabled
                         onTriggered: Julia.saveCurrentState()
                     }
 
                     MenuItem {
                         text: "Restore saved state"
-                        enabled: ui.checkpointAvailable && !ui.graphicsBusy
+                        enabled: ui.checkpointAvailable && window.controlsEnabled
                         onTriggered: Julia.restoreSavedState()
                     }
                 }
             }
 
-            ToolButton {
+            // Two-state series toggle. A plain rectangle, like the Running
+            // indicator, because the native style ignores custom backgrounds.
+            Rectangle {
                 id: seriesButton
-                text: ui.seriesRunning
-                      ? "Series " + ui.seriesCompletedRuns + "/" + ui.seriesTotalRuns
-                      : "Series"
-                enabled: !ui.graphicsBusy || ui.seriesRunning
-                palette.buttonText: "white"
-                onClicked: seriesDrawer.opened ? window.closeSeriesDrawer() : window.openSeriesDrawer()
+                property bool available: ui.seriesMode || !ui.graphicsBusy
+                Layout.preferredWidth: seriesButtonText.implicitWidth + 28
+                Layout.preferredHeight: 34
+                radius: 5
+                color: ui.seriesMode
+                       ? (seriesMouse.containsMouse && !ui.seriesRunning ? "#1d4ed8" : "#2563eb")
+                       : seriesMouse.containsMouse ? "#3a4452" : "transparent"
+                border.color: ui.seriesMode ? "#93c5fd" : "#697586"
+                opacity: available ? 1.0 : 0.45
+
+                Text {
+                    id: seriesButtonText
+                    anchors.centerIn: parent
+                    text: ui.seriesRunning
+                          ? "Series " + ui.seriesCompletedRuns + "/" + ui.seriesTotalRuns
+                          : ui.seriesMode ? "Series mode: ON" : "Series"
+                    color: "white"
+                    font.bold: ui.seriesMode
+                }
+
+                MouseArea {
+                    id: seriesMouse
+                    anchors.fill: parent
+                    enabled: seriesButton.available
+                    hoverEnabled: true
+                    cursorShape: ui.seriesRunning ? Qt.ForbiddenCursor : Qt.PointingHandCursor
+                    onClicked: window.toggleSeriesMode()
+                }
+
+                ToolTip.visible: seriesMouse.containsMouse && ui.seriesRunning
+                ToolTip.text: "Stop the series to leave series mode"
             }
 
             Item {
@@ -190,6 +221,7 @@ ApplicationWindow {
                 Layout.preferredHeight: 34
                 radius: 5
                 color: ui.running ? "#26945b" : "#c63f45"
+                opacity: window.controlsEnabled ? 1.0 : 0.45
 
                 Text {
                     anchors.centerIn: parent
@@ -200,7 +232,7 @@ ApplicationWindow {
 
                 MouseArea {
                     anchors.fill: parent
-                    enabled: !ui.graphicsBusy
+                    enabled: window.controlsEnabled
                     cursorShape: Qt.PointingHandCursor
                     onClicked: Julia.toggleRunning()
                 }
@@ -233,7 +265,7 @@ ApplicationWindow {
                     radius: 4
                     color: active ? "#3b82f6" : "#46515f"
                     border.color: active ? "#93c5fd" : "#697586"
-                    opacity: ui.graphicsBusy ? 0.55 : 1.0
+                    opacity: window.controlsEnabled ? 1.0 : 0.45
 
                     Text {
                         anchors.centerIn: parent
@@ -245,7 +277,7 @@ ApplicationWindow {
                     MouseArea {
                         id: speedPresetMouse
                         anchors.fill: parent
-                        enabled: !ui.graphicsBusy
+                        enabled: window.controlsEnabled
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: Julia.setDtExponent(speedPreset.modelData.exponent)
@@ -267,7 +299,7 @@ ApplicationWindow {
                     210,
                     Math.max(110, window.width * 0.13)
                 )
-                enabled: !ui.graphicsBusy
+                enabled: window.controlsEnabled
                 from: -5
                 to: 5
                 stepSize: 1
@@ -287,6 +319,7 @@ ApplicationWindow {
                 Layout.preferredHeight: 34
                 radius: 5
                 color: "#596575"
+                opacity: window.controlsEnabled ? 1.0 : 0.45
 
                 Text {
                     anchors.centerIn: parent
@@ -297,7 +330,7 @@ ApplicationWindow {
 
                 MouseArea {
                     anchors.fill: parent
-                    enabled: !ui.graphicsBusy
+                    enabled: window.controlsEnabled
                     cursorShape: Qt.PointingHandCursor
                     onClicked: Julia.resetSimulation()
                 }
@@ -332,6 +365,8 @@ ApplicationWindow {
                     ToolButton {
                         Layout.alignment: Qt.AlignVCenter
                         text: "Split / Merge"
+                        enabled: window.controlsEnabled
+                        opacity: enabled ? 1.0 : 0.45
                         palette.buttonText: window.bottomPanel === "partition" ? "#93c5fd" : "white"
                         onClicked: window.toggleBottomPanel("partition")
                     }
@@ -339,6 +374,8 @@ ApplicationWindow {
                     ToolButton {
                         Layout.alignment: Qt.AlignVCenter
                         text: "Perturbations"
+                        enabled: window.controlsEnabled
+                        opacity: enabled ? 1.0 : 0.45
                         palette.buttonText: window.bottomPanel === "perturbations" ? "#93c5fd" : "white"
                         onClicked: window.toggleBottomPanel("perturbations")
                     }
@@ -357,7 +394,7 @@ ApplicationWindow {
 
                 Slider {
                     Layout.preferredWidth: Math.min(300, window.width * 0.24)
-                    enabled: !ui.graphicsBusy
+                    enabled: window.controlsEnabled
                     from: 0
                     to: 3
                     stepSize: 0.2
@@ -382,6 +419,8 @@ ApplicationWindow {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     text: controlDrawer.opened ? "Close steady state" : "Set steady state"
+                    enabled: window.controlsEnabled
+                    opacity: enabled ? 1.0 : 0.45
                     palette.buttonText: "white"
                     onClicked: controlDrawer.opened ? controlDrawer.close() : window.openControlDrawer()
                 }
@@ -469,14 +508,14 @@ ApplicationWindow {
                     Button {
                         text: (ui.randomMode ? "Random" : "Constant") + "  [Z]"
                         highlighted: ui.randomMode
-                        enabled: !ui.graphicsBusy
+                        enabled: window.controlsEnabled
                         onClicked: Julia.toggleRandomMode()
                     }
 
                     Button {
                         text: (ui.absoluteMode ? "Absolute" : "Relative") + "  [X]"
                         highlighted: ui.absoluteMode
-                        enabled: !ui.graphicsBusy
+                        enabled: window.controlsEnabled
                         onClicked: Julia.toggleAbsoluteMode()
                     }
 
@@ -593,7 +632,7 @@ ApplicationWindow {
                                         checked: ui.selectedSegment === index + 1
                                         highlighted: checked
                                         focusPolicy: Qt.NoFocus
-                                        enabled: !ui.graphicsBusy
+                                        enabled: window.controlsEnabled
                                         ButtonGroup.group: splitSegmentButtonGroup
                                         onClicked: Julia.selectSplitSegment(index + 1)
                                     }
@@ -624,7 +663,7 @@ ApplicationWindow {
 
                             MouseArea {
                                 anchors.fill: parent
-                                enabled: !ui.graphicsBusy
+                                enabled: window.controlsEnabled
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: Julia.synchronizeDomains()
                             }
@@ -646,7 +685,7 @@ ApplicationWindow {
 
                         Slider {
                             Layout.preferredWidth: Math.min(360, window.width * 0.28)
-                            enabled: !ui.graphicsBusy
+                            enabled: window.controlsEnabled
                             from: 2
                             to: Math.max(2, ui.splitMaximum)
                             stepSize: 1
@@ -655,13 +694,13 @@ ApplicationWindow {
                         }
 
                         Button {
-                            enabled: !ui.graphicsBusy
+                            enabled: window.controlsEnabled
                             text: ui.graphicsBusy ? "Updating..." : "Split selected panel"
                             onClicked: Julia.splitSelectedSegment()
                         }
 
                         Button {
-                            enabled: ui.segmentCount > 1 && !ui.graphicsBusy
+                            enabled: ui.segmentCount > 1 && window.controlsEnabled
                             text: "Delete selected panel"
                             onClicked: Julia.deleteSelectedSegment()
                         }
@@ -703,7 +742,7 @@ ApplicationWindow {
 
                                     Button {
                                         required property int index
-                                        enabled: !ui.graphicsBusy
+                                        enabled: window.controlsEnabled
                                         text: (index + 1) + " | " + (index + 2)
                                         onClicked: Julia.mergeBoundary(index + 1)
                                     }
@@ -732,7 +771,7 @@ ApplicationWindow {
 
                                     Button {
                                         required property int index
-                                        enabled: !ui.graphicsBusy
+                                        enabled: window.controlsEnabled
                                         text: (index + 1) + " ↔ " + (index + 2)
                                         onClicked: Julia.swapBoundary(index + 1)
                                     }
@@ -745,382 +784,8 @@ ApplicationWindow {
         }
     }
 
-    Drawer {
-        id: seriesDrawer
-
-        edge: Qt.LeftEdge
-        width: Math.min(window.width * 0.88, 570)
-        height: window.height - topBar.height - bottomBar.height
-        y: topBar.height
-        modal: true
-        dim: false
-        interactive: true
-        closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
-        onClosed: Julia.closeSeriesEditor()
-
-        background: Rectangle {
-            color: "#f3f5f8"
-            border.color: "#aab3bf"
-            border.width: 1
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 50
-                color: "#2b313b"
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 14
-                    anchors.rightMargin: 8
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: ui.seriesRunning
-                              ? "Series: " + ui.seriesCompletedRuns + " / " + ui.seriesTotalRuns
-                              : "Simulation series"
-                        color: "white"
-                        font.bold: true
-                        font.pixelSize: 16
-                    }
-
-                    ToolButton {
-                        visible: ui.seriesRunning
-                        text: "Stop series"
-                        palette.buttonText: "#fecaca"
-                        onClicked: Julia.stopSeries()
-                    }
-
-                    ToolButton {
-                        visible: !ui.seriesRunning
-                        text: "Close"
-                        palette.buttonText: "white"
-                        onClicked: window.closeSeriesDrawer()
-                    }
-                }
-            }
-
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                contentWidth: availableWidth
-                clip: true
-
-                ColumnLayout {
-                    width: parent.width
-                    spacing: 9
-
-                    Label {
-                        Layout.leftMargin: 14
-                        Layout.rightMargin: 14
-                        Layout.topMargin: 10
-                        Layout.fillWidth: true
-                        text: ui.seriesStatus
-                        color: ui.seriesRunning ? "#2563eb" : "#4b5563"
-                        wrapMode: Text.WordWrap
-                    }
-
-                    ControlSection {
-                        title: "New perturbation"
-                        Layout.leftMargin: 10
-                        Layout.rightMargin: 10
-                        enabled: !ui.seriesRunning
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Label { text: "Panel" }
-
-                            ComboBox {
-                                Layout.preferredWidth: 80
-                                model: Array.from({length: ui.segmentCount}, (_, index) => String(index + 1))
-                                currentIndex: Math.max(0, ui.seriesSelectedSegment - 1)
-                                onActivated: Julia.selectSeriesSegment(currentIndex + 1)
-                            }
-
-                            Label { text: "Variable" }
-
-                            ComboBox {
-                                Layout.fillWidth: true
-                                model: window.variables
-                                currentIndex: Math.max(0, ui.seriesSelectedVariable - 1)
-                                onActivated: Julia.selectSeriesVariable(currentIndex + 1)
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Label {
-                                text: "Position: " + Number(ui.seriesPosition).toPrecision(5)
-                                Layout.preferredWidth: 138
-                            }
-
-                            Slider {
-                                Layout.fillWidth: true
-                                from: 0
-                                to: Math.max(0.000001, Number(ui.seriesSelectedPanelLength))
-                                value: Number(ui.seriesPosition)
-                                onMoved: Julia.setSeriesPosition(value)
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Label {
-                                Layout.fillWidth: true
-                                text: "The marker is temporary; saved perturbations are shown as dashed grey boxes."
-                                color: "#68717d"
-                                wrapMode: Text.WordWrap
-                            }
-
-                            Button {
-                                text: "Add perturbation"
-                                onClicked: Julia.addSeriesPerturbation()
-                            }
-                        }
-                    }
-
-                    ControlSection {
-                        title: "Series settings"
-                        Layout.leftMargin: 10
-                        Layout.rightMargin: 10
-                        enabled: !ui.seriesRunning
-
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 2
-                            columnSpacing: 8
-                            rowSpacing: 7
-
-                            Label { text: "Number of runs" }
-                            TextField {
-                                selectByMouse: true
-                                validator: IntValidator { bottom: 1 }
-                                text: String(ui.seriesRunCount)
-                                onEditingFinished: Julia.setSeriesRunCount(text)
-                            }
-
-                            Label { text: "Maximum steps / panel" }
-                            TextField {
-                                selectByMouse: true
-                                validator: IntValidator { bottom: 1 }
-                                text: String(ui.seriesMaximumSteps)
-                                onEditingFinished: Julia.setSeriesMaximumSteps(text)
-                            }
-
-                            Label { text: "Check interval" }
-                            TextField {
-                                selectByMouse: true
-                                validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
-                                text: Number(ui.seriesCheckInterval).toString()
-                                onEditingFinished: Julia.setSeriesCheckInterval(text)
-                            }
-
-                            Label { text: "Steady-state tolerance" }
-                            TextField {
-                                selectByMouse: true
-                                validator: DoubleValidator { bottom: 0.000000000000000001; notation: DoubleValidator.ScientificNotation }
-                                text: Number(ui.seriesTolerance).toExponential()
-                                onEditingFinished: Julia.setSeriesTolerance(text)
-                            }
-
-                            Label { text: "Random seed" }
-                            TextField {
-                                selectByMouse: true
-                                text: ui.seriesSeed
-                                onEditingFinished: Julia.setSeriesSeed(text)
-                            }
-
-                            Label { text: "Head detection variable" }
-                            ComboBox {
-                                model: window.variables
-                                currentIndex: Math.max(0, ui.seriesHeadVariable - 1)
-                                onActivated: Julia.setSeriesHeadVariable(currentIndex + 1)
-                            }
-                        }
-
-                        Switch {
-                            Layout.topMargin: 5
-                            text: "Live simulation preview (max. 2 updates/s)"
-                            checked: ui.seriesLivePreview
-                            onToggled: Julia.setSeriesLivePreview(checked)
-                        }
-                    }
-
-                    ControlSection {
-                        title: "Perturbations"
-                        Layout.leftMargin: 10
-                        Layout.rightMargin: 10
-
-                        Label {
-                            Layout.fillWidth: true
-                            visible: window.seriesPerturbations.length === 0
-                            text: "Add at least one perturbation to start a series."
-                            color: "#68717d"
-                        }
-
-                        Repeater {
-                            model: window.seriesPerturbations
-
-                            Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                implicitHeight: perturbationCard.implicitHeight + 16
-                                color: "#e6eaf0"
-                                radius: 5
-                                border.color: "#bdc6d2"
-                                border.width: 1
-
-                                ColumnLayout {
-                                    id: perturbationCard
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 5
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: "Perturbation " + modelData.id + "   ·   x = " + Number(modelData.position).toPrecision(5)
-                                            font.bold: true
-                                        }
-
-                                        ToolButton {
-                                            enabled: !ui.seriesRunning
-                                            text: "Select"
-                                            onClicked: Julia.selectSeriesPerturbation(modelData.id)
-                                        }
-
-                                        ToolButton {
-                                            enabled: !ui.seriesRunning
-                                            text: "Delete"
-                                            onClicked: Julia.deleteSeriesPerturbation(modelData.id)
-                                        }
-                                    }
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-
-                                        Label { text: "Panel" }
-                                        ComboBox {
-                                            Layout.preferredWidth: 75
-                                            enabled: !ui.seriesRunning
-                                            model: Array.from({length: ui.segmentCount}, (_, index) => String(index + 1))
-                                            currentIndex: Math.max(0, modelData.panel - 1)
-                                            onActivated: Julia.updateSeriesPerturbation(modelData.id, "panel", currentIndex + 1)
-                                        }
-
-                                        Label { text: "Variable" }
-                                        ComboBox {
-                                            Layout.fillWidth: true
-                                            enabled: !ui.seriesRunning
-                                            model: window.variables
-                                            currentIndex: Math.max(0, modelData.variable - 1)
-                                            onActivated: Julia.updateSeriesPerturbation(modelData.id, "variable", currentIndex + 1)
-                                        }
-                                    }
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-
-                                        Label { text: "Position" }
-
-                                        TextField {
-                                            Layout.fillWidth: true
-                                            selectByMouse: true
-                                            enabled: !ui.seriesRunning
-                                            text: Number(modelData.position).toPrecision(5)
-                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "position", text)
-                                        }
-                                    }
-
-                                    GridLayout {
-                                        Layout.fillWidth: true
-                                        columns: 4
-                                        columnSpacing: 6
-
-                                        Label { text: "Width min" }
-                                        TextField {
-                                            selectByMouse: true
-                                            enabled: !ui.seriesRunning
-                                            text: Number(modelData.widthMin).toPrecision(5)
-                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "widthMin", text)
-                                        }
-                                        Label { text: "Width max" }
-                                        TextField {
-                                            selectByMouse: true
-                                            enabled: !ui.seriesRunning
-                                            text: Number(modelData.widthMax).toPrecision(5)
-                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "widthMax", text)
-                                        }
-
-                                        Label { text: "Height min" }
-                                        TextField {
-                                            selectByMouse: true
-                                            enabled: !ui.seriesRunning
-                                            text: Number(modelData.heightMin).toPrecision(5)
-                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "heightMin", text)
-                                        }
-                                        Label { text: "Height max" }
-                                        TextField {
-                                            selectByMouse: true
-                                            enabled: !ui.seriesRunning
-                                            text: Number(modelData.heightMax).toPrecision(5)
-                                            onEditingFinished: Julia.updateSeriesPerturbation(modelData.id, "heightMax", text)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.leftMargin: 10
-                        Layout.rightMargin: 10
-                        Layout.bottomMargin: 12
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Button {
-                            Layout.fillWidth: true
-                            enabled: !ui.seriesRunning && window.seriesPerturbations.length > 0
-                            text: "Start series"
-                            highlighted: true
-                            onClicked: {
-                                window.closeSeriesDrawer()
-                                Julia.startSeries()
-                            }
-                        }
-
-                        Button {
-                            visible: ui.seriesRunning || ui.seriesCompletedRuns > 0
-                            text: "Show results"
-                            onClicked: Julia.setSeriesResultsWindowVisible(true)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    SeriesResults {
-        id: seriesResultsWindow
-        visible: ui.seriesResultsWindowVisible
-        resultsJson: ui.seriesResultsJson
-        running: ui.seriesRunning
-        completedRuns: ui.seriesCompletedRuns
-        totalRuns: ui.seriesTotalRuns
-        status: ui.seriesStatus
-        onVisibleChanged: {
-            if (!visible)
-                Julia.setSeriesResultsWindowVisible(false)
-        }
+    SeriesWindow {
+        id: seriesWindow
     }
 
     Rectangle {
@@ -1131,7 +796,7 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.left: parent.left
-        visible: !modelDrawer.opened && !seriesDrawer.opened
+        visible: !modelDrawer.opened && !ui.seriesMode
 
         HoverHandler {
             id: leftEdgeHover
@@ -1145,7 +810,7 @@ ApplicationWindow {
         interval: 350
         repeat: false
         onTriggered: {
-            if (leftEdgeHover.hovered && !modelDrawer.opened && !seriesDrawer.opened)
+            if (leftEdgeHover.hovered && !modelDrawer.opened && !ui.seriesMode)
                 window.openModelDrawer()
         }
     }
@@ -1238,7 +903,7 @@ ApplicationWindow {
                             ComboBox {
                                 id: familyCombo
                                 Layout.fillWidth: true
-                                enabled: !ui.graphicsBusy
+                                enabled: window.controlsEnabled
                                 model: window.modelCatalog.map(function(item) { return item.family })
                                 currentIndex: window.selectedFamilyIndex
                                 popup.height: Math.min(
@@ -1262,7 +927,7 @@ ApplicationWindow {
                                 id: modelCombo
                                 property var entries: window.selectedFamilyModels()
                                 Layout.fillWidth: true
-                                enabled: !ui.graphicsBusy
+                                enabled: window.controlsEnabled
                                 model: entries.map(function(item) { return item.label })
                                 currentIndex: window.activeModelIndexInSelectedFamily()
                                 displayText: currentIndex >= 0 ? currentText : "Select model"
@@ -1322,7 +987,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     text: "Neumann"
                                     highlighted: ui.boundaryName === text
-                                    enabled: !ui.graphicsBusy
+                                    enabled: window.controlsEnabled
                                     onClicked: Julia.selectBoundaryCondition(text)
                                 }
 
@@ -1330,7 +995,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     text: "Periodic"
                                     highlighted: ui.boundaryName === text
-                                    enabled: !ui.graphicsBusy
+                                    enabled: window.controlsEnabled
                                     onClicked: Julia.selectBoundaryCondition(text)
                                 }
                             }
@@ -1439,7 +1104,7 @@ ApplicationWindow {
                                     checked: ui.selectedSegment === index + 1
                                     highlighted: checked
                                     focusPolicy: Qt.NoFocus
-                                    enabled: !ui.graphicsBusy
+                                    enabled: window.controlsEnabled
                                     ButtonGroup.group: steadySegmentButtonGroup
                                     onClicked: Julia.selectSegment(index + 1)
                                 }
@@ -1512,7 +1177,7 @@ ApplicationWindow {
 
                                 Button {
                                     text: "Apply"
-                                    enabled: !ui.graphicsBusy
+                                    enabled: window.controlsEnabled
                                     onClicked: Julia.applyConstantInitialCondition(index, constantValue.text)
                                 }
                             }
@@ -1557,7 +1222,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Space"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.toggleRunning()
     }
@@ -1565,7 +1230,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "R"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.resetSimulation()
     }
@@ -1573,7 +1238,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "1"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.setDtExponent(-3)
     }
@@ -1581,7 +1246,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "2"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.setDtExponent(-1)
     }
@@ -1589,7 +1254,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "3"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.setDtExponent(1)
     }
@@ -1597,7 +1262,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "4"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.setDtExponent(5)
     }
@@ -1605,7 +1270,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Z"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.toggleRandomMode()
     }
@@ -1613,7 +1278,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "X"
         context: Qt.WindowShortcut
-        enabled: window.active && !window.textEditorFocused && !ui.graphicsBusy
+        enabled: window.active && !window.textEditorFocused && window.controlsEnabled
         autoRepeat: false
         onActivated: Julia.toggleAbsoluteMode()
     }

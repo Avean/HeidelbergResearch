@@ -7,6 +7,7 @@
 # These two constants intentionally live in their own small module file.  They
 # are the only scientific tuning knobs for the first version of series runs.
 const HEAD_MINIMUM_PROMINENCE_FRACTION = 0.05
+const HEAD_MINIMUM_ABSOLUTE_PROMINENCE = 0.1
 const HEAD_MINIMUM_DISTANCE_FRACTION = 0.02
 
 
@@ -41,6 +42,9 @@ function _head_prominence(
     left_minimum = peak
     right_minimum = peak
 
+    left_seen = false
+    right_seen = false
+
     # Search each side until a higher peak is reached.  On a non-periodic
     # domain the boundary itself serves as the endpoint of the basin.
     index = start_index
@@ -50,6 +54,7 @@ function _head_prominence(
         index = next_index
         value = Float64(values[index])
         left_minimum = min(left_minimum, value)
+        left_seen = true
         value > peak && break
         boundary_condition != :periodic && index == 1 && break
     end
@@ -61,9 +66,16 @@ function _head_prominence(
         index = next_index
         value = Float64(values[index])
         right_minimum = min(right_minimum, value)
+        right_seen = true
         value > peak && break
         boundary_condition != :periodic && index == N && break
     end
+
+    # A peak on a Neumann boundary is half of a head mirrored by the boundary:
+    # the side beyond the boundary is the reflection of the other side, so it
+    # takes that side's minimum instead of leaving the prominence at zero.
+    left_seen || (left_minimum = right_minimum)
+    right_seen || (right_minimum = left_minimum)
 
     return peak - max(left_minimum, right_minimum)
 end
@@ -91,6 +103,7 @@ function detect_heads(
     x::AbstractVector{<:Real};
     boundary_condition::Symbol,
     prominence_fraction::Float64 = HEAD_MINIMUM_PROMINENCE_FRACTION,
+    minimum_absolute_prominence::Float64 = HEAD_MINIMUM_ABSOLUTE_PROMINENCE,
     minimum_distance_fraction::Float64 = HEAD_MINIMUM_DISTANCE_FRACTION,
 )
     N = length(values)
@@ -99,6 +112,8 @@ function detect_heads(
     validate_boundary_condition(boundary_condition)
     0.0 <= prominence_fraction <= 1.0 ||
         error("Head prominence fraction must lie between 0 and 1.")
+    minimum_absolute_prominence >= 0.0 ||
+        error("Head minimum absolute prominence must be non-negative.")
     minimum_distance_fraction >= 0.0 ||
         error("Head minimum-distance fraction must be non-negative.")
 
@@ -106,7 +121,7 @@ function detect_heads(
     all(isfinite, finite_values) || return DetectedHead[]
     profile_range = maximum(finite_values) - minimum(finite_values)
     profile_range > 0.0 || return DetectedHead[]
-    minimum_prominence = prominence_fraction * profile_range
+    minimum_prominence = max(prominence_fraction * profile_range, minimum_absolute_prominence)
     candidates = DetectedHead[]
 
     index = 1

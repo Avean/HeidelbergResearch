@@ -324,4 +324,8 @@ mutable struct AppState
     show_embedded_perturbation_controls::Bool
     # The legacy GLMakie interface keeps its controls inside the plot layout.
     # The QML interface renders the same state in its own bottom drawer.
+
+    mouse_perturbations_enabled::Threads.Atomic{Bool}
+    # Cleared while the QML series mode is active, so the plots show the
+    # series previews without reacting to mouse perturbation input.
 end

@@ -22,14 +22,19 @@ end
 
 Base.@kwdef mutable struct SeriesSettings
     run_count::Int = 100
-    maximum_steps_per_panel::Int = 1000
-    check_interval::Float64 = 1.0
+    # A panel that has not become stationary by maximum_time is reported as
+    # not converged.  maximum_steps_per_panel is only a safety net against a
+    # stalled solver whose step size collapses before reaching maximum_time.
+    maximum_time::Float64 = 1e6
+    maximum_steps_per_panel::Int = 10_000_000
+    check_interval::Float64 = 1e3
+    # Bound on the scaled time derivative max|du/dt| / max(1, max|u|).
     tolerance::Float64 = 1e-8
     required_consecutive_checks::Int = 3
+    dtmax::Float64 = 1e3
     seed::UInt64 = 0x3039
     head_variable::Int = 1
-    live_preview::Bool = false
-    preview_interval_seconds::Float64 = 0.5
+    live_preview::Bool = true
     reltol::Float64 = 1e-5
     abstol::Float64 = 1e-7
 end
@@ -43,7 +48,6 @@ struct SeriesSegmentTemplate
     params::Dict{Symbol, Any}
     boundary_condition::Symbol
     displayed_time::Float64
-    dtmax::Float64
 end
 
 
@@ -51,6 +55,8 @@ struct SeriesPanelOutcome
     converged::Bool
     cancelled::Bool
     steps::Int
+    time::Float64
+    residual::Float64
     heads::Vector{DetectedHead}
     final_snapshot::SimulationSnapshot
 end
@@ -58,16 +64,18 @@ end
 
 function validate_series_settings(settings::SeriesSettings, nvars::Int)
     settings.run_count >= 1 || error("Number of series runs must be at least one.")
+    settings.maximum_time > 0.0 && isfinite(settings.maximum_time) ||
+        error("Maximum series time must be positive and finite.")
     settings.maximum_steps_per_panel >= 1 ||
         error("Maximum solver steps per panel must be at least one.")
     settings.check_interval > 0.0 && isfinite(settings.check_interval) ||
         error("Steady-state check interval must be positive and finite.")
+    settings.dtmax > 0.0 && isfinite(settings.dtmax) ||
+        error("Series dtmax must be positive and finite.")
     settings.tolerance > 0.0 && isfinite(settings.tolerance) ||
         error("Steady-state tolerance must be positive and finite.")
     settings.required_consecutive_checks >= 1 ||
         error("Required consecutive steady-state checks must be at least one.")
-    settings.preview_interval_seconds > 0.0 ||
-        error("Live-preview interval must be positive.")
     1 <= settings.head_variable <= nvars ||
         error("Head-detection variable is outside the model variable range.")
 
@@ -101,9 +109,6 @@ end
 
 
 function make_series_template(sim::SimulationState)
-    dtmax = current_dtmax(sim)
-    isfinite(dtmax) && dtmax > 0.0 || error("Cannot capture a series template with invalid dtmax.")
-
     return SeriesSegmentTemplate(
         sim.model,
         copy(sim.x),
@@ -112,7 +117,6 @@ function make_series_template(sim::SimulationState)
         deepcopy(sim.params),
         sim.boundary_condition,
         current_display_time(sim),
-        dtmax,
     )
 end
 
@@ -129,7 +133,7 @@ function instantiate_series_template(
         deepcopy(template.params);
         boundary_condition = template.boundary_condition,
         displayed_time = template.displayed_time,
-        dtmax = template.dtmax,
+        dtmax = settings.dtmax,
         reltol = settings.reltol,
         abstol = settings.abstol,
     )
@@ -145,6 +149,7 @@ function apply_series_perturbations!(
     simulations::AbstractVector{<:SimulationState},
     perturbations::AbstractVector{<:SeriesPerturbation},
     rng::AbstractRNG,
+    settings::SeriesSettings,
 )
     isempty(perturbations) && error("A series requires at least one perturbation.")
     ynew = [copy(sim.integrator_ref[].u) for sim in simulations]
@@ -169,7 +174,12 @@ function apply_series_perturbations!(
     end
 
     for segment in eachindex(simulations)
-        restart_after_manual_change!(simulations[segment], ynew[segment])
+        restart_after_manual_change!(
+            simulations[segment],
+            ynew[segment];
+            reltol = settings.reltol,
+            abstol = settings.abstol,
+        )
         simulations[segment].step_counter[] = 0
     end
 
@@ -177,36 +187,35 @@ function apply_series_perturbations!(
 end
 
 
-function series_relative_change(
-    previous::AbstractVector{<:Real},
-    current::AbstractVector{<:Real},
-    N::Int,
-    nvars::Int,
-)
-    length(previous) == length(current) == N * nvars ||
-        error("Series steady-state vectors have incompatible lengths.")
-    previous_U = reshape(previous, N, nvars)
-    current_U = reshape(current, N, nvars)
-    maximum_change = 0.0
+function series_stationarity_residual(sim::SimulationState)
+    integrator = sim.integrator_ref[]
+    du = similar(integrator.u)
+    integrator.f(du, integrator.u, integrator.p, integrator.t)
+    U = reshape(integrator.u, sim.N, sim.model.nvars)
+    dU = reshape(du, sim.N, sim.model.nvars)
+    maximum_rate = 0.0
 
+    # The time derivative vanishes exactly at a stationary state, so this test
+    # does not depend on the adaptive step size or on the check interval, and
+    # a periodic solution cannot pass it by being sampled at its period.
     # Normalising each variable separately ensures that a high-amplitude
     # variable cannot hide continued evolution in a small-amplitude one.
-    for variable in 1:nvars
-        previous_column = @view previous_U[:, variable]
-        current_column = @view current_U[:, variable]
-        scale = max(
-            1.0,
-            maximum(abs, previous_column),
-            maximum(abs, current_column),
-        )
-        difference = current_column .- previous_column
-        maximum_change = max(
-            maximum_change,
-            maximum(abs, difference) / scale,
-        )
+    for variable in 1:sim.model.nvars
+        scale = max(1.0, maximum(abs, @view(U[:, variable])))
+        maximum_rate = max(maximum_rate, maximum(abs, @view(dU[:, variable])) / scale)
     end
 
-    return maximum_change
+    return maximum_rate
+end
+
+
+function step_series_panel!(sim::SimulationState)
+    # Unlike step_simulation!, never shift the solver time back to zero: the
+    # panel loop relies on integrator.t for checkpoints and maximum_time.
+    step!(sim.integrator_ref[])
+    sim.step_counter[] += 1
+
+    return nothing
 end
 
 
@@ -216,60 +225,72 @@ function run_series_panel!(
     generation::Int;
     cancelled::Function = () -> false,
     on_snapshot::Function = _ -> nothing,
+    on_residual::Function = _ -> nothing,
 )
     validate_series_settings(settings, sim.model.nvars)
-    previous = copy(sim.integrator_ref[].u)
     stable_checks = 0
-    last_preview_ns = time_ns() - round(UInt64, settings.preview_interval_seconds * 1e9)
     integrator = sim.integrator_ref[]
+    converged = false
+    residual = NaN
+    last_residual_report_ns = UInt64(0)
 
-    while sim.step_counter[] < settings.maximum_steps_per_panel
+    while integrator.t < settings.maximum_time
         cancelled() && break
-        checkpoint = integrator.t + settings.check_interval
+        sim.step_counter[] >= settings.maximum_steps_per_panel && break
+        checkpoint = min(integrator.t + settings.check_interval, settings.maximum_time)
         add_tstop!(integrator, checkpoint)
 
         while integrator.t < checkpoint
             cancelled() && break
             sim.step_counter[] >= settings.maximum_steps_per_panel && break
-            step_simulation!(sim)
-
-            if settings.live_preview
-                now_ns = time_ns()
-                if now_ns - last_preview_ns >= round(UInt64, settings.preview_interval_seconds * 1e9)
-                    on_snapshot(make_snapshot(sim, generation))
-                    last_preview_ns = now_ns
-                end
+            step_series_panel!(sim)
+            settings.live_preview && on_snapshot(make_snapshot(sim, generation))
+            # Display-only sampling; the convergence decision is still made
+            # exclusively at the configured simulation-time checkpoints.
+            now_ns = time_ns()
+            if now_ns - last_residual_report_ns >= UInt64(500_000_000)
+                settings.live_preview || on_snapshot(make_snapshot(sim, generation))
+                on_residual(series_stationarity_residual(sim))
+                last_residual_report_ns = now_ns
             end
         end
 
-        cancelled() && break
-        sim.step_counter[] >= settings.maximum_steps_per_panel && break
+        integrator.t < checkpoint && break
 
-        current = copy(integrator.u)
-        change = series_relative_change(previous, current, sim.N, sim.model.nvars)
-        stable_checks = change < settings.tolerance ? stable_checks + 1 : 0
-        previous = current
+        residual = series_stationarity_residual(sim)
+        settings.live_preview || on_snapshot(make_snapshot(sim, generation))
+        on_residual(residual)
+        last_residual_report_ns = time_ns()
+        stable_checks = residual < settings.tolerance ? stable_checks + 1 : 0
 
         if stable_checks >= settings.required_consecutive_checks
-            U = solution_matrix(sim)
-            heads = detect_heads(
-                @view(U[:, settings.head_variable]),
-                sim.x;
-                boundary_condition = sim.boundary_condition,
-            )
-            snapshot = make_snapshot(sim, generation)
-            on_snapshot(snapshot)
-            return SeriesPanelOutcome(true, false, sim.step_counter[], heads, snapshot)
+            converged = true
+            break
         end
+    end
+
+    residual = series_stationarity_residual(sim)
+    on_residual(residual)
+    heads = DetectedHead[]
+
+    if converged
+        U = solution_matrix(sim)
+        heads = detect_heads(
+            @view(U[:, settings.head_variable]),
+            sim.x;
+            boundary_condition = sim.boundary_condition,
+        )
     end
 
     snapshot = make_snapshot(sim, generation)
     on_snapshot(snapshot)
     return SeriesPanelOutcome(
-        false,
-        cancelled(),
+        converged,
+        !converged && cancelled(),
         sim.step_counter[],
-        DetectedHead[],
+        integrator.t,
+        residual,
+        heads,
         snapshot,
     )
 end
@@ -283,12 +304,13 @@ function run_series_realization!(
     run_index::Int;
     cancelled::Function = () -> false,
     on_snapshot::Function = (_, _) -> nothing,
+    on_residual::Function = (_, _) -> nothing,
 )
     isempty(templates) && error("A series realization needs at least one panel.")
     validate_series_settings(settings, first(templates).model.nvars)
     run_rng = Xoshiro(settings.seed + UInt64(run_index - 1))
     simulations = [instantiate_series_template(template, settings) for template in templates]
-    apply_series_perturbations!(simulations, perturbations, run_rng)
+    apply_series_perturbations!(simulations, perturbations, run_rng, settings)
     tasks = Task[]
 
     # Publish a consistent perturbed initial condition before any panel starts
@@ -305,6 +327,7 @@ function run_series_realization!(
             generation;
             cancelled = cancelled,
             on_snapshot = snapshot -> on_snapshot(segment, snapshot),
+            on_residual = residual -> on_residual(segment, residual),
         )
         push!(tasks, task)
     end
