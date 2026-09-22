@@ -29,7 +29,6 @@ Base.@kwdef mutable struct SeriesSettings
     seed::UInt64 = 0x3039
     head_variable::Int = 1
     live_preview::Bool = false
-    preview_interval_seconds::Float64 = 0.5
     reltol::Float64 = 1e-5
     abstol::Float64 = 1e-7
 end
@@ -66,8 +65,6 @@ function validate_series_settings(settings::SeriesSettings, nvars::Int)
         error("Steady-state tolerance must be positive and finite.")
     settings.required_consecutive_checks >= 1 ||
         error("Required consecutive steady-state checks must be at least one.")
-    settings.preview_interval_seconds > 0.0 ||
-        error("Live-preview interval must be positive.")
     1 <= settings.head_variable <= nvars ||
         error("Head-detection variable is outside the model variable range.")
 
@@ -220,7 +217,6 @@ function run_series_panel!(
     validate_series_settings(settings, sim.model.nvars)
     previous = copy(sim.integrator_ref[].u)
     stable_checks = 0
-    last_preview_ns = time_ns() - round(UInt64, settings.preview_interval_seconds * 1e9)
     integrator = sim.integrator_ref[]
 
     while sim.step_counter[] < settings.maximum_steps_per_panel
@@ -233,13 +229,7 @@ function run_series_panel!(
             sim.step_counter[] >= settings.maximum_steps_per_panel && break
             step_simulation!(sim)
 
-            if settings.live_preview
-                now_ns = time_ns()
-                if now_ns - last_preview_ns >= round(UInt64, settings.preview_interval_seconds * 1e9)
-                    on_snapshot(make_snapshot(sim, generation))
-                    last_preview_ns = now_ns
-                end
-            end
+            settings.live_preview && on_snapshot(make_snapshot(sim, generation))
         end
 
         cancelled() && break
