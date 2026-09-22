@@ -34,7 +34,7 @@ Base.@kwdef mutable struct SeriesSettings
     dtmax::Float64 = 1e3
     seed::UInt64 = 0x3039
     head_variable::Int = 1
-    live_preview::Bool = false
+    live_preview::Bool = true
     reltol::Float64 = 1e-5
     abstol::Float64 = 1e-7
 end
@@ -56,6 +56,7 @@ struct SeriesPanelOutcome
     cancelled::Bool
     steps::Int
     time::Float64
+    residual::Float64
     heads::Vector{DetectedHead}
     final_snapshot::SimulationSnapshot
 end
@@ -229,6 +230,7 @@ function run_series_panel!(
     stable_checks = 0
     integrator = sim.integrator_ref[]
     converged = false
+    residual = NaN
 
     while integrator.t < settings.maximum_time
         cancelled() && break
@@ -272,6 +274,7 @@ function run_series_panel!(
         !converged && cancelled(),
         sim.step_counter[],
         integrator.t,
+        residual,
         heads,
         snapshot,
     )

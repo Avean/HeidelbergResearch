@@ -22,9 +22,9 @@ Window {
     property var panelNames: Array.from({length: ui.segmentCount}, (_, index) => String(index + 1))
 
     visible: ui.seriesMode
-    width: Math.min(1560, Screen.desktopAvailableWidth - 40)
-    height: Math.min(860, Screen.desktopAvailableHeight - 60)
-    minimumWidth: Math.min(1100, Screen.desktopAvailableWidth - 40)
+    width: 1400
+    height: 820
+    minimumWidth: 900
     minimumHeight: 600
     title: ui.seriesRunning
            ? "Series — " + ui.seriesCompletedRuns + " / " + ui.seriesTotalRuns
@@ -118,9 +118,11 @@ Window {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: ui.seriesRunning
-                                      ? "Stop series   (" + ui.seriesCompletedRuns + " / " + ui.seriesTotalRuns + ")"
-                                      : "Start series"
+                                text: !ui.seriesRunning
+                                      ? "Start series"
+                                      : ui.seriesSingleRun
+                                        ? "Stop run one"
+                                        : "Stop series   (" + ui.seriesCompletedRuns + " / " + ui.seriesTotalRuns + ")"
                                 color: "white"
                                 font.bold: true
                                 font.pixelSize: 18
@@ -136,13 +138,49 @@ Window {
                             }
                         }
 
+                        // Diagnostics: one more realization, added to the
+                        // statistics, whose final state stays on the main plots.
+                        Rectangle {
+                            id: runOneButton
+                            property bool active: !ui.seriesRunning && seriesWindow.perturbations.length > 0
+                            Layout.leftMargin: 10
+                            Layout.rightMargin: 10
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 40
+                            radius: 7
+                            color: !active
+                                   ? "#c7ccd4"
+                                   : runOneMouse.pressed ? "#3730a3" : runOneMouse.containsMouse ? "#4338ca" : "#4f46e5"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Run one"
+                                color: "white"
+                                font.bold: true
+                                font.pixelSize: 15
+                            }
+
+                            MouseArea {
+                                id: runOneMouse
+                                anchors.fill: parent
+                                enabled: runOneButton.active
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Julia.runOneSeries()
+                            }
+
+                            ToolTip.visible: runOneMouse.containsMouse
+                            ToolTip.text: "Run one realization, add it to the statistics and keep its final state on the main plots"
+                        }
+
                         Label {
                             Layout.leftMargin: 14
                             Layout.rightMargin: 14
                             Layout.fillWidth: true
-                            visible: !ui.seriesRunning && seriesWindow.perturbations.length === 0
-                            text: "Add at least one perturbation to start a series."
-                            color: "#68717d"
+                            text: !ui.seriesRunning && seriesWindow.perturbations.length === 0
+                                  ? "Add at least one perturbation to start a series."
+                                  : ui.seriesStatus
+                            color: ui.seriesRunning ? "#2563eb" : "#4b5563"
                             wrapMode: Text.WordWrap
                         }
 
@@ -191,20 +229,10 @@ Window {
                                 }
                             }
 
-                            RowLayout {
-                                Layout.fillWidth: true
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: "The marker is temporary; saved perturbations are shown as dashed grey boxes."
-                                    color: "#68717d"
-                                    wrapMode: Text.WordWrap
-                                }
-
-                                Button {
-                                    text: "Add perturbation"
-                                    onClicked: Julia.addSeriesPerturbation()
-                                }
+                            Button {
+                                Layout.alignment: Qt.AlignRight
+                                text: "Add perturbation"
+                                onClicked: Julia.addSeriesPerturbation()
                             }
                         }
 
@@ -433,89 +461,101 @@ Window {
             }
 
             // -------------------------------------------------- results
-            ScrollView {
+            ColumnLayout {
+                id: resultsColumn
+                property var current: {
+                    const results = seriesWindow.results
+                    for (let index = 0; index < results.length; ++index) {
+                        if (results[index].panel === ui.seriesResultsPanel)
+                            return results[index]
+                    }
+                    return results.length > 0 ? results[0] : null
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                contentWidth: availableWidth
-                clip: true
+                Layout.margins: 12
+                spacing: 8
 
-                ColumnLayout {
-                    width: parent.width
-                    spacing: 10
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: seriesWindow.results.length > 1
+                    spacing: 6
 
-                    Item { Layout.preferredHeight: 2 }
+                    Label {
+                        text: "Panel"
+                        font.bold: true
+                    }
 
                     Repeater {
-                        model: seriesWindow.results
+                        model: seriesWindow.results.length
 
-                        Rectangle {
-                            required property var modelData
-                            Layout.leftMargin: 12
-                            Layout.rightMargin: 12
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 310
-                            color: "#ffffff"
-                            border.color: "#c4ccd7"
-                            border.width: 1
-                            radius: 6
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 6
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: "Panel " + modelData.panel
-                                    color: "#20252d"
-                                    font.bold: true
-                                    font.pixelSize: 15
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    spacing: 12
-
-                                    SeriesBarChart {
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-                                        title: "Head locations"
-                                        subtitle: "local x: " + Number(modelData.xMin).toPrecision(4)
-                                                  + " — " + Number(modelData.xMax).toPrecision(4)
-                                        values: modelData.locationCounts
-                                        labels: []
-                                        xMinimum: Number(modelData.xMin)
-                                        xMaximum: Number(modelData.xMax)
-                                        barColor: "#2563eb"
-                                    }
-
-                                    SeriesBarChart {
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-                                        title: "Number of heads"
-                                        subtitle: "per converged realization"
-                                        values: modelData.headCounts
-                                        labels: modelData.headLabels
-                                        barColor: "#7c3aed"
-                                    }
-                                }
-                            }
+                        Button {
+                            required property int index
+                            text: String(index + 1)
+                            checkable: true
+                            checked: ui.seriesResultsPanel === index + 1
+                            highlighted: checked
+                            focusPolicy: Qt.NoFocus
+                            onClicked: Julia.setSeriesResultsPanel(index + 1)
                         }
                     }
 
-                    Label {
-                        Layout.leftMargin: 16
-                        Layout.rightMargin: 16
-                        Layout.topMargin: 18
-                        Layout.fillWidth: true
-                        visible: seriesWindow.results.length === 0
-                        text: "Results will appear after the first completed realization."
-                        color: "#68717d"
-                        horizontalAlignment: Text.AlignHCenter
-                    }
+                    Item { Layout.fillWidth: true }
+                }
 
-                    Item { Layout.preferredHeight: 8 }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: resultsColumn.current !== null
+                    color: "#ffffff"
+                    border.color: "#c4ccd7"
+                    border.width: 1
+                    radius: 6
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 8
+
+                        SeriesBarChart {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            title: "Head locations"
+                            values: resultsColumn.current === null ? [] : resultsColumn.current.locationCounts
+                            labels: []
+                            xMinimum: resultsColumn.current === null ? NaN : Number(resultsColumn.current.xMin)
+                            xMaximum: resultsColumn.current === null ? NaN : Number(resultsColumn.current.xMax)
+                            barColor: "#2563eb"
+                        }
+
+                        SeriesBarChart {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            title: "Number of heads"
+                            values: resultsColumn.current === null ? [] : resultsColumn.current.headCounts
+                            labels: resultsColumn.current === null ? [] : resultsColumn.current.headLabels
+                            barColor: "#7c3aed"
+                        }
+
+                        SeriesLineChart {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            title: "Patterns"
+                            xValues: resultsColumn.current === null ? [] : resultsColumn.current.patternX
+                            profiles: resultsColumn.current === null ? [] : resultsColumn.current.patterns
+                            converged: resultsColumn.current === null ? [] : resultsColumn.current.patternConverged
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: resultsColumn.current === null
+                    text: "Results will appear after the first completed realization."
+                    color: "#68717d"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignTop
                 }
             }
         }
