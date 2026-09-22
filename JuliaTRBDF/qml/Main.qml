@@ -905,15 +905,15 @@ ApplicationWindow {
                                 onEditingFinished: Julia.setSeriesRunCount(text)
                             }
 
-                            Label { text: "Maximum steps / panel" }
+                            Label { text: "Maximum time / panel" }
                             TextField {
                                 selectByMouse: true
-                                validator: IntValidator { bottom: 1 }
-                                text: String(ui.seriesMaximumSteps)
-                                onEditingFinished: Julia.setSeriesMaximumSteps(text)
+                                validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                text: Number(ui.seriesMaximumTime).toString()
+                                onEditingFinished: Julia.setSeriesMaximumTime(text)
                             }
 
-                            Label { text: "Check interval" }
+                            Label { text: "Check interval (time)" }
                             TextField {
                                 selectByMouse: true
                                 validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
@@ -921,12 +921,36 @@ ApplicationWindow {
                                 onEditingFinished: Julia.setSeriesCheckInterval(text)
                             }
 
-                            Label { text: "Steady-state tolerance" }
+                            Label { text: "Tolerance on |du/dt|" }
                             TextField {
                                 selectByMouse: true
                                 validator: DoubleValidator { bottom: 0.000000000000000001; notation: DoubleValidator.ScientificNotation }
                                 text: Number(ui.seriesTolerance).toExponential()
                                 onEditingFinished: Julia.setSeriesTolerance(text)
+                            }
+
+                            Label { text: "Consecutive passed checks" }
+                            TextField {
+                                selectByMouse: true
+                                validator: IntValidator { bottom: 1 }
+                                text: String(ui.seriesRequiredChecks)
+                                onEditingFinished: Julia.setSeriesRequiredChecks(text)
+                            }
+
+                            Label { text: "Series dtmax" }
+                            TextField {
+                                selectByMouse: true
+                                validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                text: Number(ui.seriesDtmax).toString()
+                                onEditingFinished: Julia.setSeriesDtmax(text)
+                            }
+
+                            Label { text: "Safety step limit / panel" }
+                            TextField {
+                                selectByMouse: true
+                                validator: IntValidator { bottom: 1 }
+                                text: String(ui.seriesMaximumSteps)
+                                onEditingFinished: Julia.setSeriesMaximumSteps(text)
                             }
 
                             Label { text: "Random seed" }
@@ -946,7 +970,7 @@ ApplicationWindow {
 
                         Switch {
                             Layout.topMargin: 5
-                            text: "Live simulation preview (max. 2 updates/s)"
+                            text: "Live simulation preview"
                             checked: ui.seriesLivePreview
                             onToggled: Julia.setSeriesLivePreview(checked)
                         }

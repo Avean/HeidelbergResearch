@@ -41,9 +41,12 @@ mutable struct QMLBindings
     series_total_runs::Observable{Int}
     series_status::Observable{String}
     series_run_count::Observable{Int}
+    series_maximum_time::Observable{Float64}
     series_maximum_steps::Observable{Int}
     series_check_interval::Observable{Float64}
     series_tolerance::Observable{Float64}
+    series_required_checks::Observable{Int}
+    series_dtmax::Observable{Float64}
     series_seed::Observable{String}
     series_head_variable::Observable{Int}
     series_live_preview::Observable{Bool}
@@ -607,12 +610,18 @@ function refresh_series_bindings!(controller::QMLController)
     set_if_changed!(controller.bindings.series_total_runs, settings.run_count)
     set_if_changed!(controller.bindings.series_status, series.status)
     set_if_changed!(controller.bindings.series_run_count, settings.run_count)
+    set_if_changed!(controller.bindings.series_maximum_time, settings.maximum_time)
     set_if_changed!(
         controller.bindings.series_maximum_steps,
         settings.maximum_steps_per_panel,
     )
     set_if_changed!(controller.bindings.series_check_interval, settings.check_interval)
     set_if_changed!(controller.bindings.series_tolerance, settings.tolerance)
+    set_if_changed!(
+        controller.bindings.series_required_checks,
+        settings.required_consecutive_checks,
+    )
+    set_if_changed!(controller.bindings.series_dtmax, settings.dtmax)
     set_if_changed!(controller.bindings.series_seed, string(settings.seed))
     set_if_changed!(controller.bindings.series_head_variable, settings.head_variable)
     set_if_changed!(controller.bindings.series_live_preview, settings.live_preview)
@@ -1098,6 +1107,8 @@ function set_series_integer_setting!(controller::QMLController, field::Symbol, v
         series.settings.run_count = integer
     elseif field == :maximum_steps
         series.settings.maximum_steps_per_panel = integer
+    elseif field == :required_checks
+        series.settings.required_consecutive_checks = integer
     elseif field == :head_variable
         nvars = controller.app.sim.model.nvars
         series.settings.head_variable = clamp(integer, 1, nvars)
@@ -1116,8 +1127,12 @@ function set_series_float_setting!(controller::QMLController, field::Symbol, val
     number = parse_finite_qml_number(value, String(field))
     number > 0.0 || error("$(field) must be positive.")
 
-    if field == :check_interval
+    if field == :maximum_time
+        series.settings.maximum_time = number
+    elseif field == :check_interval
         series.settings.check_interval = number
+    elseif field == :dtmax
+        series.settings.dtmax = number
     elseif field == :tolerance
         series.settings.tolerance = number
     else
@@ -2048,6 +2063,10 @@ function register_qml_functions!(controller::QMLController)
         value -> set_series_integer_setting!(controller, :run_count, value),
     )
     QML.qmlfunction(
+        "setSeriesMaximumTime",
+        value -> set_series_float_setting!(controller, :maximum_time, value),
+    )
+    QML.qmlfunction(
         "setSeriesMaximumSteps",
         value -> set_series_integer_setting!(controller, :maximum_steps, value),
     )
@@ -2058,6 +2077,14 @@ function register_qml_functions!(controller::QMLController)
     QML.qmlfunction(
         "setSeriesTolerance",
         value -> set_series_float_setting!(controller, :tolerance, value),
+    )
+    QML.qmlfunction(
+        "setSeriesRequiredChecks",
+        value -> set_series_integer_setting!(controller, :required_checks, value),
+    )
+    QML.qmlfunction(
+        "setSeriesDtmax",
+        value -> set_series_float_setting!(controller, :dtmax, value),
     )
     QML.qmlfunction("setSeriesSeed", value -> set_series_seed!(controller, value))
     QML.qmlfunction(
@@ -2116,9 +2143,12 @@ function qml_property_map(
         "seriesTotalRuns" => bindings.series_total_runs,
         "seriesStatus" => bindings.series_status,
         "seriesRunCount" => bindings.series_run_count,
+        "seriesMaximumTime" => bindings.series_maximum_time,
         "seriesMaximumSteps" => bindings.series_maximum_steps,
         "seriesCheckInterval" => bindings.series_check_interval,
         "seriesTolerance" => bindings.series_tolerance,
+        "seriesRequiredChecks" => bindings.series_required_checks,
+        "seriesDtmax" => bindings.series_dtmax,
         "seriesSeed" => bindings.series_seed,
         "seriesHeadVariable" => bindings.series_head_variable,
         "seriesLivePreview" => bindings.series_live_preview,
@@ -2211,6 +2241,7 @@ function create_qml_controller(;
     report_startup_stage("Create application and plots", stage_started_ns)
 
     stage_started_ns = time_ns()
+    series_defaults = RD.SeriesSettings()
     bindings = QMLBindings(
         Observable(first_key),
         Observable(active_model_menu_name(first_key)),
@@ -2232,11 +2263,14 @@ function create_qml_controller(;
         Observable(0),
         Observable(100),
         Observable("Configure perturbations"),
-        Observable(100),
-        Observable(1000),
-        Observable(1.0),
-        Observable(1e-8),
-        Observable("12345"),
+        Observable(series_defaults.run_count),
+        Observable(series_defaults.maximum_time),
+        Observable(series_defaults.maximum_steps_per_panel),
+        Observable(series_defaults.check_interval),
+        Observable(series_defaults.tolerance),
+        Observable(series_defaults.required_consecutive_checks),
+        Observable(series_defaults.dtmax),
+        Observable(string(series_defaults.seed)),
         Observable(1),
         Observable(false),
         Observable(1),
