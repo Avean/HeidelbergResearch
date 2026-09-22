@@ -88,6 +88,10 @@ mutable struct SeriesController
     results_revision::Int
     published_results_revision::Int
     finish_restores_base::Bool
+    pending_preview_update::Symbol
+    # :none, :show or :clear. Series preview boxes are Makie plots, so they
+    # may only be created or deleted inside the Makie window's render function,
+    # where its OpenGL context is current (the series window has its own).
 end
 
 
@@ -202,6 +206,7 @@ function empty_series_controller()
         0,
         -1,
         false,
+        :none,
     )
 end
 
@@ -493,7 +498,11 @@ end
 function refresh_qml_state!(controller::QMLController)
     controller.graphics_busy[] && return nothing
 
-    RD.refresh_ui_from_latest_snapshots!(controller.app)
+    # In series mode the series owns the plots: redrawing the stopped main
+    # simulation's last snapshot would also reset the y axes and drop the
+    # room reserved for the series perturbation previews.
+    controller.bindings.series_mode[] ||
+        RD.refresh_ui_from_latest_snapshots!(controller.app)
     random_mode, absolute_mode = current_perturbation_modes(controller.app)
     perturbation_values = RD.perturbation_control_values(controller.app)
     set_if_changed!(controller.bindings.random_mode, random_mode)
@@ -575,6 +584,7 @@ function qml_renderfunction(screen, scene_or_figure)
 
     if controller !== nothing
         process_graphics_actions!(controller)
+        apply_pending_series_preview_update!(controller)
     end
 
     QMLMakie.renderfunction(screen, scene_or_figure)
@@ -780,6 +790,35 @@ end
 
 
 function clear_series_previews!(controller::QMLController)
+    controller.series.pending_preview_update = :clear
+    return nothing
+end
+
+
+function show_series_previews!(controller::QMLController)
+    controller.series.pending_preview_update = :show
+    return nothing
+end
+
+
+function apply_pending_series_preview_update!(controller::QMLController)
+    request = controller.series.pending_preview_update
+    request === :none && return nothing
+    controller.series.pending_preview_update = :none
+
+    try
+        request === :show ?
+            show_series_previews_now!(controller) :
+            clear_series_previews_now!(controller)
+    catch error
+        report_error!(controller, "Series preview update failed", error)
+    end
+
+    return nothing
+end
+
+
+function clear_series_previews_now!(controller::QMLController)
     series = controller.series
 
     for item in series.preview_items
@@ -830,9 +869,9 @@ function add_series_preview_box!(
 end
 
 
-function show_series_previews!(controller::QMLController)
+function show_series_previews_now!(controller::QMLController)
     series = controller.series
-    clear_series_previews!(controller)
+    clear_series_previews_now!(controller)
 
     for perturbation in series.perturbations
         clamp_series_perturbation!(controller.app, perturbation) || continue
@@ -987,6 +1026,16 @@ function set_series_mode!(controller::QMLController, enabled)
             controller.bindings.series_mode[] = false
             close_series_editor!(controller)
             app.mouse_perturbations_enabled[] = true
+
+            # A stopped series may have committed its partial state to the
+            # simulations; publish that live state instead of the snapshots
+            # the main workers left before series mode.
+            lock(app.simlock)
+            try
+                RD.store_runtime_snapshots!(app, RD.make_locked_snapshot(app).segments)
+            finally
+                unlock(app.simlock)
+            end
         end
 
         return nothing
