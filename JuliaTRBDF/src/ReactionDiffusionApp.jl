@@ -24,7 +24,17 @@ include("ModelDSL.jl")
 include("ModelLoader.jl")
 
 const MODEL_DIR = normpath(joinpath(@__DIR__, "..", "Models"))
-const MODEL_REGISTRY = load_model_registry(MODEL_DIR)
+const MODEL_REGISTRY = let started_ns = time_ns()
+    registry = load_model_registry(MODEL_DIR)
+    elapsed = (time_ns() - started_ns) / 1.0e9
+    @printf(
+        "[startup] %s %8.3f s\n",
+        rpad("Load model registry", 36, '.'),
+        elapsed,
+    )
+    flush(stdout)
+    registry
+end
 
 include("Simulation.jl")
 include("DomainPartition.jl")

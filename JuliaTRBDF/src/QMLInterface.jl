@@ -67,6 +67,14 @@ const ACTIVE_QML_CONTROLLER = Ref{Union{Nothing, QMLController}}(nothing)
 const QML_RENDER_CFUNCTION = Ref{Any}(nothing)
 
 
+function report_startup_stage(label::AbstractString, started_ns::UInt64)
+    elapsed = (time_ns() - started_ns) / 1.0e9
+    @printf("[startup] %s %8.3f s\n", rpad(label, 36, '.'), elapsed)
+    flush(stdout)
+    return nothing
+end
+
+
 function set_if_changed!(observable::Observable, value)
     observable[] == value || (observable[] = value)
     return nothing
@@ -982,13 +990,18 @@ function create_qml_controller(;
 )
     RD.validate_boundary_condition(boundary_condition0)
     registry = RD.MODEL_REGISTRY
+    stage_started_ns = time_ns()
     equation_images_by_model, equation_widths_by_model =
         render_equation_catalog(registry)
+    report_startup_stage("Render equation catalog", stage_started_ns)
+
     labels = RD.model_labels(registry)
     isempty(labels) && error("No models found in MODEL_REGISTRY.")
     first_label = first(labels)
     first_key = RD.model_registry_key_for_label(registry, first_label)
     first_model = RD.get_model(registry, first_key)
+
+    stage_started_ns = time_ns()
     simulation = RD.create_simulation_state(
         first_model;
         N = N,
@@ -997,6 +1010,9 @@ function create_qml_controller(;
         abstol = abstol,
         boundary_condition = boundary_condition0,
     )
+    report_startup_stage("Create initial simulation", stage_started_ns)
+
+    stage_started_ns = time_ns()
     running = Observable(false)
     dtmax = Observable(dtmax0)
     dt = Observable(RD.current_internal_dt(simulation))
@@ -1037,6 +1053,9 @@ function create_qml_controller(;
         false,
     )
     app.plot_panel = RD.build_plot_panel!(plot_grid, app; title_obs = title)
+    report_startup_stage("Create application and plots", stage_started_ns)
+
+    stage_started_ns = time_ns()
     bindings = QMLBindings(
         Observable(first_key),
         Observable(active_model_menu_name(first_key)),
@@ -1077,6 +1096,7 @@ function create_qml_controller(;
         Observable(false),
         Threads.Atomic{Bool}(false),
     )
+    report_startup_stage("Create QML controller", stage_started_ns)
 
     return controller, figure
 end
@@ -1091,6 +1111,7 @@ function run_qml_app(;
     steps_per_frame::Int = 5,
     worker_sleep_time::Float64 = 0.001,
     auto_close_ms::Int = 0,
+    startup_started_ns::UInt64 = time_ns(),
 )
     isfile(QML_FILE) || error("QML interface file does not exist: $QML_FILE")
 
@@ -1107,14 +1128,28 @@ function run_qml_app(;
         steps_per_frame = steps_per_frame,
         worker_sleep_time = worker_sleep_time,
     )
+    stage_started_ns = time_ns()
     install_qml_renderfunction!(controller)
+    report_startup_stage("Install QML render function", stage_started_ns)
+
+    stage_started_ns = time_ns()
     register_qml_functions!(controller)
+    report_startup_stage("Register QML callbacks", stage_started_ns)
+
+    stage_started_ns = time_ns()
     properties = qml_property_map(
         controller,
         model_catalog_json(controller.registry),
         auto_close_ms = auto_close_ms,
     )
+    report_startup_stage("Prepare QML properties", stage_started_ns)
+
+    stage_started_ns = time_ns()
     QML.loadqml(QML_FILE; plot = figure, ui = properties)
+    report_startup_stage("QML.loadqml", stage_started_ns)
+    report_startup_stage("Total before QML event loop", startup_started_ns)
+    println("[startup] Entering QML event loop")
+    flush(stdout)
 
     try
         run_qml_event_loop!(controller)
