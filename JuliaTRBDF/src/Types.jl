@@ -11,6 +11,9 @@ Base.@kwdef struct ModelSpec
     display_name::String
     # Human-readable model name displayed in the user interface.
 
+    description::String = ""
+    # Optional short description displayed above the equations in the model drawer.
+
     nvars::Int
     # Number of dependent variables/equations in the model.
 

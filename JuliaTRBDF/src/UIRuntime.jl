@@ -399,6 +399,80 @@ function set_dtmax_app!(app::AppState, new_dtmax::Float64)
 end
 
 
+function public_model_parameter_names(model::ModelSpec)
+    return sort(
+        [
+            key for key in keys(model.default_params)
+            if !startswith(String(key), "__")
+        ];
+        by = String,
+    )
+end
+
+
+function refresh_spatial_profile_panel!(app::AppState)
+    model = app.sim.model
+    isempty(model.spatial_profile_sets) && return nothing
+    ensure_partition_spatial_profile_overrides!(app.simulations)
+    set_index = _active_spatial_profile_set_index(
+        app.sim.params,
+        model.spatial_profile_sets,
+    )
+    _, profiles = model.spatial_profile_sets[set_index]
+
+    for (profile_index, (profile_name, _)) in enumerate(profiles)
+        key = spatial_profile_override_key(profile_name)
+        row_values = Float64[]
+        axes = Axis[]
+        for segment in eachindex(app.simulations)
+            segment <= length(app.plot_panel.segment_profile_observables) || continue
+            profile_index <= length(app.plot_panel.segment_profile_observables[segment]) || continue
+            values = app.simulations[segment].params[key]
+            profile_values = Float64.(collect(values))
+            app.plot_panel.segment_profile_observables[segment][profile_index][] = profile_values
+            append!(row_values, finite_values(profile_values))
+            profile_index <= length(app.plot_panel.segment_profile_axes[segment]) &&
+                push!(axes, app.plot_panel.segment_profile_axes[segment][profile_index])
+        end
+        isempty(axes) || set_axes_y_limits_from_values!(axes, row_values)
+    end
+
+    return nothing
+end
+
+
+function set_model_parameter_app!(
+    app::AppState,
+    parameter::Symbol,
+    value::Real;
+    steps_per_frame::Int,
+    worker_sleep_time::Float64,
+)
+    value_float = Float64(value)
+    isfinite(value_float) || error("Model parameter must be finite.")
+    parameter in public_model_parameter_names(app.sim.model) ||
+        error("Unknown model parameter: $parameter")
+
+    with_worker_paused!(
+        app,
+        () -> begin
+            for sim in app.simulations
+                sim.params[parameter] = value_float
+                restart_after_manual_change!(sim, copy(sim.integrator_ref[].u))
+            end
+            refresh_partition_spatial_profile_overrides!(app.simulations)
+            refresh_spatial_profile_panel!(app)
+            refresh_app_from_live_state!(app)
+        end;
+        restart_if_was_running = true,
+        steps_per_frame = steps_per_frame,
+        worker_sleep_time = worker_sleep_time,
+    )
+
+    return nothing
+end
+
+
 function with_worker_paused!(
     app::AppState,
     f::Function;

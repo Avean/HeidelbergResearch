@@ -1,0 +1,29 @@
+name = "u: left / center / right"
+
+[initial_values]
+u = 0.0
+v = 0.0
+
+[[perturbations]]
+variable = "u"
+position = "left"
+width_min_fraction = 0.13
+width_max_fraction = 0.25
+height_min = 1.0
+height_max = 2.0
+
+[[perturbations]]
+variable = "u"
+position = "center"
+width_min_fraction = 0.13
+width_max_fraction = 0.25
+height_min = 1.0
+height_max = 2.0
+
+[[perturbations]]
+variable = "u"
+position = "right"
+width_min_fraction = 0.13
+width_max_fraction = 0.25
+height_min = 1.0
+height_max = 2.0

@@ -12,6 +12,7 @@ Window {
 
     property var variables: JSON.parse(ui.variablesJson)
     property var perturbations: JSON.parse(ui.seriesPerturbationsJson)
+    property var presets: JSON.parse(ui.seriesPresetsJson)
     property var results: {
         try {
             return JSON.parse(ui.seriesResultsJson)
@@ -35,6 +36,35 @@ Window {
         close.accepted = false
         if (!ui.seriesRunning)
             Julia.setSeriesMode(false)
+    }
+
+    function commitSeriesSettings() {
+        const fields = [
+            runCountField,
+            maximumTimeField,
+            checkIntervalField,
+            toleranceField,
+            requiredChecksField,
+            dtmaxField,
+            maximumStepsField
+        ]
+
+        for (let index = 0; index < fields.length; ++index) {
+            if (!fields[index].acceptableInput) {
+                fields[index].forceActiveFocus()
+                return false
+            }
+        }
+
+        Julia.setSeriesRunCount(runCountField.text)
+        Julia.setSeriesMaximumTime(maximumTimeField.text)
+        Julia.setSeriesCheckInterval(checkIntervalField.text)
+        Julia.setSeriesTolerance(toleranceField.text)
+        Julia.setSeriesRequiredChecks(requiredChecksField.text)
+        Julia.setSeriesDtmax(dtmaxField.text)
+        Julia.setSeriesMaximumSteps(maximumStepsField.text)
+        Julia.setSeriesSeed(seedField.text)
+        return true
     }
 
     ColumnLayout {
@@ -67,9 +97,28 @@ Window {
                 }
 
                 ToolButton {
+                    id: closeSeriesButton
                     text: "Close series mode"
                     enabled: !ui.seriesRunning
+                    font.bold: true
                     palette.buttonText: "white"
+                    contentItem: Text {
+                        text: parent.text
+                        color: "white"
+                        font: parent.font
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 5
+                        border.width: 1
+                        border.color: closeSeriesButton.enabled
+                                      ? (closeSeriesButton.hovered ? "#bfdbfe" : "#64748b")
+                                      : "#475569"
+                        color: !closeSeriesButton.enabled ? "#334155"
+                              : closeSeriesButton.pressed ? "#1e3a8a"
+                              : closeSeriesButton.hovered ? "#2563eb" : "#475569"
+                    }
                     onClicked: Julia.setSeriesMode(false)
                     ToolTip.visible: hovered && ui.seriesRunning
                     ToolTip.text: "Stop the series first"
@@ -134,7 +183,12 @@ Window {
                                 enabled: startStopButton.active
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: ui.seriesRunning ? Julia.stopSeries() : Julia.startSeries()
+                                onClicked: {
+                                    if (ui.seriesRunning)
+                                        Julia.stopSeries()
+                                    else if (seriesWindow.commitSeriesSettings())
+                                        Julia.startSeries()
+                                }
                             }
                         }
 
@@ -166,7 +220,10 @@ Window {
                                 enabled: runOneButton.active
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Julia.runOneSeries()
+                                onClicked: {
+                                    if (seriesWindow.commitSeriesSettings())
+                                        Julia.runOneSeries()
+                                }
                             }
 
                             ToolTip.visible: runOneMouse.containsMouse
@@ -182,6 +239,35 @@ Window {
                                   : ui.seriesStatus
                             color: ui.seriesRunning ? "#2563eb" : "#4b5563"
                             wrapMode: Text.WordWrap
+                        }
+
+                        ControlSection {
+                            title: "Preset"
+                            Layout.leftMargin: 10
+                            Layout.rightMargin: 10
+                            enabled: !ui.seriesRunning
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                ComboBox {
+                                    id: presetComboBox
+                                    Layout.fillWidth: true
+                                    model: seriesWindow.presets
+                                    textRole: "name"
+                                    currentIndex: {
+                                        for (let index = 0; index < seriesWindow.presets.length; ++index) {
+                                            if (seriesWindow.presets[index].key === ui.seriesSelectedPreset)
+                                                return index
+                                        }
+                                        return 0
+                                    }
+                                    onActivated: {
+                                        if (currentIndex >= 0 && currentIndex < seriesWindow.presets.length)
+                                            Julia.selectSeriesPreset(seriesWindow.presets[currentIndex].key)
+                                    }
+                                }
+                            }
                         }
 
                         ControlSection {
@@ -249,22 +335,16 @@ Window {
                                 columnSpacing: 8
                                 rowSpacing: 7
 
-                                // Every field keeps showing the value Julia
-                                // actually stores: typing breaks a plain text
-                                // binding, so the value is restored through an
-                                // explicit Binding once the field loses focus.
-                                // All of them accept scientific notation.
+                                // Keep the visible value while a field has
+                                // focus. Start and Run one explicitly commit
+                                // all fields before creating a solver task.
                                 Label { text: "Number of runs" }
                                 TextField {
                                     id: runCountField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
+                                    text: String(ui.seriesRunCount)
                                     onEditingFinished: Julia.setSeriesRunCount(text)
-                                    Binding on text {
-                                        value: String(ui.seriesRunCount)
-                                        when: !runCountField.activeFocus
-                                        restoreMode: Binding.RestoreBindingOrValue
-                                    }
                                 }
 
                                 Label { text: "Maximum time / panel" }
@@ -272,12 +352,8 @@ Window {
                                     id: maximumTimeField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                    text: Number(ui.seriesMaximumTime).toExponential()
                                     onEditingFinished: Julia.setSeriesMaximumTime(text)
-                                    Binding on text {
-                                        value: Number(ui.seriesMaximumTime).toExponential()
-                                        when: !maximumTimeField.activeFocus
-                                        restoreMode: Binding.RestoreBindingOrValue
-                                    }
                                 }
 
                                 Label { text: "Check interval (time)" }
@@ -285,12 +361,8 @@ Window {
                                     id: checkIntervalField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                    text: Number(ui.seriesCheckInterval).toExponential()
                                     onEditingFinished: Julia.setSeriesCheckInterval(text)
-                                    Binding on text {
-                                        value: Number(ui.seriesCheckInterval).toExponential()
-                                        when: !checkIntervalField.activeFocus
-                                        restoreMode: Binding.RestoreBindingOrValue
-                                    }
                                 }
 
                                 Label { text: "Tolerance on R" }
@@ -298,12 +370,8 @@ Window {
                                     id: toleranceField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.000000000000000001; notation: DoubleValidator.ScientificNotation }
+                                    text: Number(ui.seriesTolerance).toExponential()
                                     onEditingFinished: Julia.setSeriesTolerance(text)
-                                    Binding on text {
-                                        value: Number(ui.seriesTolerance).toExponential()
-                                        when: !toleranceField.activeFocus
-                                        restoreMode: Binding.RestoreBindingOrValue
-                                    }
                                 }
 
                                 Label { text: "Consecutive passed checks" }
@@ -311,12 +379,8 @@ Window {
                                     id: requiredChecksField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
+                                    text: String(ui.seriesRequiredChecks)
                                     onEditingFinished: Julia.setSeriesRequiredChecks(text)
-                                    Binding on text {
-                                        value: String(ui.seriesRequiredChecks)
-                                        when: !requiredChecksField.activeFocus
-                                        restoreMode: Binding.RestoreBindingOrValue
-                                    }
                                 }
 
                                 Label { text: "Series dtmax" }
@@ -324,12 +388,8 @@ Window {
                                     id: dtmaxField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                    text: Number(ui.seriesDtmax).toExponential()
                                     onEditingFinished: Julia.setSeriesDtmax(text)
-                                    Binding on text {
-                                        value: Number(ui.seriesDtmax).toExponential()
-                                        when: !dtmaxField.activeFocus
-                                        restoreMode: Binding.RestoreBindingOrValue
-                                    }
                                 }
 
                                 Label { text: "Safety step limit / panel" }
@@ -337,16 +397,13 @@ Window {
                                     id: maximumStepsField
                                     selectByMouse: true
                                     validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
+                                    text: Number(ui.seriesMaximumSteps).toExponential()
                                     onEditingFinished: Julia.setSeriesMaximumSteps(text)
-                                    Binding on text {
-                                        value: Number(ui.seriesMaximumSteps).toExponential()
-                                        when: !maximumStepsField.activeFocus
-                                        restoreMode: Binding.RestoreBindingOrValue
-                                    }
                                 }
 
                                 Label { text: "Random seed" }
                                 TextField {
+                                    id: seedField
                                     selectByMouse: true
                                     text: ui.seriesSeed
                                     onEditingFinished: Julia.setSeriesSeed(text)
@@ -588,6 +645,69 @@ Window {
                     xValues: resultsColumn.current === null ? [] : resultsColumn.current.patternX
                     profiles: resultsColumn.current === null ? [] : resultsColumn.current.patterns
                     converged: resultsColumn.current === null ? [] : resultsColumn.current.patternConverged
+                }
+
+                ControlSection {
+                    title: "Domain rescale"
+                    enabled: !ui.seriesRunning
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 7
+
+                        Repeater {
+                            model: [
+                                { key: "1", resolution: 16 },
+                                { key: "2", resolution: 40 },
+                                { key: "3", resolution: 100 }
+                            ]
+
+                            Rectangle {
+                                required property var modelData
+                                Layout.preferredWidth: 26
+                                Layout.preferredHeight: 26
+                                radius: 4
+                                property bool active: Number(ui.domainResolution) === modelData.resolution
+                                color: active ? "#2563eb" : "#64748b"
+                                border.color: active ? "#93c5fd" : "#94a3b8"
+                                Text { anchors.centerIn: parent; text: parent.modelData.key; color: "white"; font.bold: true }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !ui.seriesRunning
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Julia.setDomainResolution(parent.modelData.resolution)
+                                }
+                            }
+                        }
+
+                        Slider {
+                            id: seriesDomainSlider
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 3
+                            stepSize: 3 / Math.max(1, Number(ui.domainResolution) - 1)
+                            value: 2 * Math.log(Number(ui.domainLength)) / Math.LN10
+                            onMoved: Julia.setDomainExponent(value)
+                            WheelHandler {
+                                onWheel: function(event) {
+                                    if (!seriesDomainSlider.enabled || event.angleDelta.y === 0)
+                                        return
+                                    const next = Math.max(seriesDomainSlider.from,
+                                                          Math.min(seriesDomainSlider.to,
+                                                                   seriesDomainSlider.value +
+                                                                   (event.angleDelta.y > 0 ? seriesDomainSlider.stepSize : -seriesDomainSlider.stepSize)))
+                                    Julia.setDomainExponent(next)
+                                    event.accepted = true
+                                }
+                            }
+                        }
+
+                        Label {
+                            Layout.preferredWidth: 58
+                            text: Number(ui.domainLength).toPrecision(3)
+                            font.family: "Consolas"
+                        }
+                    }
                 }
 
                 Label {

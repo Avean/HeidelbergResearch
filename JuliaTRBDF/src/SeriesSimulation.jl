@@ -25,19 +25,30 @@ Base.@kwdef mutable struct SeriesSettings
     # A panel that has not become stationary by maximum_time is reported as
     # not converged.  maximum_steps_per_panel is only a safety net against a
     # stalled solver whose step size collapses before reaching maximum_time.
-    maximum_time::Float64 = 1e6
+    maximum_time::Float64 = 1e15
     maximum_steps_per_panel::Int = 10_000_000
     check_interval::Float64 = 1e3
     # Bound on the scaled time derivative max|du/dt| / max(1, max|u|).
-    tolerance::Float64 = 1e-8
+    tolerance::Float64 = 1e-6
     required_consecutive_checks::Int = 3
-    dtmax::Float64 = 1e3
+    dtmax::Float64 = 1e10
     seed::UInt64 = 0x3039
     head_variable::Int = 1
     live_preview::Bool = true
     reltol::Float64 = 1e-5
     abstol::Float64 = 1e-7
 end
+
+
+# Temporary diagnostic switch. Enable it from the REPL without reloading the
+# application with:
+#
+#     ReactionDiffusionApp.SERIES_DEBUG_PRINT_RESIDUALS[] = true
+#
+# Every actual convergence check is printed as one complete line. A dedicated
+# lock keeps output from independently running panels from interleaving.
+const SERIES_DEBUG_PRINT_RESIDUALS = Ref(false)
+const SERIES_DEBUG_PRINT_LOCK = ReentrantLock()
 
 
 struct SeriesSegmentTemplate
@@ -211,9 +222,43 @@ end
 
 function step_series_panel!(sim::SimulationState)
     # Unlike step_simulation!, never shift the solver time back to zero: the
-    # panel loop relies on integrator.t for checkpoints and maximum_time.
+    # panel loop relies on integrator.t for check intervals and maximum_time.
     step!(sim.integrator_ref[])
     sim.step_counter[] += 1
+
+    return nothing
+end
+
+
+function debug_series_residual(
+    run_index::Int,
+    segment::Int,
+    kind::Symbol,
+    sim::SimulationState,
+    residual::Float64,
+    stable_checks::Int,
+    settings::SeriesSettings,
+)
+    SERIES_DEBUG_PRINT_RESIDUALS[] || return nothing
+
+    lock(SERIES_DEBUG_PRINT_LOCK)
+    try
+        @printf(
+            "[series R] run=%d panel=%d kind=%s t=%.16g step=%d R=%.16e tolerance=%.16e passed=%d/%d\n",
+            run_index,
+            segment,
+            String(kind),
+            sim.integrator_ref[].t,
+            sim.step_counter[],
+            residual,
+            settings.tolerance,
+            stable_checks,
+            settings.required_consecutive_checks,
+        )
+        flush(stdout)
+    finally
+        unlock(SERIES_DEBUG_PRINT_LOCK)
+    end
 
     return nothing
 end
@@ -223,6 +268,8 @@ function run_series_panel!(
     sim::SimulationState,
     settings::SeriesSettings,
     generation::Int;
+    run_index::Int = 0,
+    segment::Int = 0,
     cancelled::Function = () -> false,
     on_snapshot::Function = _ -> nothing,
     on_residual::Function = _ -> nothing,
@@ -232,45 +279,65 @@ function run_series_panel!(
     integrator = sim.integrator_ref[]
     converged = false
     residual = NaN
-    last_residual_report_ns = UInt64(0)
+    last_check_time = integrator.t
+    last_residual_time = NaN
+    last_snapshot_report_ns = UInt64(0)
 
     while integrator.t < settings.maximum_time
         cancelled() && break
         sim.step_counter[] >= settings.maximum_steps_per_panel && break
-        checkpoint = min(integrator.t + settings.check_interval, settings.maximum_time)
-        add_tstop!(integrator, checkpoint)
+        step_series_panel!(sim)
+        settings.live_preview && on_snapshot(make_snapshot(sim, generation))
 
-        while integrator.t < checkpoint
-            cancelled() && break
-            sim.step_counter[] >= settings.maximum_steps_per_panel && break
-            step_series_panel!(sim)
-            settings.live_preview && on_snapshot(make_snapshot(sim, generation))
-            # Display-only sampling; the convergence decision is still made
-            # exclusively at the configured simulation-time checkpoints.
-            now_ns = time_ns()
-            if now_ns - last_residual_report_ns >= UInt64(500_000_000)
-                settings.live_preview || on_snapshot(make_snapshot(sim, generation))
-                on_residual(series_stationarity_residual(sim))
-                last_residual_report_ns = now_ns
-            end
+        now_ns = time_ns()
+        if !settings.live_preview &&
+           now_ns - last_snapshot_report_ns >= UInt64(500_000_000)
+            on_snapshot(make_snapshot(sim, generation))
+            last_snapshot_report_ns = now_ns
         end
 
-        integrator.t < checkpoint && break
+        # check_interval is a minimum separation between convergence checks,
+        # not a solver stop. A single accepted step may cross many intervals;
+        # it still produces exactly one check at the accepted endpoint.
+        if integrator.t - last_check_time >= settings.check_interval
+            residual = series_stationarity_residual(sim)
+            stable_checks = residual < settings.tolerance ? stable_checks + 1 : 0
+            last_check_time = integrator.t
+            last_residual_time = integrator.t
+            settings.live_preview || on_snapshot(make_snapshot(sim, generation))
+            on_residual(residual)
+            debug_series_residual(
+                run_index,
+                segment,
+                :check,
+                sim,
+                residual,
+                stable_checks,
+                settings,
+            )
 
-        residual = series_stationarity_residual(sim)
-        settings.live_preview || on_snapshot(make_snapshot(sim, generation))
-        on_residual(residual)
-        last_residual_report_ns = time_ns()
-        stable_checks = residual < settings.tolerance ? stable_checks + 1 : 0
-
-        if stable_checks >= settings.required_consecutive_checks
-            converged = true
-            break
+            if stable_checks >= settings.required_consecutive_checks
+                converged = true
+                break
+            end
         end
     end
 
-    residual = series_stationarity_residual(sim)
-    on_residual(residual)
+    # If the final accepted state was not already checked, report its residual
+    # for diagnostics without counting it as another convergence check.
+    if last_residual_time != integrator.t
+        residual = series_stationarity_residual(sim)
+        on_residual(residual)
+        debug_series_residual(
+            run_index,
+            segment,
+            :final,
+            sim,
+            residual,
+            stable_checks,
+            settings,
+        )
+    end
     heads = DetectedHead[]
 
     if converged
@@ -325,6 +392,8 @@ function run_series_realization!(
             simulations[segment],
             settings,
             generation;
+            run_index = run_index,
+            segment = segment,
             cancelled = cancelled,
             on_snapshot = snapshot -> on_snapshot(segment, snapshot),
             on_residual = residual -> on_residual(segment, residual),

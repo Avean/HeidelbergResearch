@@ -12,11 +12,15 @@ using Logging
 using QML
 using QMLMakie
 using Printf
+using TOML
 
 import ..ReactionDiffusionApp
 const RD = ReactionDiffusionApp
 
+include("SeriesPresets.jl")
+
 const QML_FILE = normpath(joinpath(@__DIR__, "..", "qml", "Main.qml"))
+const SERIES_PRESETS = load_series_presets(RD.MODEL_DIR)
 
 
 mutable struct QMLBindings
@@ -55,10 +59,16 @@ mutable struct QMLBindings
     series_position::Observable{Float64}
     series_selected_panel_length::Observable{Float64}
     series_perturbations_json::Observable{String}
+    series_presets_json::Observable{String}
+    series_selected_preset::Observable{String}
     series_results_json::Observable{String}
     series_mode::Observable{Bool}
     series_results_panel::Observable{Int}
     series_single_run::Observable{Bool}
+    model_description::Observable{String}
+    model_parameters_json::Observable{String}
+    equation_values_visible::Observable{Bool}
+    domain_resolution::Observable{Int}
 end
 
 
@@ -105,6 +115,7 @@ mutable struct SeriesController
     latest_residuals::Vector{Float64}
     residual_revision::Int
     published_residual_revision::Int
+    selected_preset_key::String
 end
 
 
@@ -190,6 +201,22 @@ function json_number(value::Real)
 end
 
 
+function model_parameters_json(model::RD.ModelSpec, params::AbstractDict{Symbol})
+    entries = String[]
+    for name in RD.public_model_parameter_names(model)
+        value = get(params, name, model.default_params[name])
+        value isa Real || continue
+        push!(
+            entries,
+            "{\"key\":" * json_string(String(name)) *
+            ",\"label\":" * json_string(String(name)) *
+            ",\"value\":" * json_number(value) * "}",
+        )
+    end
+    return "[" * join(entries, ",") * "]"
+end
+
+
 function empty_series_controller()
     return SeriesController(
         RD.SeriesSettings(),
@@ -228,6 +255,7 @@ function empty_series_controller()
         Float64[],
         0,
         -1,
+        "none",
     )
 end
 
@@ -252,6 +280,52 @@ function series_perturbations_json(series::SeriesController)
     end
 
     return "[" * join(entries, ",") * "]"
+end
+
+
+function series_preset_by_key(model_key::AbstractString, preset_key::AbstractString)
+    index = findfirst(
+        preset -> preset.model_key == model_key && preset.key == preset_key,
+        SERIES_PRESETS,
+    )
+    return index === nothing ? nothing : SERIES_PRESETS[index]
+end
+
+
+function series_preset_position(position::Symbol, displayed_length::Float64)
+    position == :left && return 0.0
+    position == :center && return displayed_length / 2
+    position == :right && return displayed_length
+    error("Unsupported Series preset position: $position")
+end
+
+
+function reset_series_templates_to_live_state!(controller::QMLController)
+    controller.series.templates = [
+        RD.make_series_template(sim)
+        for sim in controller.app.simulations
+    ]
+    return controller.series.templates
+end
+
+
+function apply_series_initial_values!(
+    templates::Vector{RD.SeriesSegmentTemplate},
+    initial_values::Dict{String, Float64},
+)
+    isempty(initial_values) && return nothing
+
+    for template in templates
+        U = reshape(template.y, length(template.x), template.model.nvars)
+        for (variable_name, value) in initial_values
+            variable = findfirst(==(variable_name), template.model.varnames)
+            variable === nothing &&
+                error("Series preset requires variable '$variable_name', which is unavailable in this model.")
+            U[:, variable] .= value
+        end
+    end
+
+    return nothing
 end
 
 
@@ -392,6 +466,46 @@ function clamp_series_perturbation!(app::RD.AppState, perturbation::RD.SeriesPer
     return true
 end
 
+function latex_parameter_token(parameter::Symbol)
+    name = String(parameter)
+    name = replace(name, "μ" => "\\mu_", "ρ" => "\\rho_")
+    if startswith(name, "D") && length(name) == 2
+        return "D_" * name[2:end]
+    end
+    return name
+end
+
+
+function latex_number(value::Real)
+    number = Float64(value)
+    number == 0.0 && return "0"
+    compact = @sprintf("%.3g", number)
+    if occursin('e', lowercase(compact))
+        mantissa, exponent = split(lowercase(compact), 'e')
+        return mantissa * raw"\times 10^{" * string(parse(Int, exponent)) * "}"
+    end
+    return compact
+end
+
+
+function equations_with_parameter_values(
+    equations::AbstractVector{<:AbstractString},
+    model::RD.ModelSpec,
+    params::AbstractDict{Symbol},
+)
+    rendered = String.(equations)
+    for parameter in RD.public_model_parameter_names(model)
+        token = latex_parameter_token(parameter)
+        value = get(params, parameter, model.default_params[parameter])
+        value isa Real || continue
+        pattern = Regex("(?<![A-Za-z])" * Base.escape_string(token) * "(?![A-Za-z])")
+        replacement = latex_number(value)
+        rendered = replace.(rendered, pattern => replacement)
+    end
+    return rendered
+end
+
+
 function render_model_equations_svg_uri(equations::AbstractVector{<:AbstractString})
     equation_lines = [
         filter(!isempty, strip.(split(String(equation), '\n')))
@@ -463,6 +577,35 @@ function render_model_equations_svg_uri(equations::AbstractVector{<:AbstractStri
 end
 
 
+function refresh_current_equation_image!(controller::QMLController)
+    bindings = controller.bindings
+    key = bindings.active_model_key[]
+    model = controller.app.sim.model
+    rendered = if bindings.equation_values_visible[]
+        CairoMakie.activate!(type = "svg")
+        try
+            render_model_equations_svg_uri(
+                equations_with_parameter_values(model.latex_equations, model, controller.app.sim.params),
+            )
+        finally
+            GLMakie.activate!()
+        end
+    else
+        (
+            uri = isempty(get(controller.equation_images_by_model, key, String[])) ? "" :
+                  first(controller.equation_images_by_model[key]),
+            width = get(controller.equation_widths_by_model, key, 0.0),
+        )
+    end
+    set_if_changed!(
+        bindings.equation_images_json,
+        isempty(rendered.uri) ? "[]" : json_string_array([rendered.uri]),
+    )
+    set_if_changed!(bindings.equation_preferred_width, rendered.width)
+    return nothing
+end
+
+
 function render_equation_catalog(registry::Dict{String, RD.ModelSpec})
     images = Dict{String, Vector{String}}()
     widths = Dict{String, Float64}()
@@ -507,7 +650,7 @@ end
 
 
 function active_model_menu_name(key::AbstractString)
-    return "$(RD.model_family_name(key)) / $(RD.model_variant_name(key))"
+    return "$(RD.model_family_name(key)) / $(RD.MODEL_REGISTRY[String(key)].display_name)"
 end
 
 
@@ -524,6 +667,11 @@ function update_model_bindings!(controller::QMLController)
     bindings = controller.bindings
     active_key = bindings.active_model_key[]
     set_if_changed!(bindings.active_model_name, active_model_menu_name(active_key))
+    set_if_changed!(bindings.model_description, model.description)
+    set_if_changed!(
+        bindings.model_parameters_json,
+        model_parameters_json(model, controller.app.sim.params),
+    )
     set_if_changed!(bindings.variables_json, json_string_array(model.varnames))
     set_if_changed!(
         bindings.equation_images_json,
@@ -732,6 +880,17 @@ function refresh_series_bindings!(controller::QMLController)
         controller.bindings.series_perturbations_json,
         series_perturbations_json(series),
     )
+    model_key = controller.bindings.active_model_key[]
+    set_if_changed!(
+        controller.bindings.series_presets_json,
+        series_presets_json(SERIES_PRESETS, model_key),
+    )
+    selected_preset = series.selected_preset_key
+    if selected_preset != "none" && series_preset_by_key(model_key, selected_preset) === nothing
+        selected_preset = "none"
+        series.selected_preset_key = selected_preset
+    end
+    set_if_changed!(controller.bindings.series_selected_preset, selected_preset)
 
     if series.published_results_revision != series.results_revision
         set_if_changed!(
@@ -1185,6 +1344,68 @@ function set_series_position!(controller::QMLController, value)
 end
 
 
+function select_series_preset!(controller::QMLController, preset_key_value)
+    return guarded_action(controller, "Series preset selection failed") do
+        series = controller.series
+        series.running[] && return nothing
+        preset_key = String(preset_key_value)
+
+        if preset_key == "none"
+            clear_series_perturbations!(controller)
+            reset_series_templates_to_live_state!(controller)
+            refresh_series_bindings!(controller)
+            return nothing
+        end
+
+        model_key = controller.bindings.active_model_key[]
+        preset = series_preset_by_key(model_key, preset_key)
+        preset === nothing && error("This Series preset is not available for the selected model.")
+        selected_segment = clamp(series.selected_segment, 1, length(controller.app.simulations))
+        model = controller.app.simulations[selected_segment].model
+        displayed_length = series_display_length(controller.app, selected_segment)
+        displayed_length > 0.0 || error("The selected panel has zero length.")
+
+        restore_series_base_display!(controller)
+        templates = reset_series_templates_to_live_state!(controller)
+        apply_series_initial_values!(templates, preset.initial_values)
+        empty!(series.perturbations)
+        series.next_perturbation_id = 1
+        series.selected_perturbation_id = 0
+
+        for definition in preset.perturbations
+            variable = findfirst(==(definition.variable_name), model.varnames)
+            variable === nothing &&
+                error(
+                    "Preset $(preset.name) requires variable '$(definition.variable_name)', " *
+                    "which is unavailable in the selected model.",
+                )
+            perturbation = RD.SeriesPerturbation(
+                id = series.next_perturbation_id,
+                segment = selected_segment,
+                variable = variable,
+                position = series_preset_position(definition.position, displayed_length),
+                width_min = definition.width_min_fraction * displayed_length,
+                width_max = definition.width_max_fraction * displayed_length,
+                height_min = definition.height_min,
+                height_max = definition.height_max,
+            )
+            clamp_series_perturbation!(controller.app, perturbation)
+            push!(series.perturbations, perturbation)
+            series.selected_perturbation_id = perturbation.id
+            series.next_perturbation_id += 1
+        end
+
+        series.selected_preset_key = preset.key
+        series.status = "Loaded preset $(preset.name) into panel $selected_segment"
+        clear_series_results!(controller)
+        update_series_editor_selection!(controller)
+        series.editor_open && show_series_previews!(controller)
+        clear_series_position_marker!(controller)
+        refresh_series_bindings!(controller)
+    end
+end
+
+
 function add_series_perturbation!(controller::QMLController)
     series = controller.series
     series.running[] && return nothing
@@ -1206,6 +1427,7 @@ function add_series_perturbation!(controller::QMLController)
     push!(series.perturbations, perturbation)
     series.next_perturbation_id += 1
     series.selected_perturbation_id = perturbation.id
+    series.selected_preset_key = "none"
     series.status = "Ready to run"
     series.editor_open && show_series_previews!(controller)
     clear_series_position_marker!(controller)
@@ -1234,6 +1456,7 @@ function delete_series_perturbation!(controller::QMLController, id_value)
     id = Int(id_value)
     filter!(perturbation -> perturbation.id != id, series.perturbations)
     series.selected_perturbation_id == id && (series.selected_perturbation_id = 0)
+    series.selected_preset_key = "none"
     series.status = isempty(series.perturbations) ? "Add at least one perturbation" : "Ready to run"
     series.editor_open && show_series_previews!(controller)
     refresh_series_bindings!(controller)
@@ -1279,6 +1502,7 @@ function update_series_perturbation!(controller::QMLController, id_value, field_
     perturbation.height_min <= perturbation.height_max ||
         error("Height minimum cannot exceed height maximum.")
     series.selected_perturbation_id = perturbation.id
+    series.selected_preset_key = "none"
     update_series_editor_selection!(controller)
     series.editor_open && show_series_previews!(controller)
     refresh_series_bindings!(controller)
@@ -1752,6 +1976,7 @@ function clear_series_perturbations!(controller::QMLController)
     series = controller.series
     empty!(series.perturbations)
     series.selected_perturbation_id = 0
+    series.selected_preset_key = "none"
     series.selected_segment = 1
     series.selected_variable = 1
     series.selected_position = series_default_position(controller.app, 1)
@@ -1953,6 +2178,7 @@ function select_model!(controller::QMLController, key)
         controller.bindings.active_model_key[] = key_string
         controller.selected_segment = 1
         update_model_bindings!(controller)
+        refresh_current_equation_image!(controller)
         update_partition_bindings!(controller; reset_index = true)
         clear_series_perturbations!(controller)
     end
@@ -1983,6 +2209,7 @@ function select_boundary_condition!(controller::QMLController, label)
         )
         controller.selected_segment = 1
         update_partition_bindings!(controller; reset_index = true)
+        refresh_current_equation_image!(controller)
         clear_series_perturbations!(controller)
     end
 end
@@ -1997,6 +2224,7 @@ end
 
 function set_domain_exponent!(controller::QMLController, exponent)
     return guarded_action(controller, "Domain rescale failed") do
+        controller.series.running[] && error("Stop the Series run before changing the domain scale.")
         previous_display_scale = controller.app.plot_panel.domain_length_scale
         controller.diffusion_scale = 10.0^Float64(exponent)
         RD.set_diffusion_scale_app!(
@@ -2011,6 +2239,58 @@ function set_domain_exponent!(controller::QMLController, exponent)
                 controller,
                 current_display_scale / previous_display_scale,
             )
+        if controller.bindings.series_mode[]
+            templates, base_snapshots, generation = capture_series_base!(controller)
+            series = controller.series
+            lock(series.lock)
+            try
+                series.templates = templates
+                series.base_snapshots = base_snapshots
+                series.latest_snapshots = Union{Nothing, RD.SimulationSnapshot}[base_snapshots...]
+                series.generation = generation
+                reset_series_results_locked!(series, templates)
+            finally
+                unlock(series.lock)
+            end
+            series.editor_open && show_series_previews!(controller)
+        end
+        update_model_bindings!(controller)
+        refresh_current_equation_image!(controller)
+    end
+end
+
+
+function set_domain_resolution!(controller::QMLController, value)
+    resolution = Int(value)
+    resolution in (16, 40, 100) || error("Unsupported domain-slider resolution.")
+    controller.bindings.domain_resolution[] = resolution
+    return nothing
+end
+
+
+function set_model_parameter_from_qml!(controller::QMLController, name, value_text)
+    return guarded_action(controller, "Model parameter change failed") do
+        controller.series.running[] && error("Stop the Series run before changing model parameters.")
+        value = tryparse(Float64, String(value_text))
+        value === nothing && error("Invalid parameter value: $(String(value_text))")
+        RD.set_model_parameter_app!(
+            controller.app,
+            Symbol(String(name)),
+            value;
+            steps_per_frame = controller.steps_per_frame,
+            worker_sleep_time = controller.worker_sleep_time,
+        )
+        clear_series_results!(controller)
+        update_model_bindings!(controller)
+        refresh_current_equation_image!(controller)
+    end
+end
+
+
+function set_equation_values_visible!(controller::QMLController, visible)
+    return guarded_action(controller, "Equation display change failed") do
+        controller.bindings.equation_values_visible[] = Bool(visible)
+        refresh_current_equation_image!(controller)
     end
 end
 
@@ -2361,6 +2641,15 @@ function register_qml_functions!(controller::QMLController)
         "setDomainExponent",
         value -> set_domain_exponent!(controller, value),
     )
+    QML.qmlfunction("setDomainResolution", value -> set_domain_resolution!(controller, value))
+    QML.qmlfunction(
+        "setModelParameter",
+        (name, value) -> set_model_parameter_from_qml!(controller, name, value),
+    )
+    QML.qmlfunction(
+        "setEquationValuesVisible",
+        value -> set_equation_values_visible!(controller, value),
+    )
     QML.qmlfunction(
         "applyConstantInitialCondition",
         (index, value) -> apply_constant_initial_condition!(controller, index, value),
@@ -2427,6 +2716,7 @@ function register_qml_functions!(controller::QMLController)
     QML.qmlfunction("selectSeriesSegment", value -> select_series_segment!(controller, value))
     QML.qmlfunction("selectSeriesVariable", value -> select_series_variable!(controller, value))
     QML.qmlfunction("setSeriesPosition", value -> set_series_position!(controller, value))
+    QML.qmlfunction("selectSeriesPreset", value -> select_series_preset!(controller, value))
     QML.qmlfunction("addSeriesPerturbation", () -> add_series_perturbation!(controller))
     QML.qmlfunction("selectSeriesPerturbation", value -> select_series_perturbation!(controller, value))
     QML.qmlfunction("deleteSeriesPerturbation", value -> delete_series_perturbation!(controller, value))
@@ -2509,6 +2799,10 @@ function qml_property_map(
         "variablesJson" => bindings.variables_json,
         "equationImagesJson" => bindings.equation_images_json,
         "equationPreferredWidth" => bindings.equation_preferred_width,
+        "modelDescription" => bindings.model_description,
+        "modelParametersJson" => bindings.model_parameters_json,
+        "equationValuesVisible" => bindings.equation_values_visible,
+        "domainResolution" => bindings.domain_resolution,
         "modelCatalogJson" => Observable(catalog_json),
         "message" => bindings.message,
         "graphicsBusy" => controller.graphics_busy,
@@ -2531,6 +2825,8 @@ function qml_property_map(
         "seriesPosition" => bindings.series_position,
         "seriesSelectedPanelLength" => bindings.series_selected_panel_length,
         "seriesPerturbationsJson" => bindings.series_perturbations_json,
+        "seriesPresetsJson" => bindings.series_presets_json,
+        "seriesSelectedPreset" => bindings.series_selected_preset,
         "seriesResultsJson" => bindings.series_results_json,
         "seriesMode" => bindings.series_mode,
         "seriesResultsPanel" => bindings.series_results_panel,
@@ -2655,10 +2951,16 @@ function create_qml_controller(;
         Observable(0.5),
         Observable(1.0),
         Observable("[]"),
+        Observable(series_presets_json(SERIES_PRESETS, first_key)),
+        Observable("none"),
         Observable("[]"),
         Observable(false),
         Observable(1),
         Observable(false),
+        Observable(first_model.description),
+        Observable(model_parameters_json(first_model, simulation.params)),
+        Observable(false),
+        Observable(16),
     )
     controller = QMLController(
         app,

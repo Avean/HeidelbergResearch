@@ -19,6 +19,7 @@ ApplicationWindow {
     property var modelCatalog: JSON.parse(ui.modelCatalogJson)
     property var variables: JSON.parse(ui.variablesJson)
     property var equationImages: JSON.parse(ui.equationImagesJson)
+    property var modelParameters: JSON.parse(ui.modelParametersJson)
     property bool textEditorFocused: false
     property int selectedFamilyIndex: 0
     property int activeFamilyIndex: findFamilyIndex(ui.activeModelKey)
@@ -392,14 +393,55 @@ ApplicationWindow {
                     font.bold: true
                 }
 
+                Repeater {
+                    model: [
+                        { key: "1", resolution: 16 },
+                        { key: "2", resolution: 40 },
+                        { key: "3", resolution: 100 }
+                    ]
+
+                    Rectangle {
+                        required property var modelData
+                        Layout.preferredWidth: 26
+                        Layout.preferredHeight: 26
+                        radius: 4
+                        property bool active: Number(ui.domainResolution) === modelData.resolution
+                        color: active ? "#3b82f6" : "#46515f"
+                        border.color: active ? "#93c5fd" : "#697586"
+
+                        Text { anchors.centerIn: parent; text: parent.modelData.key; color: "white"; font.bold: true }
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: window.controlsEnabled
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Julia.setDomainResolution(parent.modelData.resolution)
+                        }
+                    }
+                }
+
                 Slider {
+                    id: domainRescaleSlider
                     Layout.preferredWidth: Math.min(300, window.width * 0.24)
                     enabled: window.controlsEnabled
                     from: 0
                     to: 3
-                    stepSize: 0.2
+                    stepSize: 3 / Math.max(1, Number(ui.domainResolution) - 1)
                     value: 2 * Math.log(Number(ui.domainLength)) / Math.LN10
                     onMoved: Julia.setDomainExponent(value)
+
+                    WheelHandler {
+                        onWheel: function(event) {
+                            if (!domainRescaleSlider.enabled || event.angleDelta.y === 0)
+                                return
+                            const step = domainRescaleSlider.stepSize
+                            const next = Math.max(domainRescaleSlider.from,
+                                                  Math.min(domainRescaleSlider.to,
+                                                           domainRescaleSlider.value + (event.angleDelta.y > 0 ? step : -step)))
+                            Julia.setDomainExponent(next)
+                            event.accepted = true
+                        }
+                    }
                 }
 
                 Label {
@@ -940,9 +982,31 @@ ApplicationWindow {
                         }
 
                         ControlSection {
+                            title: "About this model"
+                            visible: ui.modelDescription.length > 0
+                            Layout.leftMargin: 9
+                            Layout.rightMargin: 9
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: ui.modelDescription
+                                wrapMode: Text.WordWrap
+                                color: "#3f4a59"
+                            }
+                        }
+
+                        ControlSection {
                             title: "Equations"
                             Layout.leftMargin: 9
                             Layout.rightMargin: 9
+
+                            Switch {
+                                Layout.fillWidth: true
+                                text: "Show current parameter values"
+                                checked: ui.equationValuesVisible
+                                enabled: window.controlsEnabled
+                                onToggled: Julia.setEquationValuesVisible(checked)
+                            }
 
                             Repeater {
                                 model: window.equationImages
@@ -997,6 +1061,42 @@ ApplicationWindow {
                                     highlighted: ui.boundaryName === text
                                     enabled: window.controlsEnabled
                                     onClicked: Julia.selectBoundaryCondition(text)
+                                }
+                            }
+                        }
+
+                        ControlSection {
+                            title: "Model parameters"
+                            expanded: false
+                            Layout.leftMargin: 9
+                            Layout.rightMargin: 9
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Repeater {
+                                    model: window.modelParameters
+
+                                    RowLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+
+                                        Label {
+                                            Layout.preferredWidth: 74
+                                            text: parent.modelData.label
+                                            color: "#20252d"
+                                        }
+
+                                        TextField {
+                                            Layout.fillWidth: true
+                                            selectByMouse: true
+                                            enabled: window.controlsEnabled
+                                            validator: DoubleValidator { notation: DoubleValidator.ScientificNotation }
+                                            text: Number(parent.modelData.value).toPrecision(6)
+                                            onEditingFinished: Julia.setModelParameter(parent.modelData.key, text)
+                                        }
+                                    }
                                 }
                             }
                         }
