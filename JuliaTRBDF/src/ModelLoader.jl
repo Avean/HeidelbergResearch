@@ -6,8 +6,9 @@
 #
 # Model files are loaded once when the application module is loaded.
 #
-# Each Julia file anywhere below models/ must evaluate to a ModelSpec object.
-# First-level folders are used as model families in hierarchical UI menus.
+# Every model lives in Models/<family>/<model>/model.jl.  The first folder is
+# the family used by the first UI selector and the second folder is the
+# concrete model.  TOML files beside model.jl are Series presets for it.
 #
 # Example:
 #
@@ -22,17 +23,19 @@
 
 
 function model_files(model_dir::AbstractString)
-    # Return all Julia model files recursively from the model directory.
+    # Return model entry points from the supported three-level layout.
 
     isdir(model_dir) ||
         error("Model directory does not exist: $model_dir")
 
     files = String[]
 
-    for (root, _, names) in walkdir(model_dir)
-        for name in names
-            endswith(lowercase(name), ".jl") || continue
-            push!(files, joinpath(root, name))
+    for family in readdir(model_dir; join = true)
+        isdir(family) || continue
+        for model_directory in readdir(family; join = true)
+            isdir(model_directory) || continue
+            path = joinpath(model_directory, "model.jl")
+            isfile(path) && push!(files, path)
         end
     end
 
@@ -44,7 +47,10 @@ function model_registry_key(
     model_dir::AbstractString,
     path::AbstractString,
 )
-    return replace(relpath(path, model_dir), '\\' => '/')
+    relative = replace(relpath(dirname(path), model_dir), '\\' => '/')
+    parts = split(relative, '/')
+    length(parts) == 2 || error("Model path must be Models/<family>/<model>/model.jl: $path")
+    return relative
 end
 
 
@@ -170,17 +176,28 @@ end
 
 
 function model_variant_name(key::AbstractString)
-    stem = splitext(basename(String(key)))[1]
-    directory_stem = basename(dirname(String(key)))
+    return words_from_identifier(basename(String(key)))
+end
 
-    if directory_stem != "." && startswith(stem, directory_stem)
-        remainder = stem[(length(directory_stem) + 1):end]
-        isempty(remainder) && return "Basic"
 
-        return words_from_identifier(remainder)
+function model_menu_label(key::AbstractString, model::ModelSpec)
+    # Families already have their own selector, so avoid repeating their name
+    # in every entry of the concrete-model selector.
+    label = model.display_name
+    parts = split(label, '—'; limit = 2)
+    length(parts) == 2 && (label = strip(parts[2]))
+
+    # Some legacy display names use a plain prefix rather than an em dash,
+    # e.g. "MathBio basic".  Strip that family prefix only when it is a whole
+    # first word, so model names themselves stay intact.
+    family_compact = lowercase(replace(model_family_name(key), r"[\s_-]" => ""))
+    words = split(label)
+    if !isempty(words) &&
+       lowercase(replace(first(words), r"[\s_-]" => "")) == family_compact
+        label = join(words[2:end], " ")
     end
 
-    return words_from_identifier(stem)
+    return isempty(label) ? model.display_name : label
 end
 
 
@@ -191,7 +208,7 @@ function model_menu_catalog(registry::Dict{String, ModelSpec})
         family = model_family_name(key)
         entry = (
             key = key,
-            label = model_variant_name(key),
+            label = model_menu_label(key, registry[key]),
         )
         push!(get!(families, family, NamedTuple[]), entry)
     end

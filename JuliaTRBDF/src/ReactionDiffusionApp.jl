@@ -39,6 +39,7 @@ end
 include("Simulation.jl")
 include("DomainPartition.jl")
 include("HeadDetection.jl")
+include("HeadConfigurations.jl")
 include("SeriesSimulation.jl")
 
 include("PerturbationPanel.jl")
@@ -62,6 +63,7 @@ export SimulationState
 export neumann_laplacian_1d
 export periodic_laplacian_1d
 export laplacian_1d
+export warm_up_solver!
 
 export model_files
 export create_simulation_state

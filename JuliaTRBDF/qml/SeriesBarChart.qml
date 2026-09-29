@@ -24,7 +24,7 @@ Canvas {
 
         const left = 42
         const right = 12
-        const top = 32
+        const top = subtitle.length > 0 ? 32 : 24
         const bottom = labels.length > 0 ? 36 : (isFinite(xMinimum) && isFinite(xMaximum) ? 36 : 24)
         const plotWidth = Math.max(1, width - left - right)
         const plotHeight = Math.max(1, height - top - bottom)

@@ -2,7 +2,7 @@
 
 using Pkg
 
-# External packages imported by src/ReactionDiffusionApp.jl.
+# External packages imported by the application's source files.
 # Julia standard-library modules such as SparseArrays, LinearAlgebra,
 # Random, Printf, Statistics, and Pkg do not need to be installed.
 const REQUIRED_PACKAGES = [
@@ -12,6 +12,7 @@ const REQUIRED_PACKAGES = [
     "DifferentialEquations",
     "OrdinaryDiffEqSDIRK",
     "LaTeXStrings",
+    "Observables",
     "QML",
     "QMLMakie",
 ]

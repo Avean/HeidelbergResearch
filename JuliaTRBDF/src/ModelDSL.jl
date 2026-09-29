@@ -451,6 +451,7 @@ end
 function RDModel(;
     id::Symbol,
     display_name::String,
+    description::String = "",
     variables,
     parameters,
     initial::Function,
@@ -555,6 +556,7 @@ function RDModel(;
     return ModelSpec(
         id = id,
         display_name = display_name,
+        description = description,
         nvars = length(vars),
         varnames = string.(vars),
         default_params = default_params,

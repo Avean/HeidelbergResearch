@@ -534,7 +534,7 @@ function register_perturbation_scroll_handlers!(
     for (segment, axes) in enumerate(segment_axes)
         for axis in axes
             on(events(axis.scene).scroll, priority = 20) do scroll
-            if !is_mouseinside(axis.scene)
+            if !app.mouse_perturbations_enabled[] || !is_mouseinside(axis.scene)
                 return Consume(false)
             end
 
@@ -671,6 +671,8 @@ function register_mouse_perturbation_handlers!(
     for (segment, axes) in enumerate(segment_axes)
         for (variable, axis) in enumerate(axes)
         on(events(axis.scene).mouseposition, priority = 10) do _
+            app.mouse_perturbations_enabled[] || return Consume(false)
+
             if is_mouseinside(axis.scene)
                 position = mouseposition(axis.scene)
 
@@ -692,6 +694,8 @@ function register_mouse_perturbation_handlers!(
         end
 
         on(events(axis.scene).mousebutton, priority = 10) do event
+            app.mouse_perturbations_enabled[] || return Consume(false)
+
             is_left_press =
                 event.button == Mouse.left &&
                 event.action == Mouse.press

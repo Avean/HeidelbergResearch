@@ -11,6 +11,9 @@ Base.@kwdef struct ModelSpec
     display_name::String
     # Human-readable model name displayed in the user interface.
 
+    description::String = ""
+    # Optional short description displayed above the equations in the model drawer.
+
     nvars::Int
     # Number of dependent variables/equations in the model.
 
@@ -324,4 +327,8 @@ mutable struct AppState
     show_embedded_perturbation_controls::Bool
     # The legacy GLMakie interface keeps its controls inside the plot layout.
     # The QML interface renders the same state in its own bottom drawer.
+
+    mouse_perturbations_enabled::Threads.Atomic{Bool}
+    # Cleared while the QML series mode is active, so the plots show the
+    # series previews without reacting to mouse perturbation input.
 end
