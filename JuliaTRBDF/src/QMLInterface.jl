@@ -1,7 +1,8 @@
-module ReactionDiffusionQML
+# main_qml.jl loads the startup splash before any heavy package; load it here
+# when this file is included on its own.
+isdefined(@__MODULE__, :StartupSplash) || include(joinpath(@__DIR__, "StartupSplash.jl"))
 
-get!(ENV, "QT_QUICK_CONTROLS_STYLE", "Basic")
-get!(ENV, "QSG_RENDER_LOOP", "basic")
+module ReactionDiffusionQML
 
 using GLMakie
 import CairoMakie
@@ -14,7 +15,18 @@ using QMLMakie
 using Printf
 using TOML
 
+# Qt settings, applied before the first window exists. On Windows Qt keeps its
+# own copy of the environment from the moment it starts, and QML is loaded
+# before this module, so ENV alone would not reach it; qputenv does, on every
+# platform. The basic render loop keeps rendering, and so Makie's Julia
+# callbacks, on the main thread; Qt's threaded default on Windows hung the
+# first frame.
+QML.qputenv("QSG_RENDER_LOOP", QML.QByteArray(get!(ENV, "QSG_RENDER_LOOP", "basic")))
+# Effective on Linux only; on Windows the controls keep the native style.
+get!(ENV, "QT_QUICK_CONTROLS_STYLE", "Basic")
+
 import ..ReactionDiffusionApp
+import ..StartupSplash
 const RD = ReactionDiffusionApp
 
 include("SeriesPresets.jl")
@@ -69,6 +81,7 @@ mutable struct QMLBindings
     model_parameters_json::Observable{String}
     equation_values_visible::Observable{Bool}
     domain_resolution::Observable{Int}
+    main_window_visible::Observable{Bool}
 end
 
 
@@ -141,6 +154,7 @@ mutable struct QMLController
     graphics_actions_lock::ReentrantLock
     graphics_busy::Observable{Bool}
     close_requested::Threads.Atomic{Bool}
+    first_workspace_frame_rendered::Threads.Atomic{Bool}
 end
 
 
@@ -656,16 +670,22 @@ function refresh_current_equation_image!(controller::QMLController)
 end
 
 
-function render_equation_catalog(registry::Dict{String, RD.ModelSpec})
+function render_equation_catalog(
+    registry::Dict{String, RD.ModelSpec};
+    on_progress::Union{Nothing, Function} = nothing,
+)
     images = Dict{String, Vector{String}}()
     widths = Dict{String, Float64}()
     CairoMakie.activate!(type = "svg")
 
     try
-        for (key, model) in registry
+        entries = sort(collect(registry); by = first)
+        total = length(entries)
+        for (index, (key, model)) in enumerate(entries)
             rendered = render_model_equations_svg_uri(model.latex_equations)
             images[key] = isempty(rendered.uri) ? String[] : String[rendered.uri]
             widths[key] = rendered.width
+            on_progress === nothing || on_progress(index, total)
         end
     finally
         GLMakie.activate!()
@@ -852,7 +872,32 @@ function qml_renderfunction(screen, scene_or_figure)
     end
 
     QMLMakie.renderfunction(screen, scene_or_figure)
+    # Only record the frame here; run_qml_app reveals the window from the
+    # event loop, so no window property changes during a render pass.
+    controller === nothing || (controller.first_workspace_frame_rendered[] = true)
     return nothing
+end
+
+
+function wait_for_first_workspace_frame!(
+    controller::QMLController,
+    splash::Union{Nothing, StartupSplash.StartupSplashHandle};
+    timeout_seconds::Float64 = 30.0,
+)
+    started = time()
+    while !controller.first_workspace_frame_rendered[]
+        QML.process_eventloop_updates()
+        QML.process_events()
+        # The last stage: without this check the window would still open.
+        StartupSplash.startup_cancelled(splash) && throw(StartupSplash.StartupCancelled())
+        if time() - started >= timeout_seconds
+            @warn "The first workspace frame did not render before the startup timeout."
+            return false
+        end
+        yield()
+        sleep(0.015)
+    end
+    return true
 end
 
 
@@ -2853,6 +2898,7 @@ function qml_property_map(
         "modelParametersJson" => bindings.model_parameters_json,
         "equationValuesVisible" => bindings.equation_values_visible,
         "domainResolution" => bindings.domain_resolution,
+        "mainWindowVisible" => bindings.main_window_visible,
         "modelCatalogJson" => Observable(catalog_json),
         "message" => bindings.message,
         "graphicsBusy" => controller.graphics_busy,
@@ -2894,12 +2940,21 @@ function create_qml_controller(;
     abstol::Float64,
     steps_per_frame::Int,
     worker_sleep_time::Float64,
+    startup_splash::Union{Nothing, StartupSplash.StartupSplashHandle} = nothing,
 )
     RD.validate_boundary_condition(boundary_condition0)
     registry = RD.MODEL_REGISTRY
+    StartupSplash.startup_stage!(startup_splash, :equations)
     stage_started_ns = time_ns()
-    equation_images_by_model, equation_widths_by_model =
-        render_equation_catalog(registry)
+    equation_images_by_model, equation_widths_by_model = render_equation_catalog(
+        registry;
+        on_progress = (completed, total) -> StartupSplash.startup_stage!(
+            startup_splash,
+            :equations;
+            fraction = completed / total,
+            detail = "($completed/$total)",
+        ),
+    )
     report_startup_stage("Render equation catalog", stage_started_ns)
 
     labels = RD.model_labels(registry)
@@ -2908,6 +2963,7 @@ function create_qml_controller(;
     first_key = RD.model_registry_key_for_label(registry, first_label)
     first_model = RD.get_model(registry, first_key)
 
+    StartupSplash.startup_stage!(startup_splash, :simulation)
     stage_started_ns = time_ns()
     simulation = RD.create_simulation_state(
         first_model;
@@ -2919,6 +2975,17 @@ function create_qml_controller(;
     )
     report_startup_stage("Create initial simulation", stage_started_ns)
 
+    StartupSplash.startup_stage!(startup_splash, :warm_up)
+    stage_started_ns = time_ns()
+    try
+        RD.warm_up_solver!(simulation; reltol = reltol, abstol = abstol)
+    catch err
+        @warn "Solver warm-up failed; the application will continue normally." exception =
+            (err, catch_backtrace())
+    end
+    report_startup_stage("Warm up solver", stage_started_ns)
+
+    StartupSplash.startup_stage!(startup_splash, :plots)
     stage_started_ns = time_ns()
     running = Observable(false)
     dtmax = Observable(dtmax0)
@@ -3011,6 +3078,7 @@ function create_qml_controller(;
         Observable(model_parameters_json(first_model, simulation.params)),
         Observable(false),
         Observable(16),
+        Observable(false),
     )
     controller = QMLController(
         app,
@@ -3034,6 +3102,7 @@ function create_qml_controller(;
         ReentrantLock(),
         Observable(false),
         Threads.Atomic{Bool}(false),
+        Threads.Atomic{Bool}(false),
     )
     controller.series.selected_position = series_default_position(controller.app, 1)
     refresh_series_bindings!(controller)
@@ -3053,50 +3122,78 @@ function run_qml_app(;
     worker_sleep_time::Float64 = 0.001,
     auto_close_ms::Int = 0,
     startup_started_ns::UInt64 = time_ns(),
+    startup_splash::Union{Nothing, StartupSplash.StartupSplashHandle} = nothing,
+    compile_started_ns::Union{Nothing, UInt64} = nothing,
 )
+    # The first call compiles this function together with everything it calls,
+    # which takes seconds before this line runs; the caller starts that clock.
+    compile_started_ns === nothing ||
+        report_startup_stage("Compile application code", compile_started_ns)
     isfile(QML_FILE) || error("QML interface file does not exist: $QML_FILE")
 
     if Threads.nthreads() == 1
         @warn "Julia is running with one thread; use --threads=auto for independent solvers."
     end
 
-    controller, figure = create_qml_controller(
-        N = N,
-        boundary_condition0 = boundary_condition0,
-        dtmax0 = dtmax0,
-        reltol = reltol,
-        abstol = abstol,
-        steps_per_frame = steps_per_frame,
-        worker_sleep_time = worker_sleep_time,
-    )
-    stage_started_ns = time_ns()
-    install_qml_renderfunction!(controller)
-    report_startup_stage("Install QML render function", stage_started_ns)
+    splash = startup_splash === nothing ?
+             StartupSplash.open_startup_splash!() : startup_splash
 
-    stage_started_ns = time_ns()
-    register_qml_functions!(controller)
-    report_startup_stage("Register QML callbacks", stage_started_ns)
-
-    stage_started_ns = time_ns()
-    properties = qml_property_map(
-        controller,
-        model_catalog_json(controller.registry),
-        auto_close_ms = auto_close_ms,
-    )
-    report_startup_stage("Prepare QML properties", stage_started_ns)
-
-    stage_started_ns = time_ns()
-    QML.loadqml(QML_FILE; plot = figure, ui = properties)
-    report_startup_stage("QML.loadqml", stage_started_ns)
-    report_startup_stage("Total before QML event loop", startup_started_ns)
-    println("[startup] Entering QML event loop")
-    flush(stdout)
-
+    controller = nothing
+    qml_engine = nothing
     try
+        controller, figure = create_qml_controller(
+            N = N,
+            boundary_condition0 = boundary_condition0,
+            dtmax0 = dtmax0,
+            reltol = reltol,
+            abstol = abstol,
+            steps_per_frame = steps_per_frame,
+            worker_sleep_time = worker_sleep_time,
+            startup_splash = splash,
+        )
+        StartupSplash.startup_stage!(splash, :connect)
+        stage_started_ns = time_ns()
+        install_qml_renderfunction!(controller)
+        report_startup_stage("Install QML render function", stage_started_ns)
+
+        stage_started_ns = time_ns()
+        register_qml_functions!(controller)
+        report_startup_stage("Register QML callbacks", stage_started_ns)
+
+        stage_started_ns = time_ns()
+        properties = qml_property_map(
+            controller,
+            model_catalog_json(controller.registry),
+            auto_close_ms = auto_close_ms,
+        )
+        report_startup_stage("Prepare QML properties", stage_started_ns)
+
+        StartupSplash.startup_stage!(splash, :workspace)
+        stage_started_ns = time_ns()
+        qml_engine = QML.init_qmlapplicationengine()
+        QML.loadqml(qml_engine, QML_FILE; plot = figure, ui = properties)
+        report_startup_stage("QML.loadqml", stage_started_ns)
+
+        StartupSplash.startup_stage!(splash, :first_frame)
+        stage_started_ns = time_ns()
+        wait_for_first_workspace_frame!(controller, splash)
+        controller.bindings.main_window_visible[] = true
+        report_startup_stage("First workspace frame", stage_started_ns)
+        StartupSplash.close_startup_splash!(splash)
+        report_startup_stage("Total before QML event loop", startup_started_ns)
+        println("[startup] Entering QML event loop")
+        flush(stdout)
+
         run_qml_event_loop!(controller)
+    catch err
+        err isa StartupSplash.StartupCancelled || rethrow()
+        println("[startup] Startup cancelled")
     finally
-        shutdown!(controller)
-        cleanup_qml_runtime!()
+        StartupSplash.close_startup_splash!(splash)
+        controller === nothing || shutdown!(controller)
+        # Before loadqml there is no engine to release, and quitting a missing
+        # engine crashes inside Qt (e.g. on Cancel during the equations).
+        qml_engine === nothing || cleanup_qml_runtime!()
         ACTIVE_QML_CONTROLLER[] = nothing
     end
 

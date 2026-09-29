@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import QtQml.Models
 import jlqml
 import Makie
@@ -8,7 +9,13 @@ import Makie
 ApplicationWindow {
     id: window
 
+    // Keep the native window transparent until Makie has rendered its first
+    // frame, avoiding a white flash; the splash closes at that point.
     visible: true
+    // Keep a tiny non-zero opacity so Qt still renders the Makie viewport and
+    // can signal that its first frame is ready.
+    opacity: ui.mainWindowVisible ? 1.0 : 0.01
+    visibility: Window.Maximized
     width: 1500
     height: 900
     minimumWidth: 980

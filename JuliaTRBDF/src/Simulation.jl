@@ -213,6 +213,29 @@ function step_simulation!(sim::SimulationState, nsteps::Int)
 end
 
 
+function warm_up_solver!(
+    sim::SimulationState;
+    reltol::Float64 = 1e-5,
+    abstol::Float64 = 1e-7,
+)
+    # Compile the first TRBDF2 step before the user presses Start. Work on a
+    # disposable state so the visible simulation remains at t = 0.
+    temporary = create_simulation_state_from_data(
+        sim.model,
+        sim.x,
+        sim.dx,
+        copy(sim.integrator_ref[].u),
+        sim.params;
+        boundary_condition = sim.boundary_condition,
+        dtmax = current_dtmax(sim),
+        reltol = reltol,
+        abstol = abstol,
+    )
+    step_simulation!(temporary)
+    return nothing
+end
+
+
 function shift_time_to_zero_if_needed!(
     sim::SimulationState;
     threshold::Float64 = 10000.0,
