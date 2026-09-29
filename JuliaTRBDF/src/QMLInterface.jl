@@ -210,7 +210,8 @@ function model_parameters_json(model::RD.ModelSpec, params::AbstractDict{Symbol}
             entries,
             "{\"key\":" * json_string(String(name)) *
             ",\"label\":" * json_string(String(name)) *
-            ",\"value\":" * json_number(value) * "}",
+            ",\"value\":" * json_number(value) *
+            ",\"display\":" * json_string(display_number(value)) * "}",
         )
     end
     return "[" * join(entries, ",") * "]"
@@ -466,9 +467,27 @@ function clamp_series_perturbation!(app::RD.AppState, perturbation::RD.SeriesPer
     return true
 end
 
+const LATEX_GREEK_LETTERS = Dict(zip(
+    "αβγδεζηθικλμνξπρστυφχψω",
+    (
+        "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
+        "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma", "tau",
+        "upsilon", "phi", "chi", "psi", "omega",
+    ),
+))
+
+
 function latex_parameter_token(parameter::Symbol)
+    # Greek-letter parameters appear as LaTeX commands in the equations,
+    # whether the name uses the letter or spells it out: μu -> \mu_u,
+    # τ -> \tau, kappa -> \kappa.
     name = String(parameter)
-    name = replace(name, "μ" => "\\mu_", "ρ" => "\\rho_")
+    letter = get(LATEX_GREEK_LETTERS, first(name), nothing)
+    if letter !== nothing
+        rest = name[nextind(name, 1):end]
+        return "\\" * letter * (isempty(rest) ? "" : "_" * rest)
+    end
+    name in values(LATEX_GREEK_LETTERS) && return "\\" * name
     if startswith(name, "D") && length(name) == 2
         return "D_" * name[2:end]
     end
@@ -476,15 +495,45 @@ function latex_parameter_token(parameter::Symbol)
 end
 
 
-function latex_number(value::Real)
+# Displayed form of a model parameter, shared by the parameter fields and the
+# equations: at most three significant digits without trailing zeros, in
+# positional notation unless that needs more than three digits (the leading
+# "0." does not count), e.g. 1, 0.5, 123, 0.015, 1.23e+3, 1.23e-2. Only the
+# display is rounded; the solver keeps the full value.
+function display_number_parts(value::Real)
     number = Float64(value)
-    number == 0.0 && return "0"
-    compact = @sprintf("%.3g", number)
-    if occursin('e', lowercase(compact))
-        mantissa, exponent = split(lowercase(compact), 'e')
-        return mantissa * raw"\times 10^{" * string(parse(Int, exponent)) * "}"
-    end
-    return compact
+    number == 0.0 && return ("0", nothing)
+    isfinite(number) || return (string(number), nothing)
+    mantissa, exponent_text = split(@sprintf("%.2e", number), 'e')
+    exponent = parse(Int, exponent_text)
+    sign = startswith(mantissa, '-') ? "-" : ""
+    mantissa = rstrip(rstrip(lstrip(mantissa, '-'), '0'), '.')
+    significant = replace(mantissa, "." => "")
+    positional_digits = exponent >= 0 ?
+        max(exponent + 1, length(significant)) :
+        length(significant) - exponent - 1
+    positional_digits <= 3 || return (sign * mantissa, exponent)
+    exponent < 0 && return (sign * "0." * "0"^(-exponent - 1) * significant, nothing)
+    whole = rpad(significant[1:min(end, exponent + 1)], exponent + 1, '0')
+    fraction = length(significant) > exponent + 1 ? "." * significant[(exponent + 2):end] : ""
+    return (sign * whole * fraction, nothing)
+end
+
+
+function display_number(value::Real)
+    mantissa, exponent = display_number_parts(value)
+    exponent === nothing && return mantissa
+    return mantissa * (exponent < 0 ? "e-" : "e+") * string(abs(exponent))
+end
+
+
+function latex_number(value::Real)
+    mantissa, exponent = display_number_parts(value)
+    exponent === nothing && return mantissa
+    power = "10^{" * string(exponent) * "}"
+    mantissa == "1" && return power
+    mantissa == "-1" && return "-" * power
+    return mantissa * raw"\times " * power
 end
 
 
@@ -498,7 +547,8 @@ function equations_with_parameter_values(
         token = latex_parameter_token(parameter)
         value = get(params, parameter, model.default_params[parameter])
         value isa Real || continue
-        pattern = Regex("(?<![A-Za-z])" * Base.escape_string(token) * "(?![A-Za-z])")
+        # Never match right after a backslash, i.e. inside a LaTeX command.
+        pattern = Regex("(?<![A-Za-z\\\\])" * Base.escape_string(token) * "(?![A-Za-z])")
         replacement = latex_number(value)
         rendered = replace.(rendered, pattern => replacement)
     end

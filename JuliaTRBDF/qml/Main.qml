@@ -569,10 +569,14 @@ ApplicationWindow {
                         id: perturbationWidthField
                         Layout.preferredWidth: 82
                         selectByMouse: true
+                        // Validators use the "C" locale: the fields show and
+                        // Julia parses a decimal point, which a system locale
+                        // such as pl_PL rejects.
                         validator: DoubleValidator {
                             bottom: 0.0000000001
                             top: 1.0
-                            notation: DoubleValidator.StandardNotation
+                            notation: DoubleValidator.ScientificNotation
+                            locale: "C"
                         }
                         onActiveFocusChanged: window.textEditorFocused = activeFocus
                         onEditingFinished: Julia.setPerturbationWidth(text)
@@ -596,6 +600,7 @@ ApplicationWindow {
                         selectByMouse: true
                         validator: DoubleValidator {
                             notation: DoubleValidator.ScientificNotation
+                            locale: "C"
                         }
                         onActiveFocusChanged: window.textEditorFocused = activeFocus
                         onEditingFinished: Julia.setPerturbationHeight(text)
@@ -1080,21 +1085,42 @@ ApplicationWindow {
 
                                     RowLayout {
                                         required property var modelData
+                                        property var parameter: modelData
                                         Layout.fillWidth: true
 
                                         Label {
                                             Layout.preferredWidth: 74
-                                            text: parent.modelData.label
+                                            text: parameter.label
                                             color: "#20252d"
                                         }
 
                                         TextField {
+                                            // Shows the rounded preview, and the full value used
+                                            // by the solver while focused. Only typed text is
+                                            // sent, so entering and leaving the field without
+                                            // typing never rounds the parameter.
+                                            property bool edited: false
+
+                                            function commit() {
+                                                if (!edited || !acceptableInput)
+                                                    return
+                                                edited = false
+                                                Julia.setModelParameter(parameter.key, text)
+                                            }
+
                                             Layout.fillWidth: true
                                             selectByMouse: true
                                             enabled: window.controlsEnabled
-                                            validator: DoubleValidator { notation: DoubleValidator.ScientificNotation }
-                                            text: Number(parent.modelData.value).toPrecision(6)
-                                            onEditingFinished: Julia.setModelParameter(parent.modelData.key, text)
+                                            validator: DoubleValidator { notation: DoubleValidator.ScientificNotation; locale: "C" }
+                                            text: parameter.display
+                                            onTextEdited: edited = true
+                                            onEditingFinished: commit()
+                                            onActiveFocusChanged: {
+                                                if (!activeFocus)
+                                                    commit()
+                                                edited = false
+                                                text = activeFocus ? String(parameter.value) : parameter.display
+                                            }
                                         }
                                     }
                                 }
@@ -1271,7 +1297,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     text: "0.0"
                                     selectByMouse: true
-                                    validator: DoubleValidator {}
+                                    validator: DoubleValidator { locale: "C" }
                                     onActiveFocusChanged: window.textEditorFocused = activeFocus
                                 }
 

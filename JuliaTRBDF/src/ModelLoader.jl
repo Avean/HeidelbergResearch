@@ -180,6 +180,27 @@ function model_variant_name(key::AbstractString)
 end
 
 
+function model_menu_label(key::AbstractString, model::ModelSpec)
+    # Families already have their own selector, so avoid repeating their name
+    # in every entry of the concrete-model selector.
+    label = model.display_name
+    parts = split(label, '—'; limit = 2)
+    length(parts) == 2 && (label = strip(parts[2]))
+
+    # Some legacy display names use a plain prefix rather than an em dash,
+    # e.g. "MathBio basic".  Strip that family prefix only when it is a whole
+    # first word, so model names themselves stay intact.
+    family_compact = lowercase(replace(model_family_name(key), r"[\s_-]" => ""))
+    words = split(label)
+    if !isempty(words) &&
+       lowercase(replace(first(words), r"[\s_-]" => "")) == family_compact
+        label = join(words[2:end], " ")
+    end
+
+    return isempty(label) ? model.display_name : label
+end
+
+
 function model_menu_catalog(registry::Dict{String, ModelSpec})
     families = Dict{String, Vector{NamedTuple}}()
 
@@ -187,7 +208,7 @@ function model_menu_catalog(registry::Dict{String, ModelSpec})
         family = model_family_name(key)
         entry = (
             key = key,
-            label = registry[key].display_name,
+            label = model_menu_label(key, registry[key]),
         )
         push!(get!(families, family, NamedTuple[]), entry)
     end

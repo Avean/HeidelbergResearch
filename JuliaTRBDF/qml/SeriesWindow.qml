@@ -338,11 +338,14 @@ Window {
                                 // Keep the visible value while a field has
                                 // focus. Start and Run one explicitly commit
                                 // all fields before creating a solver task.
+                                // Validators use the "C" locale: the fields
+                                // show and Julia parses a decimal point, which
+                                // a system locale such as pl_PL rejects.
                                 Label { text: "Number of runs" }
                                 TextField {
                                     id: runCountField
                                     selectByMouse: true
-                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
+                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation; locale: "C" }
                                     text: String(ui.seriesRunCount)
                                     onEditingFinished: Julia.setSeriesRunCount(text)
                                 }
@@ -351,7 +354,7 @@ Window {
                                 TextField {
                                     id: maximumTimeField
                                     selectByMouse: true
-                                    validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                    validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation; locale: "C" }
                                     text: Number(ui.seriesMaximumTime).toExponential()
                                     onEditingFinished: Julia.setSeriesMaximumTime(text)
                                 }
@@ -360,7 +363,7 @@ Window {
                                 TextField {
                                     id: checkIntervalField
                                     selectByMouse: true
-                                    validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                    validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation; locale: "C" }
                                     text: Number(ui.seriesCheckInterval).toExponential()
                                     onEditingFinished: Julia.setSeriesCheckInterval(text)
                                 }
@@ -369,7 +372,7 @@ Window {
                                 TextField {
                                     id: toleranceField
                                     selectByMouse: true
-                                    validator: DoubleValidator { bottom: 0.000000000000000001; notation: DoubleValidator.ScientificNotation }
+                                    validator: DoubleValidator { bottom: 0.000000000000000001; notation: DoubleValidator.ScientificNotation; locale: "C" }
                                     text: Number(ui.seriesTolerance).toExponential()
                                     onEditingFinished: Julia.setSeriesTolerance(text)
                                 }
@@ -378,7 +381,7 @@ Window {
                                 TextField {
                                     id: requiredChecksField
                                     selectByMouse: true
-                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
+                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation; locale: "C" }
                                     text: String(ui.seriesRequiredChecks)
                                     onEditingFinished: Julia.setSeriesRequiredChecks(text)
                                 }
@@ -387,7 +390,7 @@ Window {
                                 TextField {
                                     id: dtmaxField
                                     selectByMouse: true
-                                    validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation }
+                                    validator: DoubleValidator { bottom: 0.0000000001; notation: DoubleValidator.ScientificNotation; locale: "C" }
                                     text: Number(ui.seriesDtmax).toExponential()
                                     onEditingFinished: Julia.setSeriesDtmax(text)
                                 }
@@ -396,7 +399,7 @@ Window {
                                 TextField {
                                     id: maximumStepsField
                                     selectByMouse: true
-                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation }
+                                    validator: DoubleValidator { bottom: 1; notation: DoubleValidator.ScientificNotation; locale: "C" }
                                     text: Number(ui.seriesMaximumSteps).toExponential()
                                     onEditingFinished: Julia.setSeriesMaximumSteps(text)
                                 }
